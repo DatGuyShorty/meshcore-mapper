@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MeshCore Coverage Mapper</title>
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <h1>MeshCore Mapper</h1>
+        <p class="subtitle">Coverage &amp; Propagation Planner</p>
+      </div>
+
+      <details class="panel" open>
+        <summary id="add-repeater-summary">Add Node / Repeater</summary>
+        <div class="preset-row">
+          <label>Radio
+            <select id="radio-preset">
+              <option value="">— Hardware —</option>
+            </select>
+          </label>
+        </div>
+        <label>Name
+          <input type="text" id="repeater-name" placeholder="e.g. Tower A" />
+        </label>
+        <label>Latitude
+          <input type="number" id="repeater-lat" step="0.0001" placeholder="e.g. 51.5074" />
+        </label>
+        <label>Longitude
+          <input type="number" id="repeater-lon" step="0.0001" placeholder="e.g. -0.1278" />
+        </label>
+        <label>Height (m above ground)
+          <input type="number" id="repeater-height" value="10" min="1" max="500" />
+        </label>
+        <label>TX Power (dBm)
+          <input type="number" id="repeater-power" value="20" min="0" max="30" />
+        </label>
+        <label>Antenna
+          <select id="antenna-preset">
+            <option value="">— Preset —</option>
+            <option value="stubby">Stock stub (0 dBi)</option>
+            <option value="duck2">Rubber duck (2 dBi)</option>
+            <option value="fibre5">Fibreglass omni (5 dBi)</option>
+            <option value="omni8">High-gain omni (8 dBi)</option>
+            <option value="yagi9">Yagi 3-el (9 dBi)</option>
+            <option value="yagi12">Yagi 6-el (12 dBi)</option>
+          </select>
+        </label>
+        <label>Antenna Gain (dBi)
+          <input type="number" id="repeater-gain" value="2" min="-3" max="30" step="0.5" />
+        </label>
+        <label>Frequency (MHz)
+          <input type="number" id="repeater-freq" value="868" min="433" max="915" />
+        </label>
+        <div class="btn-row">
+          <button id="btn-add-click" class="btn-secondary">📍 Place on Map</button>
+          <button id="btn-add-repeater" class="btn-primary">+ Add</button>
+        </div>
+        <div id="place-hint" class="hint hidden">Click on the map to place the node…</div>
+      </details>
+
+      <details class="panel" open>
+        <summary>Link Settings</summary>
+        <label>Radio Mode
+          <select id="modem-preset">
+            <option value="">— Preset —</option>
+          </select>
+        </label>
+        <label>Receiver Height (m)
+          <input type="number" id="rx-height" value="1.5" min="0.5" max="100" step="0.5" />
+        </label>
+        <label>Receiver Sensitivity (dBm)
+          <input type="number" id="rx-sensitivity" value="-137" min="-150" max="-80" />
+        </label>
+        <label>System / Fade Margin (dB)
+          <input type="number" id="fade-margin" value="10" min="0" max="30" step="1" title="Extra link budget above sensitivity — 10 dB recommended for reliable MeshCore routing" />
+        </label>
+        <label>Analysis Radius (km)
+          <input type="number" id="analysis-radius" value="15" min="1" max="100" />
+        </label>
+        <label>Grid Resolution
+          <select id="grid-res">
+            <option value="64">Fast (64×64)</option>
+            <option value="128" selected>Balanced (128×128)</option>
+            <option value="256">Fine (256×256)</option>
+          </select>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="use-los" checked />
+          Enable LoS / Terrain Blockage
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="use-fresnel" checked />
+          Fresnel Zone Clearance
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="use-foliage" />
+          Foliage Attenuation (OSM trees)
+        </label>
+        <label>Forest Loss (dB/m)
+          <input type="number" id="foliage-loss-per-m" value="0.3" min="0.05" max="2" step="0.05" />
+        </label>
+        <button id="btn-compute" class="btn-primary full-width">▶ Compute Coverage</button>
+        <button id="btn-clear-coverage" class="btn-secondary full-width">✕ Clear Coverage</button>
+      </details>
+
+      <details class="panel" open>
+        <summary>Nodes / Repeaters</summary>
+        <ul id="repeater-list"><li class="empty-msg">No nodes added yet.</li></ul>
+        <button id="btn-clear-nodes" class="btn-danger full-width">✕ Clear All Nodes</button>
+      </details>
+
+      <details class="panel">
+        <summary>Find Best Locations</summary>
+        <p class="panel-desc">Draw a search area on the map, then run the optimizer to find where to place repeaters for maximum coverage.</p>
+        <p class="panel-desc">Uses radio settings (TX power, frequency, antenna gain) from the <em>Add Node</em> panel above.</p>
+        <label>Repeaters to place
+          <input type="number" id="opt-n-repeaters" value="1" min="1" max="8" />
+        </label>
+        <label>Antenna Height (m)
+          <input type="number" id="opt-height" value="10" min="1" max="500" />
+        </label>
+        <label>Candidate Grid
+          <select id="opt-candidate-res">
+            <option value="12">Fast (12×12)</option>
+            <option value="20" selected>Balanced (20×20)</option>
+            <option value="32">Fine (32×32)</option>
+          </select>
+        </label>
+        <div class="btn-row">
+          <button id="btn-draw-area" class="btn-secondary">✏ Draw Area</button>
+          <button id="btn-clear-area" class="btn-secondary">✕ Clear</button>
+        </div>
+        <div id="draw-hint" class="hint hidden">Click two opposite corners of the search area on the map…</div>
+        <button id="btn-optimize" class="btn-primary full-width" disabled>▶ Find Best Locations</button>
+        <ul id="opt-results"></ul>
+      </details>
+
+      <details class="panel">
+        <summary>Configuration</summary>
+        <div class="btn-row">
+          <button id="btn-save-config" class="btn-secondary">💾 Save Config</button>
+          <button id="btn-load-config" class="btn-secondary">📂 Load Config</button>
+        </div>
+      </details>
+
+      <section class="panel" id="dev-console-panel">
+        <div class="dev-console-header">
+          <h2>Developer Console</h2>
+          <div class="btn-row" style="margin:0;gap:4px">
+            <button id="btn-dev-console-clear" class="btn-secondary" style="padding:2px 8px;font-size:11px;flex:none">Clear</button>
+            <button id="btn-dev-console-toggle" class="btn-secondary" style="padding:2px 8px;font-size:11px;flex:none">▼</button>
+          </div>
+        </div>
+        <div id="dev-console-body">
+          <div id="dev-console-output"></div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- Map -->
+    <div id="map-container">
+      <div id="map"></div>
+      <div id="map-legend">
+        <div class="legend-row"><span class="swatch" style="background:rgba(0,200,80,0.7)"></span> Strong (&gt;−90 dBm)</div>
+        <div class="legend-row"><span class="swatch" style="background:rgba(100,220,0,0.65)"></span> Good (−90 to −110)</div>
+        <div class="legend-row"><span class="swatch" style="background:rgba(255,200,0,0.65)"></span> Marginal (−110 to −125)</div>
+        <div class="legend-row"><span class="swatch" style="background:rgba(255,80,0,0.60)"></span> Weak (−125 to sens+margin)</div>
+        <div class="legend-row"><span class="swatch" style="background:rgba(150,0,0,0.4)"></span> No coverage</div>
+        <label class="legend-opacity-row">
+          <span>Opacity</span>
+          <input type="range" id="coverage-opacity" min="10" max="100" value="65" step="5" />
+        </label>
+      </div>
+      <div id="status-bar">
+        <span id="status-msg">Ready. Add a node and click Compute Coverage.</span>
+        <span id="cursor-coords"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="vendor/leaflet.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

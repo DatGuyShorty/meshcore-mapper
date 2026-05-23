@@ -1,0 +1,16 @@
+{
+  "name": "meshcore-mapper",
+  "version": "1.0.0",
+  "description": "LoRa Signal Propagation Mapper",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.1",
+    "sql.js": "^1.10.3"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}
