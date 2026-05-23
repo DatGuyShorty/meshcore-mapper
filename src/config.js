@@ -9,6 +9,7 @@ import { setStatus } from './ui.js';
 const SETTINGS_IDS = [
   'rx-height', 'rx-sensitivity', 'fade-margin', 'analysis-radius', 'grid-res',
   'use-los', 'use-fresnel', 'use-foliage', 'foliage-loss-per-m', 'use-buildings', 'building-loss-per-m',
+  'layer-foliage', 'layer-buildings', 'layer-auto-refresh',
 ];
 const STORAGE_KEY = 'meshcoreMapper_settings';
 const LEGACY_KEY  = 'loraMapper_settings'; // A2: migrate old key on first read
@@ -125,6 +126,22 @@ export function init() {
     await window.electronAPI.cachePurgeBuildings();
     await refreshCacheStats();
     setStatus('Buildings cache cleared.');
+  });
+  document.getElementById('btn-purge-ws-nodes').addEventListener('click', async () => {
+    await window.electronAPI.wsRepeatersClear();
+    await refreshCacheStats();
+    setStatus('WS nodes DB cleared.');
+  });
+  document.getElementById('btn-purge-all').addEventListener('click', async () => {
+    await Promise.all([
+      window.electronAPI.cachePurgeElevations(),
+      window.electronAPI.cachePurgeFoliage(),
+      window.electronAPI.cachePurgeBuildings(),
+      window.electronAPI.wsRepeatersClear(),
+      window.electronAPI.cacheVacuum(),
+    ]);
+    await refreshCacheStats();
+    setStatus('Entire database cleared and vacuumed.');
   });
   refreshCacheStats();
 }

@@ -30,7 +30,9 @@ self.onmessage = ({ data }) => {
   const mPerLat  = 110574;
   const mPerLon  = 111320 * Math.cos(rep.lat * Math.PI / 180);
   const fsplBase = 20 * Math.log10(rep.freq * 1e6) - 147.55;
-  const profile  = new Float32Array(profileSamples);
+  const profile      = new Float32Array(profileSamples);
+  const profileLats  = new Float64Array(profileSamples);
+  const profileLons  = new Float64Array(profileSamples);
 
   for (let idx = 0; idx < totalPts; idx++) {
     const ptLat = gridLats[idx];
@@ -45,13 +47,11 @@ self.onmessage = ({ data }) => {
     let rxPower = rep.power + (rep.gain ?? 0) - (20 * Math.log10(Math.max(1, dist)) + fsplBase);
 
     if (useLos && dist > 50) {
-      const profileLatLons = (foliage || buildings) ? [] : null;
       for (let s = 0; s < profileSamples; s++) {
         const t = s / (profileSamples - 1);
-        const sLat = rep.lat + (ptLat - rep.lat) * t;
-        const sLon = rep.lon + (ptLon - rep.lon) * t;
-        profile[s] = bilinearElev(sLat, sLon, gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
-        if (profileLatLons) profileLatLons.push([sLat, sLon]);
+        profileLats[s] = rep.lat + (ptLat - rep.lat) * t;
+        profileLons[s] = rep.lon + (ptLon - rep.lon) * t;
+        profile[s] = bilinearElev(profileLats[s], profileLons[s], gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
       }
       const rxElev = bilinearElev(ptLat, ptLon, gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
       const los = checkLoS(txElev, rxElev, profile, rep.height, rxHeight, dist, rep.freq, useFresnel);
@@ -59,37 +59,35 @@ self.onmessage = ({ data }) => {
       if (!los.los && los.diffractionLossDb > 60) rxPower = Math.min(rxPower, effectiveSens - 10);
       if (foliage) {
         rxPower -= foliageLossDb(
-          profileLatLons, profile, rep.height, rxHeight,
+          profileLats, profileLons, profile, rep.height, rxHeight,
           foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
           foliage.tileIndex, dist, foliageLossPerM
         );
       }
       if (buildings) {
         rxPower -= buildingLossDb(
-          profileLatLons, profile, rep.height, rxHeight,
+          profileLats, profileLons, profile, rep.height, rxHeight,
           buildings.polygons, buildings.bboxes, buildings.heights,
           buildings.tileIndex, dist, buildingLossPerM
         );
       }
     } else if ((foliage || buildings) && dist > 50) {
-      const profileLatLons = [];
       for (let s = 0; s < profileSamples; s++) {
         const t = s / (profileSamples - 1);
-        const sLat = rep.lat + (ptLat - rep.lat) * t;
-        const sLon = rep.lon + (ptLon - rep.lon) * t;
-        profile[s] = bilinearElev(sLat, sLon, gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
-        profileLatLons.push([sLat, sLon]);
+        profileLats[s] = rep.lat + (ptLat - rep.lat) * t;
+        profileLons[s] = rep.lon + (ptLon - rep.lon) * t;
+        profile[s] = bilinearElev(profileLats[s], profileLons[s], gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
       }
       if (foliage) {
         rxPower -= foliageLossDb(
-          profileLatLons, profile, rep.height, rxHeight,
+          profileLats, profileLons, profile, rep.height, rxHeight,
           foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
           foliage.tileIndex, dist, foliageLossPerM
         );
       }
       if (buildings) {
         rxPower -= buildingLossDb(
-          profileLatLons, profile, rep.height, rxHeight,
+          profileLats, profileLons, profile, rep.height, rxHeight,
           buildings.polygons, buildings.bboxes, buildings.heights,
           buildings.tileIndex, dist, buildingLossPerM
         );

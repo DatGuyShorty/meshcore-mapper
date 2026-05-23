@@ -28,6 +28,32 @@ const baseLayers = {
 baseLayers['Streets (OSM)'].addTo(map);
 L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
 
+// U7: on first launch, centre the map on the user's real location.
+// Subsequent launches restore the position saved in localStorage.
+(function _initMapCenter() {
+  const GEO_KEY = 'meshcoreMapper_mapCenter';
+  const saved = localStorage.getItem(GEO_KEY);
+  if (saved) {
+    try {
+      const { lat, lon, zoom } = JSON.parse(saved);
+      map.setView([lat, lon], zoom);
+      return;
+    } catch {}
+  }
+  if ('geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const lat = pos.coords.latitude, lon = pos.coords.longitude;
+      map.setView([lat, lon], 10);
+      localStorage.setItem(GEO_KEY, JSON.stringify({ lat, lon, zoom: 10 }));
+    }, () => {}); // silently ignore if denied / unavailable
+  }
+  // persist centre on every subsequent map move so the next launch restores position
+  map.on('moveend', () => {
+    const c = map.getCenter();
+    localStorage.setItem(GEO_KEY, JSON.stringify({ lat: c.lat, lon: c.lng, zoom: map.getZoom() }));
+  });
+})();
+
 map.on('mousemove', (e) => {
   document.getElementById('cursor-coords').textContent =
     `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
@@ -43,7 +69,10 @@ export const state = {
 
 /** Remove all coverage overlays from the map and reset the state array. */
 export function clearCoverageLayers() {
-  state.coverageLayers.forEach(l => map.removeLayer(l));
+  state.coverageLayers.forEach(l => {
+    if (l._blobUrl) URL.revokeObjectURL(l._blobUrl); // B7: free blob memory
+    map.removeLayer(l);
+  });
   state.coverageLayers = [];
 }
 

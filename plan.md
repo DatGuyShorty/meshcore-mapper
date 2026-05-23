@@ -12,8 +12,41 @@ Last reviewed: May 2026.
 
 ## Backlog
 
-rework map into 3D — needs scope clarification (Cesium? Mapbox GL? deck.gl overlay?). Major renderer change.
-get existing repeaters for meshcore from web, cache and show on map layer — needs MeshCore public API endpoint URL.
+### Bugs
+
+| ID | File | Issue | Fix |
+|----|------|-------|-----|
+| B5 | `coverage.js`, `map.js` | ~~`_polyRenderer` (Leaflet Canvas instance) is created once and never reset when `clearFoliageLayers()` / `clearBuildingLayers()` run — the backing canvas DOM element accumulates in the map container across runs~~ | **Done** — `_polyRenderer.remove()` + null reset at start of each `runCoverageAnalysis` |
+| B6 | `p2p.js` | ~~Terrain profile SVG hardcodes `Re_eff = 8495000`; `propagation.js` derives `6371000 * 4/3 = 8494666.67` — 333 m discrepancy on long paths~~ | **Done** — exported `RE_EFF` from `propagation.js`; imported in `p2p.js` |
+| B7 | `coverage.js` | ~~`canvas.toDataURL()` synchronously base64-encodes the full PNG per repeater overlay~~ | **Done** — replaced with `canvas.toBlob()` + `URL.createObjectURL()`; revoked in `clearCoverageLayers()` |
+| B8 | `repeaters.js` | ~~Dragging a repeater marker updates `r.lat`/`r.lon` but does not update the marker's bound popup~~ | **Done** — `setPopupContent` added to `dragend` handler |
+
+### Performance
+
+| ID | File | Issue | Fix |
+|----|------|-------|-----|
+| P13 | `elevation.js` | ~~`_elevMem` grows without bound for the lifetime of the renderer process~~ | **Done** — `_elevMemSet()` helper caps at 500 000 entries; evicts oldest 25% when exceeded |
+| P14 | `optimizer.js`, `optimizerUI.js` | ~~`findBestLocations` runs entirely on the main thread — at Fine (32×32 candidates) with LoS enabled this blocks the UI for several seconds~~ | **Done** — elevation fetch stays on main thread (IPC constraint); greedy scoring loop moved to `optimizerWorker.js`; `optimizerUI.js` spawns the worker with pre-fetched elevation data |
+| P15 | `coverage.js` | ~~When `useLos=false`, `gridElevs` is already a `Float32Array`; it was being copied redundantly~~ | **Done** — `const gridElevsF32 = useLos ? new Float32Array(gridElevs) : gridElevs` |
+
+### Features
+
+| ID | Description | Detail |
+|----|-------------|--------|
+| F7 | ~~**Cancel in-flight coverage analysis**~~ | **Done** — `_cancelToken` + `_currentWorker` in `coverage.js`; ✕ Cancel button in progress overlay (ui.js); Escape key handler; cancelled error shown as status not exception |
+| F8 | ~~**"Copy current node settings" copies only height**~~ | **Done** — optimizer already reads `repeater-power`/`freq`/`gain` live from the Nodes form; only `opt-height` needed its own copy (it had one). Comment updated to clarify |
+| F9 | ~~**WS-imported node default radio params are hardcoded**~~ | **Done** — "WS Node Defaults" details panel added to Settings tab (height, power, freq, gain inputs); `_getWsDefaults()` helper in `repeaters.js` reads those inputs in both `_loadWsFromDb` and `_syncWsRepeaters` |
+
+### UX
+
+| ID | Description | Detail |
+|----|-------------|--------|
+| U7 | ~~**Map centres on Slovakia for every new user**~~ | **Done** — `map.js` requests geolocation on first launch; persists map centre in `localStorage` on `moveend` so subsequent launches restore the last viewed area |
+| U8 | ~~**Foliage / building loss inputs visible even when feature is off**~~ | **Already done** — `coverage.js init()` already toggles those label rows via `display:none` |
+
+---
+
+## Done (summary)
 
 ---
 
@@ -47,3 +80,19 @@ get existing repeaters for meshcore from web, cache and show on map layer — ne
 | Building map layer | Filled building footprints on map, height-coded color, togglable | `coverage.js`, `map.js`, `index.html` |
 | Building propagation | Building attenuation wired into Web Worker alongside foliage | `coverageWorker.js` |
 | Foliage filled render | Foliage polygons now filled (semi-transparent green) not just outlines | `coverage.js` |
+| Tile-based cache | Foliage + buildings cached on shared 0.25° grid tiles; nearby repeaters reuse tiles | `foliage.js`, `buildings.js` |
+| Canvas renderer | All foliage + building polygons use `L.canvas()` not per-polygon SVG | `coverage.js` |
+| WS live feed | WebSocket input imports repeater list from Node-RED; auto-connects + sends `{}` on open | `repeaters.js`, `index.html`, `style.css` |
+| WS node schema | Payload fields `name`, `lat`, `lon`, `short`, `last_seen` mapped; popup shows ID + last seen | `repeaters.js` |
+| WS persistence | WS repeaters saved to `ws_repeaters` SQLite table; restored on startup | `main.js`, `preload.js`, `repeaters.js` |
+| WS disconnect fix | Disconnect removes markers; reconnect syncs cleanly without duplicates | `repeaters.js` |
+| WS missing `let _ws` | Missing variable declaration restored (strict-mode ReferenceError) | `repeaters.js` |
+| WS save error fix | `INSERT` used `r.id` (undefined); changed to autoincrement; `String(err)` for sql.js raw throws | `main.js` |
+| Filter + sort | Name filter + sort dropdown (added / A→Z / Z→A) above node list | `repeaters.js`, `index.html`, `style.css` |
+| Node context menu | Marker click opens ctx menu: Info, P2P Link, Edit, Hide/Show, Remove | `repeaters.js`, `p2p.js`, `style.css` |
+| P2P startPickingFrom | `startPickingFrom(r)` sets repeater as point A and auto-switches to Tools tab | `p2p.js` |
+| Hide/Show All | Button toggles all markers on/off | `repeaters.js`, `index.html` |
+| Popup fix | Marker click awaited properly; popup opens when not in P2P pick mode | `repeaters.js` |
+| Coverage – visible only | Analysis only runs for visible (unhidden) repeaters | `coverage.js` |
+| DB clear buttons | “WS Nodes DB” and “Clear Entire DB” (+ VACUUM) buttons in Settings | `config.js`, `main.js`, `preload.js`, `index.html` |
+| cacheVacuum exposed | `cacheVacuum` IPC bridged to renderer via `preload.js` | `preload.js` |

@@ -3,6 +3,7 @@
  * and compute additional signal attenuation from traversal through buildings.
  * Exports: fetchBuildings, buildingLossDb
  */
+import { pointInPolygon } from './propagation.js';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -53,15 +54,31 @@ function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
  * Priority: `height` tag → `building:levels * 3` → default 5 m.
  */
 function _buildingHeight(tags) {
+  // Prefer explicit absolute height if available.
   if (tags?.height) {
     const h = parseFloat(tags.height);
     if (!isNaN(h) && h > 0) return h;
   }
+
+  // Otherwise infer from levels with a type-aware floor height.
   if (tags?.['building:levels']) {
     const levels = parseFloat(tags['building:levels']);
-    if (!isNaN(levels) && levels > 0) return levels * 3.0 + 1.0; // +1 for roof
+    if (!isNaN(levels) && levels > 0) {
+      const bType = String(tags?.building || '').toLowerCase();
+      const floorH = (bType === 'industrial' || bType === 'warehouse' || bType === 'church' || bType === 'cathedral') ? 4.2 : 3.0;
+      const roofH  = !isNaN(parseFloat(tags?.['roof:height'])) ? Math.max(0, parseFloat(tags['roof:height'])) : 1.0;
+      return levels * floorH + roofH;
+    }
   }
-  return 5.0; // single-story default
+
+  // If min_height is set (raised structure), include it as baseline offset.
+  const minH = !isNaN(parseFloat(tags?.min_height)) ? Math.max(0, parseFloat(tags.min_height)) : 0;
+  const bType = String(tags?.building || '').toLowerCase();
+  const base = (bType === 'industrial' || bType === 'warehouse') ? 8.0
+             : (bType === 'church' || bType === 'cathedral') ? 12.0
+             : (bType === 'garage' || bType === 'shed') ? 3.0
+             : 5.0;
+  return minH + base;
 }
 
 /**
@@ -168,7 +185,8 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax) {
  * Compute total building attenuation (dB) along a terrain profile path.
  * The ray is attenuated when it passes through a building footprint below the rooftop.
  *
- * @param {Array<[number,number]>} profileLatLons
+ * @param {Float64Array} profileLats   - latitude of each profile sample
+ * @param {Float64Array} profileLons   - longitude of each profile sample
  * @param {number[]|Float32Array}  profileElevs
  * @param {number}  txAntH
  * @param {number}  rxAntH
@@ -180,16 +198,19 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax) {
  * @param {number}  lossPerMeterDb
  * @returns {number} total building loss in dB
  */
-export function buildingLossDb(profileLatLons, profileElevs, txAntH, rxAntH,
+export function buildingLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH,
                                polygons, bboxes, heights, tileIndex, totalDistM, lossPerMeterDb = DEFAULT_WALL_LOSS_DB_PER_M) {
   if (!polygons || polygons.length === 0) return 0;
-  const n = profileLatLons.length;
+  const n = profileLats.length;
   const segLen = totalDistM / (n - 1);
   const txAbsElev = (profileElevs?.[0]     ?? 0) + txAntH;
   const rxAbsElev = (profileElevs?.[n - 1] ?? 0) + rxAntH;
+  const wallCrossLossDb = 14; // Typical external wall penetration (sub-GHz urban average)
   let loss = 0;
+  let prevBuilding = -1;
   for (let si = 0; si < n; si++) {
-    const [lat, lon] = profileLatLons[si];
+    const lat = profileLats[si];
+    const lon = profileLons[si];
     const t = si / (n - 1);
     const rayAbsElev  = txAbsElev + (rxAbsElev - txAbsElev) * t;
     const terrainElev = profileElevs?.[si] ?? 0;
@@ -202,28 +223,30 @@ export function buildingLossDb(profileLatLons, profileElevs, txAntH, rxAntH,
     } else {
       candidates = Array.from({ length: polygons.length }, (_, i) => i);
     }
+    let curBuilding = -1;
     for (const i of candidates) {
       const bb = bboxes[i];
       if (lat < bb.latMin || lat > bb.latMax || lon < bb.lonMin || lon > bb.lonMax) continue;
-      if (_pointInPolygon(lat, lon, polygons[i])) {
+      if (pointInPolygon(lat, lon, polygons[i])) {
         const rooftopElev = terrainElev + (heights?.[i] ?? 5);
         if (rayAbsElev <= rooftopElev) {
+          curBuilding = i;
+          // Optional interior attenuation for long through-building paths
           loss += segLen * lossPerMeterDb;
         }
         break;
       }
     }
-  }
-  return loss;
-}
 
-function _pointInPolygon(lat, lon, poly) {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [yi, xi] = poly[i];
-    const [yj, xj] = poly[j];
-    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)
-      inside = !inside;
+    // Charge wall penetration only when crossing a building boundary.
+    if (curBuilding !== prevBuilding) {
+      if (prevBuilding !== -1) loss += wallCrossLossDb; // exiting previous building
+      if (curBuilding !== -1)  loss += wallCrossLossDb; // entering new building
+    }
+    prevBuilding = curBuilding;
   }
-  return inside;
+
+  // If path ends while still inside a building, account for exit wall.
+  if (prevBuilding !== -1) loss += wallCrossLossDb;
+  return loss;
 }

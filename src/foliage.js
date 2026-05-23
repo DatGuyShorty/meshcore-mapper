@@ -3,6 +3,7 @@
  * and compute additional signal attenuation from forest traversal.
  * Exports: fetchFoliage, foliageLossDb
  */
+import { pointInPolygon } from './propagation.js';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -32,10 +33,16 @@ const TILE_N = 16;
 
 // Average canopy heights (m above terrain) per vegetation type
 const CANOPY_HEIGHTS = {
-  forest:  20,   // landuse=forest — mature closed forest
-  wood:    20,   // natural=wood
-  scrub:    3,   // natural=scrub — low shrubs
-  orchard:  5,   // landuse=orchard
+  forest:   20,   // landuse=forest — mature closed forest
+  wood:     20,   // natural=wood
+  scrub:     2,   // natural=scrub — low shrubs
+  orchard:   4,   // landuse=orchard
+  heath:     0.5, // natural=heath — open heathland
+  vineyard:  2,   // landuse=vineyard — trellised vines
+  wetland:   5,   // natural=wetland — reeds / mangrove
+  shrubbery: 2,   // landuse=shrubbery
+  hedge:     2,   // barrier=hedge
+  greenhouse_horticulture: 4, // landuse=greenhouse_horticulture
 };
 
 // B3: multi-entry in-memory cache (LRU-capped at 8 entries)
@@ -88,7 +95,11 @@ async function _fetchFoliageTile(la, lo, key) {
   const filters = [
     ['landuse', 'forest'], ['natural', 'wood'],
     ['natural', 'scrub'],  ['landuse', 'orchard'],
-  ].flatMap(([k, v]) => [`way["${k}"="${v}"]${bbox};`, `relation["${k}"="${v}"]${bbox};`]).join('');
+    ['natural', 'heath'],  ['landuse', 'vineyard'],
+    ['natural', 'wetland'], ['landuse', 'shrubbery'],
+    ['landuse', 'greenhouse_horticulture'],
+  ].flatMap(([k, v]) => [`way["${k}"="${v}"]${bbox};`, `relation["${k}"="${v}"]${bbox};`]).join('')
+  + `way["barrier"="hedge"]${bbox};`; // hedges as ways, not areas
   const query = `[out:json][timeout:60];(${filters});out geom;`;
 
   let res = null, lastErr = null;
@@ -125,8 +136,12 @@ async function _fetchFoliageTile(la, lo, key) {
   };
 
   for (const el of data.elements) {
-    const tag      = el.tags?.landuse || el.tags?.natural;
-    const factor   = (tag === 'scrub' || tag === 'orchard') ? 0.5 : 1.0;
+    const tag = el.tags?.landuse || el.tags?.natural || el.tags?.barrier;
+    // Loss factor relative to dense forest (1.0). Low/sparse vegetation gets partial weight.
+    const factor = (['scrub', 'heath', 'shrubbery', 'hedge'].includes(tag)) ? 0.4
+                 : (['orchard', 'vineyard', 'greenhouse_horticulture'].includes(tag)) ? 0.55
+                 : (['wetland'].includes(tag)) ? 0.6
+                 : 1.0;
     const canopyH  = CANOPY_HEIGHTS[tag] ?? 10;
     if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
       addRing(el.geometry.map(n => [n.lat, n.lon]), factor, canopyH);
@@ -177,7 +192,8 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax) {
  * Height-aware: only attenuates the signal when the ray passes below the canopy top.
  * Uses the tile index (P2) to skip irrelevant polygons.
  *
- * @param {Array<[number,number]>} profileLatLons  - [[lat,lon], …] for each sample
+ * @param {Float64Array} profileLats   - latitude of each profile sample
+ * @param {Float64Array} profileLons   - longitude of each profile sample
  * @param {number[]|Float32Array}  profileElevs    - terrain elevation (m AMSL) at each sample
  * @param {number}  txAntH      - TX antenna height above ground (m)
  * @param {number}  rxAntH      - RX antenna height above ground (m)
@@ -190,16 +206,17 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax) {
  * @param {number}  lossPerMeterDb
  * @returns {number} total foliage loss in dB
  */
-export function foliageLossDb(profileLatLons, profileElevs, txAntH, rxAntH, polygons, bboxes, canopyHeights, factors, tileIndex, totalDistM, lossPerMeterDb) {
+export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH, polygons, bboxes, canopyHeights, factors, tileIndex, totalDistM, lossPerMeterDb = 0.3) {
   if (!polygons || polygons.length === 0) return 0;
-  const n = profileLatLons.length;
+  const n = profileLats.length;
   const segLen = totalDistM / (n - 1);
   // Compute absolute elevation (AMSL) of TX and RX antenna tips
   const txAbsElev = (profileElevs?.[0]     ?? 0) + txAntH;
   const rxAbsElev = (profileElevs?.[n - 1] ?? 0) + rxAntH;
   let loss = 0;
   for (let si = 0; si < n; si++) {
-    const [lat, lon] = profileLatLons[si];
+    const lat = profileLats[si];
+    const lon = profileLons[si];
     // Ray absolute elevation at this sample (linear interpolation between antennas)
     const t           = si / (n - 1);
     const rayAbsElev  = txAbsElev + (rxAbsElev - txAbsElev) * t;
@@ -216,7 +233,7 @@ export function foliageLossDb(profileLatLons, profileElevs, txAntH, rxAntH, poly
     for (const i of candidates) {
       const bb = bboxes[i];
       if (lat < bb.latMin || lat > bb.latMax || lon < bb.lonMin || lon > bb.lonMax) continue;
-      if (_pointInPolygon(lat, lon, polygons[i])) {
+      if (pointInPolygon(lat, lon, polygons[i])) {
         const canopyTop = terrainElev + (canopyHeights?.[i] ?? 10);
         // Only attenuate when ray is physically within the canopy
         if (rayAbsElev <= canopyTop) {
@@ -227,16 +244,5 @@ export function foliageLossDb(profileLatLons, profileElevs, txAntH, rxAntH, poly
     }
   }
   return loss;
-}
-
-function _pointInPolygon(lat, lon, poly) {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [yi, xi] = poly[i];
-    const [yj, xj] = poly[j];
-    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)
-      inside = !inside;
-  }
-  return inside;
 }
 

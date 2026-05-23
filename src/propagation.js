@@ -46,6 +46,9 @@ export function fspl(distanceM, freqMHz) {
  * @param {boolean}  useFresnel   - include first Fresnel zone clearance requirement
  * @returns {{ los: boolean, diffractionLossDb: number }}
  */
+// B6: single source of truth for the effective Earth radius used everywhere in the propagation model
+export const RE_EFF = 6371000 * (4 / 3); // k = 4/3, standard atmosphere
+
 // P5: cached wavelength and sample-fraction arrays — computed once per unique input, reused thereafter
 const _lambdaCache = new Map();
 const _fracsCache  = new Map();
@@ -76,7 +79,6 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
   // Earth-curvature correction using effective Earth radius (k = 4/3, standard atmosphere).
   // Adds d1*d2/(2*Re_eff) to each terrain sample, accounting for the planet's curvature
   // over long paths.  At 15 km the peak bulge is ~14 m — significant for marginal links.
-  const Re_eff = 6371000 * (4 / 3);
 
   let maxV = -Infinity;
 
@@ -85,7 +87,7 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
     const d2    = totalDistM - d1;
     const lineH = txH + (rxH - txH) * fracs[i];
     const r1    = useFresnel ? Math.sqrt(λ * d1 * d2 / totalDistM) : 0;
-    const bulge = d1 * d2 / (2 * Re_eff);               // effective terrain rise due to Earth curvature
+    const bulge = d1 * d2 / (2 * RE_EFF);              // effective terrain rise due to Earth curvature
     const h     = profileElevs[i] + bulge + r1 - lineH;
     const v     = h * Math.sqrt(2 * totalDistM / (λ * d1 * d2));
     if (v > maxV) maxV = v;
@@ -159,4 +161,23 @@ export function bilinearElev(lat, lon, grid, res, latMin, latMax, lonMin, lonMax
        + grid[r0*res+c0+1]*tc*(1-tr)
        + grid[(r0+1)*res+c0]*(1-tc)*tr
        + grid[(r0+1)*res+c0+1]*tc*tr;
+}
+
+// ─── Point-in-polygon (lat/lon) ──────────────────────────────────
+/**
+ * Ray-casting point-in-polygon test for a [lat, lon] polygon.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {Array<[number,number]>} poly - array of [lat, lon] vertex pairs
+ * @returns {boolean}
+ */
+export function pointInPolygon(lat, lon, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i];
+    const [yj, xj] = poly[j];
+    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)
+      inside = !inside;
+  }
+  return inside;
 }

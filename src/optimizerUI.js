@@ -5,7 +5,8 @@
 import { map } from './map.js';
 import { setProgress, hideProgress, setStatus, yieldToUI } from './ui.js';
 import { addRepeater, cancelPlacing } from './repeaters.js';
-import { findBestLocations } from './optimizer.js';
+import { buildGrid } from './optimizer.js';
+import { fetchElevations } from './elevation.js';
 
 // Module-local interaction state
 let drawing     = false;
@@ -64,6 +65,9 @@ function renderResults(results, txParams) {
 export function init() {
   document.getElementById('btn-copy-to-opt').addEventListener('click', () => {
     document.getElementById('opt-height').value = document.getElementById('repeater-height').value;
+    // F8: also copy power, freq, gain so the optimizer uses the same TX profile
+    // (these don't have a dedicated opt-* input; they are read directly from the Nodes form at run time—
+    //  so nothing extra to copy here; the optimizer already reads repeater-power/freq/gain at run time)
   });
 
   document.getElementById('btn-draw-area').addEventListener('click', () => {
@@ -76,6 +80,24 @@ export function init() {
   });
 
   document.getElementById('btn-clear-area').addEventListener('click', clearArea);
+
+  // Context-menu "Optimize Here" shortcut: build a search area around a specific repeater
+  document.addEventListener('map:optimize-here', ({ detail: { lat, lon } }) => {
+    const radiusKm = parseFloat(document.getElementById('analysis-radius').value) || 15;
+    const dLat = radiusKm / 110.574;
+    const dLon = radiusKm / (111.320 * Math.cos(lat * Math.PI / 180));
+    const bounds = [[lat - dLat, lon - dLon], [lat + dLat, lon + dLon]];
+    if (areaRect) map.removeLayer(areaRect);
+    areaRect = L.rectangle(bounds, { className: 'search-area-rect' }).addTo(map);
+    corner1 = null;
+    drawing = false;
+    document.getElementById('draw-hint').classList.add('hidden');
+    document.getElementById('btn-optimize').disabled = false;
+    clearResults();
+    map.fitBounds(bounds, { padding: [40, 40] });
+    // Switch to Tools tab so the optimizer panel is visible
+    document.querySelector('[data-tab="tools"]')?.click();
+  });
 
   map.on('click', (e) => {
     if (!drawing) return;
@@ -139,11 +161,26 @@ export function init() {
     const nRepeaters = parseInt(document.getElementById('opt-n-repeaters').value) || 1;
 
     clearResults();
-    setProgress(2, 'Starting optimizer…');
 
     try {
-      const results = await findBestLocations(bounds, nRepeaters, txParams, opts,
-        (pct, msg) => setProgress(pct, msg));
+      setProgress(2, 'Building evaluation grid…');
+      const evalPoints = buildGrid(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax, opts.evalRes);
+      const candidates = buildGrid(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax, opts.candidateRes);
+
+      setProgress(5, `Fetching elevation for ${evalPoints.length + candidates.length} points…`);
+      const allPoints = [...evalPoints, ...candidates];
+      const allElevs  = opts.useLos ? await fetchElevations(allPoints) : allPoints.map(() => 0);
+      const evalElevs      = allElevs.slice(0, evalPoints.length);
+      const candidateElevs = allElevs.slice(evalPoints.length);
+
+      setProgress(20, 'Scoring candidate locations…');
+
+      const results = await _runOptimizerWorker(
+        { evalPoints, evalElevs, candidates, candidateElevs, nRepeaters, txParams,
+          opts: { ...opts, latMin: bounds.latMin, latMax: bounds.latMax,
+                           lonMin: bounds.lonMin, lonMax: bounds.lonMax } },
+        (pct, msg) => setProgress(pct, msg)
+      );
 
       setProgress(100, 'Optimization complete.');
       await yieldToUI();
@@ -155,5 +192,27 @@ export function init() {
       setStatus(`Optimizer error: ${err.message}`);
       console.error(err);
     }
+  });
+}
+
+function _runOptimizerWorker(data, onProgress) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(
+      new URL('./optimizerWorker.js', import.meta.url),
+      { type: 'module' }
+    );
+    worker.onmessage = ({ data: msg }) => {
+      if (msg.type === 'progress') {
+        onProgress(msg.pct, msg.msg);
+      } else if (msg.type === 'done') {
+        worker.terminate();
+        resolve(msg.results);
+      }
+    };
+    worker.onerror = (err) => {
+      worker.terminate();
+      reject(new Error(`Optimizer worker error: ${err.message}`));
+    };
+    worker.postMessage(data);
   });
 }

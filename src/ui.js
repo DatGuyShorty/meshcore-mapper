@@ -3,6 +3,12 @@
  * No map or state dependencies.
  */
 
+let _cancelHandler = null;
+
+export function setCancelHandler(fn) {
+  _cancelHandler = fn;
+}
+
 const progressOverlay = (() => {
   const el = document.createElement('div');
   el.id = 'progress-overlay';
@@ -14,8 +20,10 @@ const progressOverlay = (() => {
       <div class="progress-bar-wrap">
         <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
       </div>
+      <button id="btn-cancel-coverage" class="btn-secondary btn-xs" style="margin-top:8px;width:100%">✕ Cancel</button>
     </div>`;
   document.getElementById('map-container').appendChild(el);
+  el.querySelector('#btn-cancel-coverage').addEventListener('click', () => _cancelHandler?.());
   return el;
 })();
 

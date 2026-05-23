@@ -104,7 +104,7 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-function buildGrid(latMin, latMax, lonMin, lonMax, res) {
+export function buildGrid(latMin, latMax, lonMin, lonMax, res) {
   const pts = [];
   for (let r = 0; r < res; r++) {
     for (let c = 0; c < res; c++) {

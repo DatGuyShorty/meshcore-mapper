@@ -22,9 +22,9 @@
           <span class="tab-icon">📍</span>
           <span class="tab-label">Nodes</span>
         </button>
-        <button class="tab-btn" data-tab="coverage">
-          <span class="tab-icon">📡</span>
-          <span class="tab-label">Coverage</span>
+        <button class="tab-btn" data-tab="layers">
+          <span class="tab-icon">🗺</span>
+          <span class="tab-label">Layers</span>
         </button>
         <button class="tab-btn" data-tab="tools">
           <span class="tab-icon">🔧</span>
@@ -110,10 +110,36 @@
         </details>
       </div>
 
-      <!-- Tab: Coverage -->
-      <div class="tab-panel hidden" id="tab-coverage">
+      <!-- Tab: Layers -->
+      <div class="tab-panel hidden" id="tab-layers">
         <details class="panel" open>
-          <summary>Link Settings</summary>
+          <summary>OSM Overlay Layers</summary>
+          <p class="panel-desc">Display geographic reference data on the map. Layers are fetched from OpenStreetMap for the current viewport and update automatically as you pan.</p>
+          <div class="option-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="layer-foliage" />
+              Forest &amp; Vegetation
+            </label>
+          </div>
+          <div class="option-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="layer-buildings" />
+              Building Footprints
+            </label>
+          </div>
+          <label class="checkbox-label" style="margin-top:6px">
+            <input type="checkbox" id="layer-auto-refresh" checked />
+            Auto-refresh on map pan / zoom
+          </label>
+          <button id="btn-refresh-layers" class="btn-secondary full-width" style="margin-top:8px">↺ Refresh Layers</button>
+          <p class="panel-desc" id="layer-status" style="margin-top:8px"></p>
+        </details>
+      </div>
+
+      <!-- Tab: Tools -->
+      <div class="tab-panel hidden" id="tab-tools">
+        <details class="panel" open>
+          <summary>Coverage Analysis</summary>
           <label>Radio Mode
             <select id="modem-preset">
               <option value="">— Preset —</option>
@@ -146,27 +172,29 @@
             <input type="checkbox" id="use-fresnel" checked />
             Fresnel Zone Clearance
           </label>
-          <label class="checkbox-label">
-            <input type="checkbox" id="use-foliage" />
-            Foliage Attenuation (OSM trees)
-          </label>
-          <label>Forest Loss (dB/m)
-            <input type="number" id="foliage-loss-per-m" value="0.3" min="0.05" max="2" step="0.05" />
-          </label>
-          <label class="checkbox-label">
-            <input type="checkbox" id="use-buildings" />
-            Building Attenuation (OSM buildings)
-          </label>
-          <label>Building Loss (dB/m)
-            <input type="number" id="building-loss-per-m" value="0.5" min="0.05" max="3" step="0.05" />
-          </label>
-          <button id="btn-compute" class="btn-primary full-width">▶ Compute Coverage</button>
-          <button id="btn-clear-coverage" class="btn-secondary full-width">✕ Clear Coverage</button>
+          <div class="option-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="use-foliage" />
+              Foliage Attenuation (OSM trees)
+            </label>
+            <label>Forest Loss (dB/m)
+              <input type="number" id="foliage-loss-per-m" value="0.3" min="0.05" max="2" step="0.05" />
+            </label>
+          </div>
+          <div class="option-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="use-buildings" />
+              Building Attenuation (OSM buildings)
+            </label>
+            <label>Building Loss (dB/m)
+              <input type="number" id="building-loss-per-m" value="0.5" min="0.05" max="3" step="0.05" />
+            </label>
+          </div>
+          <div class="btn-row" style="margin-top:8px">
+            <button id="btn-compute" class="btn-primary">▶ Compute Coverage</button>
+            <button id="btn-clear-coverage" class="btn-secondary">✕ Clear</button>
+          </div>
         </details>
-      </div>
-
-      <!-- Tab: Tools -->
-      <div class="tab-panel hidden" id="tab-tools">
         <details class="panel" open>
           <summary>Best Location Optimizer</summary>
           <p class="panel-desc">Draw a search area on the map, then run the optimizer to find where to place repeaters for maximum coverage.</p>
@@ -200,29 +228,30 @@
           <div class="btn-row">
             <button id="btn-p2p-pick" class="btn-secondary">📍 Pick A → B</button>
             <button id="btn-p2p-clear" class="btn-secondary">✕ Clear</button>
+            <button id="btn-p2p-update" class="btn-primary">↻ Recalculate</button>
           </div>
           <div id="p2p-pick-hint" class="hint hidden">Click point A (transmitter) on the map…</div>
-          <div class="btn-row" style="margin-top:8px;gap:6px;flex-wrap:wrap">
-            <label style="flex:1;min-width:80px">TX Height (m)
+          <div class="field-grid" style="margin-top:8px">
+            <label>TX Height (m)
               <input type="number" id="p2p-tx-height" value="10" min="1" max="500" />
             </label>
-            <label style="flex:1;min-width:80px">RX Height (m)
+            <label>RX Height (m)
               <input type="number" id="p2p-rx-height" value="1.5" min="0.5" max="100" step="0.5" />
             </label>
           </div>
-          <div class="btn-row" style="gap:6px;flex-wrap:wrap">
-            <label style="flex:1;min-width:80px">TX Power (dBm)
+          <div class="field-grid">
+            <label>TX Power (dBm)
               <input type="number" id="p2p-tx-power" value="20" min="0" max="35" />
             </label>
-            <label style="flex:1;min-width:80px">TX Gain (dBi)
+            <label>TX Gain (dBi)
               <input type="number" id="p2p-tx-gain" value="2" min="-3" max="30" step="0.5" />
             </label>
           </div>
-          <div class="btn-row" style="gap:6px;flex-wrap:wrap">
-            <label style="flex:1;min-width:80px">RX Gain (dBi)
+          <div class="field-grid">
+            <label>RX Gain (dBi)
               <input type="number" id="p2p-rx-gain" value="2" min="-3" max="30" step="0.5" />
             </label>
-            <label style="flex:1;min-width:80px">Freq (MHz)
+            <label>Freq (MHz)
               <input type="number" id="p2p-freq" value="868" min="433" max="915" />
             </label>
           </div>
@@ -231,6 +260,26 @@
           </label>
           <div id="p2p-status" class="hint hidden"></div>
           <div id="p2p-results"></div>
+        </details>
+
+        <details class="panel">
+          <summary>Best Relay Path (A*)</summary>
+          <p class="panel-desc">Find the highest-margin relay path through existing nodes. Maximises the worst per-hop link margin (bottleneck).</p>
+          <div class="field-grid">
+            <label>From
+              <select id="path-from"></select>
+            </label>
+            <label>To
+              <select id="path-to"></select>
+            </label>
+          </div>
+          <label class="checkbox-label">
+            <input type="checkbox" id="path-use-fresnel" checked />
+            Fresnel Zone Clearance
+          </label>
+          <button id="btn-find-path" class="btn-primary full-width" style="margin-top:8px">▶ Find Best Path</button>
+          <div id="path-status" class="hint hidden"></div>
+          <div id="path-results"></div>
         </details>
       </div>
 
@@ -244,25 +293,29 @@
           </div>
           <button id="btn-save-screenshot" class="btn-secondary full-width">📷 Save Screenshot</button>
           <p class="panel-desc" id="cache-stats" style="margin-top:10px">Cache: —</p>
+          <p class="section-label">Clear Cache</p>
           <div class="btn-row">
             <button id="btn-purge-elevations" class="btn-secondary">🗑 Elevations</button>
             <button id="btn-purge-foliage" class="btn-secondary">🗑 Foliage</button>
             <button id="btn-purge-buildings" class="btn-secondary">🗑 Buildings</button>
           </div>
+          <div class="btn-row">
+            <button id="btn-purge-ws-nodes" class="btn-secondary">🗑 WS Nodes DB</button>
+            <button id="btn-purge-all" class="btn-danger">🗑 Clear Entire DB</button>
+          </div>
         </details>
 
-        <section class="panel" id="dev-console-panel">
-          <div class="dev-console-header">
-            <h2>Developer Console</h2>
-            <div class="btn-row" style="margin:0;gap:4px">
-              <button id="btn-dev-console-clear" class="btn-secondary" style="padding:2px 8px;font-size:11px;flex:none">Clear</button>
-              <button id="btn-dev-console-toggle" class="btn-secondary" style="padding:2px 8px;font-size:11px;flex:none">▼</button>
-            </div>
+        <details class="panel">
+          <summary>WS Node Defaults</summary>
+          <p class="panel-desc">Radio parameters applied when nodes are imported via WebSocket.</p>
+          <div class="field-grid">
+            <label>Height (m)<input type="number" id="ws-default-height" value="10" min="0" step="1"></label>
+            <label>Power (dBm)<input type="number" id="ws-default-power" value="20" min="0" max="30" step="1"></label>
+            <label>Freq (MHz)<input type="number" id="ws-default-freq" value="868" min="1" step="1"></label>
+            <label>Gain (dBi)<input type="number" id="ws-default-gain" value="2" min="0" step="0.5"></label>
           </div>
-          <div id="dev-console-body">
-            <div id="dev-console-output"></div>
-          </div>
-        </section>
+        </details>
+
       </div>
     </aside>
 
@@ -292,6 +345,20 @@
         <span id="status-msg">Ready. Add a node and click Compute Coverage.</span>
         <span id="cursor-coords"></span>
       </div>
+    </div>
+  </div>
+
+  <!-- Developer Console — bottom bar -->
+  <div id="dev-console-bar">
+    <div id="dev-console-bar-header">
+      <span id="dev-console-bar-title">Developer Console</span>
+      <div style="display:flex;gap:4px">
+        <button id="btn-dev-console-clear" class="btn-secondary btn-xs">Clear</button>
+        <button id="btn-dev-console-toggle" class="btn-secondary btn-xs">▲</button>
+      </div>
+    </div>
+    <div id="dev-console-body" class="hidden">
+      <div id="dev-console-output"></div>
     </div>
   </div>
 

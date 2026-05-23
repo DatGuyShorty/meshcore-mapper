@@ -20,6 +20,10 @@ Requires internet access for the elevation API (open-elevation.com + opentopodat
 - Per-repeater: name, TX power, antenna gain, frequency, antenna height
 - Radio and antenna presets from `presets.yaml`
 - Active node list with inline edit and delete; **Undo Last Remove**
+- **Filter** by name and **sort** (added order / A→Z / Z→A)
+- **Hide / Show All** toggle; per-node 👁 visibility button hides marker and coverage overlay
+- **Marker context menu** (right-click / tap marker): Info popup, P2P Link, Edit, Hide/Show, Remove
+- **WebSocket live feed** — connect to a Node-RED (or any) WebSocket endpoint that emits a JSON array of `{ name, lat, lon, short, last_seen }` objects; nodes sync on every message; WS nodes persisted to SQLite and restored on startup
 - Clear All Nodes
 
 ### Coverage tab
@@ -28,6 +32,10 @@ Requires internet access for the elevation API (open-elevation.com + opentopodat
 - **Earth curvature correction** — standard atmosphere k = 4/3 effective Earth radius applied to each terrain sample; ~14 m correction at 15 km range
 - **Fresnel zone clearance** — optional first-zone obstruction penalty
 - **Foliage attenuation** — signal loss through OSM forest/wood/scrub/orchard polygons; configurable dB/m; height-aware (ray vs canopy top); 16×16 tile-grid index
+- **Building attenuation** — building footprints from Overpass API; height-coded fill on map; loss applied in Web Worker (dB/m through each building)
+- **Tile-based caching** — foliage and buildings cached on a shared 0.25° grid; nearby repeaters reuse the same tiles; 30-day SQLite TTL per tile
+- **Canvas renderer** — all foliage and building polygons rendered with a single shared `L.canvas()` instead of per-polygon SVG nodes; much faster with many buildings
+- **Coverage for visible nodes only** — hidden nodes are skipped; use the 👁 toggle to select which repeaters to compute
 - **Adaptive elevation resolution** — ELEV_RES = min(radiusKm × 2000 / 150, 256) ≈ 150 m/cell
 - **Web Worker** — signal computation runs in a background thread; main thread stays responsive during compute
 - System / fade margin, RX sensitivity, analysis radius, grid resolution controls
@@ -35,12 +43,12 @@ Requires internet access for the elevation API (open-elevation.com + opentopodat
 
 ### Tools tab
 - **Best Location Optimizer** — draw a search area on the map; greedy N-repeater placement by marginal coverage scoring; candidate grid 12–32 resolution
-- **Link Budget (P2P)** — click two map points; fetches 64-point elevation profile; reports distance, FSPL, diffraction loss, received power, link margin (colour-coded), LoS status
+- **Link Budget (P2P)** — click two map points (or tap a repeater marker to set as point A); fetches 64-point elevation profile; reports distance, FSPL, diffraction loss, received power, link margin (colour-coded), LoS + Fresnel zone status; terrain cross-section SVG
 
 ### Settings tab
 - **Save / Load configuration** — export all repeaters + settings to JSON, reload later
 - **Screenshot export** — saves the current map view as PNG
-- **Cache management** — shows SQLite cache stats (elevation points, foliage areas, disk size); purge buttons for elevations and foliage
+- **Cache management** — shows SQLite cache stats (elevation points, foliage tiles, building tiles, disk size); individual purge buttons for elevations, foliage, buildings; **WS Nodes DB** button clears persisted WS repeaters; **Clear Entire DB** (red) wipes all tables and runs `VACUUM`
 - **Developer console** — collapsible log panel; intercepts console.log/warn/error/info/debug; F12 opens Chrome DevTools
 
 ### General
@@ -98,30 +106,37 @@ Common sensitivity values for the SX1262 chip:
 app.js               Entry point — imports and inits all feature modules
 
 src/
-  map.js             Leaflet map singleton, shared state, clearCoverageLayers/clearFoliageLayers
+  map.js             Leaflet map singleton, shared state, clearCoverageLayers/clearFoliageLayers/clearBuildingLayers
   ui.js              Progress overlay, status bar, yieldToUI, escHtml
-  repeaters.js       Repeater CRUD, map markers, placement UI, undo-last-remove
-  coverage.js        Coverage orchestration: fetch elevations/foliage, spawn Worker, render overlay
+  repeaters.js       Repeater CRUD, map markers, placement UI, undo-last-remove,
+                     WebSocket live feed, filter/sort, context menu, DB persistence
+  coverage.js        Coverage orchestration: fetch elevations/foliage/buildings, spawn Worker,
+                     render overlay; only runs for visible repeaters
   coverageWorker.js  Web Worker — pure signal computation inner loop (no DOM)
   optimizerUI.js     Draw search area, run optimizer, display results
   optimizer.js       findBestLocations() — greedy grid search, no DOM
-  p2p.js             P2P link budget panel — pick two points, full budget table
+  p2p.js             P2P link budget panel — pick two points (or tap repeater), full budget
+                     table + terrain SVG; startPickingFrom() sets point A from repeater ctx menu
   config.js          saveConfig, loadConfig, screenshot, cache stats/purge
   devConsole.js      In-app log panel; intercepts all console.* methods
   presets.js         Loads presets.yaml via IPC; populates hardware/modem selects
 
   elevation.js       fetchElevations() — SRTM via open-elevation.com + opentopodata.org;
                      SQLite bbox-cache; batched 256-point requests with retries
-  foliage.js         fetchFoliage() — OSM polygons via Overpass API; 8-entry mem cache +
-                     SQLite 30-day cache; 16×16 tile-grid spatial index; foliageLossDb()
+  foliage.js         fetchFoliage() — OSM polygons via Overpass API; 0.25° tile-based
+                     SQLite cache (shared across repeaters, 30d TTL); mem cache;
+                     16×16 spatial index; foliageLossDb()
+  buildings.js       fetchBuildings() — OSM building footprints via Overpass API;
+                     same 0.25° tile cache as foliage; buildingLossDb()
   propagation.js     haversine, fspl, checkLoS (ITU-R P.526-15 + Earth curvature k=4/3),
                      bilinearElev, writePixel (gradient); cached lambda/fracs
 
 index.html           Layout, tab bar, sidebar panels, drag-resize handle
-style.css            Dark-mode UI, tab system, gradient legend, DevConsole styles
+style.css            Dark-mode UI, tab system, gradient legend, DevConsole, ctx menu styles
 main.js              Electron main — sql.js SQLite cache (WAL, debounced save,
-                     integrity check on load); IPC handlers for cache + screenshots
-preload.js           contextBridge — file I/O, cache IPC, screenshot
+                     integrity check on load); IPC handlers for cache, ws_repeaters,
+                     screenshots; VACUUM support
+preload.js           contextBridge — file I/O, cache IPC, ws_repeaters IPC, screenshot
 presets.yaml         Hardware and modem presets (extend freely, no code changes needed)
 ```
 

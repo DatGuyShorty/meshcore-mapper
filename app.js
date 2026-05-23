@@ -4,6 +4,7 @@
  */
 import { init as initRepeaters   } from './src/repeaters.js';
 import { init as initCoverage    } from './src/coverage.js';
+import { init as initMapLayers   } from './src/mapLayers.js';
 import { init as initOptimizer   } from './src/optimizerUI.js';
 import { init as initConfig      } from './src/config.js';
 import { init as initDevConsole  } from './src/devConsole.js';
@@ -12,6 +13,7 @@ import { init as initP2P         } from './src/p2p.js';
 
 initRepeaters();
 initCoverage();
+initMapLayers();
 initOptimizer();
 initConfig();
 initDevConsole();

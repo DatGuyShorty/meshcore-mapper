@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cachePurgeElevations:  ()        => ipcRenderer.invoke('cache-purge-elevations'),
   cachePurgeFoliage:     ()        => ipcRenderer.invoke('cache-purge-foliage'),
   cachePurgeBuildings:   ()        => ipcRenderer.invoke('cache-purge-buildings'),
+  cacheVacuum:           ()        => ipcRenderer.invoke('cache-vacuum'),
   saveScreenshot:        ()        => ipcRenderer.invoke('save-screenshot'),
   wsRepeatersLoad:  ()     => ipcRenderer.invoke('ws-repeaters-load'),
   wsRepeatersSave:  (rows) => ipcRenderer.invoke('ws-repeaters-save', rows),

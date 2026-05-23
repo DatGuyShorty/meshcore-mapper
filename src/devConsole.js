@@ -45,6 +45,8 @@ function renderEntry(e) {
   row.className = `dc-row dc-${e.level}`;
   row.textContent = `[${e.time}] ${e.msg}`;
   _output.appendChild(row);
+  // Keep DOM in sync with the capped entries array
+  while (_output.childElementCount > MAX_ENTRIES) _output.removeChild(_output.firstChild);
   _output.scrollTop = _output.scrollHeight;
 }
 
@@ -52,11 +54,18 @@ export function init() {
   _output = document.getElementById('dev-console-output');
   for (const e of entries) renderEntry(e); // replay entries logged before DOM ready
 
-  document.getElementById('btn-dev-console-toggle').addEventListener('click', () => {
+  function toggle() {
     const body = document.getElementById('dev-console-body');
     const btn  = document.getElementById('btn-dev-console-toggle');
     const collapsed = body.classList.toggle('hidden');
-    btn.textContent = collapsed ? '▶' : '▼';
+    btn.textContent = collapsed ? '▲' : '▼';
+    if (!collapsed) _output.scrollTop = _output.scrollHeight;
+  }
+
+  document.getElementById('btn-dev-console-toggle').addEventListener('click', toggle);
+  document.getElementById('dev-console-bar-header').addEventListener('click', e => {
+    if (e.target.closest('button')) return; // let Clear button work normally
+    toggle();
   });
 
   document.getElementById('btn-dev-console-clear').addEventListener('click', () => {

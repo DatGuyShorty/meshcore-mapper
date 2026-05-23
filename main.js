@@ -223,6 +223,7 @@ ipcMain.handle('cache-vacuum', () => {
 ipcMain.handle('ws-repeaters-save', (_e, rows) => {
   if (!db) return;
   try {
+    db.run('BEGIN');
     db.run('DELETE FROM ws_repeaters');
     if (rows && rows.length) {
       const stmt = db.prepare('INSERT INTO ws_repeaters (data, saved_at) VALUES (?, ?)');
@@ -230,8 +231,12 @@ ipcMain.handle('ws-repeaters-save', (_e, rows) => {
       for (const r of rows) stmt.run([JSON.stringify(r), now]);
       stmt.free();
     }
+    db.run('COMMIT');
     scheduleSave();
-  } catch (err) { console.error('[ws] save error:', String(err)); }
+  } catch (err) {
+    try { db.run('ROLLBACK'); } catch {}
+    console.error('[ws] save error:', String(err));
+  }
 });
 
 ipcMain.handle('ws-repeaters-load', () => {
