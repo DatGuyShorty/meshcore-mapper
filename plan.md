@@ -39,6 +39,10 @@ document.getElementById('btn-copy-to-opt').addEventListener('click', () => {
 | F5 | Undo last removed repeater | Single-level undo via saved repeater snapshot |
 | F6 | Drag-to-resize sidebar | `ResizeObserver` + CSS variable for sidebar width |
 
+Rework RF signal propagation accoring to LoS and foliage coverace. Currently foliage coverage blocks unrealistically high amount of signal in simulation. try to implement a foliage calculation with line of sight combined, where there are different foliage types and they just block signal only up to a average height of that foliage.
+
+Have as accurate as possible height data, and instead of decreasing resolution with bigger simulation radius, batch it into multiple higher density subgrids.
+
 ---
 
 ## Completed (reference)
