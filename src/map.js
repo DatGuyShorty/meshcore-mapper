@@ -37,6 +37,7 @@ export const state = {
   repeaters: [],       // { id, name, lat, lon, height, power, freq, marker, color }
   coverageLayers: [],  // Leaflet ImageOverlay per repeater
   foliageLayers: [],   // Leaflet Polygon outlines for forest/wood areas
+  buildingLayers: [],  // Leaflet Polygon outlines for building footprints
   nextId: 1,
 };
 
@@ -50,4 +51,10 @@ export function clearCoverageLayers() {
 export function clearFoliageLayers() {
   state.foliageLayers.forEach(l => map.removeLayer(l));
   state.foliageLayers = [];
+}
+
+/** Remove all building footprint polygons from the map. */
+export function clearBuildingLayers() {
+  state.buildingLayers.forEach(l => map.removeLayer(l));
+  state.buildingLayers = [];
 }

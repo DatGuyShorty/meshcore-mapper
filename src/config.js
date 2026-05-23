@@ -8,7 +8,7 @@ import { setStatus } from './ui.js';
 
 const SETTINGS_IDS = [
   'rx-height', 'rx-sensitivity', 'fade-margin', 'analysis-radius', 'grid-res',
-  'use-los', 'use-fresnel', 'use-foliage', 'foliage-loss-per-m',
+  'use-los', 'use-fresnel', 'use-foliage', 'foliage-loss-per-m', 'use-buildings', 'building-loss-per-m',
 ];
 const STORAGE_KEY = 'meshcoreMapper_settings';
 const LEGACY_KEY  = 'loraMapper_settings'; // A2: migrate old key on first read
@@ -96,4 +96,35 @@ export function init() {
   for (const id of SETTINGS_IDS) {
     document.getElementById(id).addEventListener('change', persistSettings);
   }
+
+  // F1: screenshot
+  document.getElementById('btn-save-screenshot').addEventListener('click', async () => {
+    try { await window.electronAPI.saveScreenshot(); }
+    catch (e) { setStatus(`Screenshot failed: ${e.message}`); }
+  });
+
+  // F4: cache management
+  async function refreshCacheStats() {
+    try {
+      const s = await window.electronAPI.cacheGetStats();
+      document.getElementById('cache-stats').textContent =
+        `Cache: ${s.elevations.toLocaleString()} elevations · ${s.foliage} foliage · ${s.buildings ?? 0} buildings · ${s.sizeKb} KB`;
+    } catch {}
+  }
+  document.getElementById('btn-purge-elevations').addEventListener('click', async () => {
+    await window.electronAPI.cachePurgeElevations();
+    await refreshCacheStats();
+    setStatus('Elevation cache cleared.');
+  });
+  document.getElementById('btn-purge-foliage').addEventListener('click', async () => {
+    await window.electronAPI.cachePurgeFoliage();
+    await refreshCacheStats();
+    setStatus('Foliage cache cleared.');
+  });
+  document.getElementById('btn-purge-buildings').addEventListener('click', async () => {
+    await window.electronAPI.cachePurgeBuildings();
+    await refreshCacheStats();
+    setStatus('Buildings cache cleared.');
+  });
+  refreshCacheStats();
 }

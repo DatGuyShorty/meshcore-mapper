@@ -13,17 +13,19 @@ body {
 #app {
   display: flex;
   height: 100vh;
+  --sidebar-w: 300px;
 }
 
 /* ===== Sidebar ===== */
 #sidebar {
-  width: 300px;
-  min-width: 300px;
+  width: var(--sidebar-w);
+  min-width: 220px;
+  max-width: 600px;
   background: #161a24;
   border-right: 1px solid #252a38;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   z-index: 10;
 }
 
@@ -285,6 +287,92 @@ button:active { opacity: 0.7; }
   background: #2d1515;
 }
 
+.repeater-item .ri-vis {
+  background: transparent;
+  color: #8892a4;
+  padding: 2px 6px;
+  font-size: 13px;
+  border-radius: 3px;
+}
+
+.repeater-item .ri-vis:hover {
+  background: #1e2530;
+  color: #e2e8f0;
+}
+
+/* Dim list item when repeater is hidden */
+.repeater-item.ri-hidden {
+  opacity: 0.45;
+}
+
+/* WS live feed row */
+.ws-live-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.ws-live-row input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+/* Filter / sort row */
+.node-filter-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.node-filter-row input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+.node-filter-row select {
+  font-size: 11px;
+  padding: 4px 5px;
+  background: #1e2330;
+  color: #e2e8f0;
+  border: 1px solid #374151;
+  border-radius: 4px;
+}
+
+/* Marker context menu */
+#node-ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  background: #1a1f2e;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 155px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.55);
+  font-size: 13px;
+}
+.ctx-item {
+  padding: 7px 14px;
+  cursor: pointer;
+  color: #e2e8f0;
+  white-space: nowrap;
+  user-select: none;
+}
+.ctx-item:hover { background: #2d3348; }
+.ctx-item.ctx-danger { color: #f87171; }
+.ctx-item.ctx-danger:hover { background: #2d1515; }
+.ws-dot {
+  font-size: 16px;
+  line-height: 1;
+  color: #4b5563;
+  flex-shrink: 0;
+}
+.ws-dot[data-status="connecting"]  { color: #facc15; }
+.ws-dot[data-status="connected"]   { color: #4ade80; }
+.ws-dot[data-status="error"]       { color: #f87171; }
+.ws-dot[data-status="disconnected"]{ color: #4b5563; }
+
 /* U1: highlight the repeater currently being edited */
 .repeater-item.editing {
   border-left-color: #facc15;
@@ -302,12 +390,42 @@ button:active { opacity: 0.7; }
   bottom: 36px;
   right: 10px;
   z-index: 500;
-  background: rgba(15, 17, 23, 0.85);
+  background: rgba(15, 17, 23, 0.88);
   border: 1px solid #252a38;
   border-radius: 6px;
   padding: 8px 10px;
-  min-width: 190px;
+  min-width: 160px;
   pointer-events: auto;
+}
+
+.legend-gradient {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.legend-gradient-bar {
+  width: 14px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: linear-gradient(
+    to bottom,
+    rgb(0,200,90),
+    rgb(80,210,30),
+    rgb(230,220,0),
+    rgb(255,160,0),
+    rgb(220,40,0)
+  );
+}
+
+.legend-gradient-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #8892a4;
+  padding: 2px 0;
+  min-height: 90px;
 }
 
 .legend-opacity-row {
@@ -460,6 +578,19 @@ button:active { opacity: 0.7; }
 /* Search area rectangle */
 .search-area-rect { stroke: #facc15; stroke-width: 2; stroke-dasharray: 6 4; fill: rgba(250,204,21,0.08); }
 
+/* ===== Sidebar resize handle (F6) ===== */
+#sidebar-resizer {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  z-index: 20;
+  transition: background 0.15s;
+}
+#sidebar-resizer:hover, #sidebar-resizer.dragging {
+  background: #61dafb44;
+}
+
 /* ===== Developer Console ===== */
 .dev-console-header {
   display: flex;
@@ -483,6 +614,59 @@ button:active { opacity: 0.7; }
 }
 
 .dc-row { color: #a0aab8; word-break: break-all; }
+.dc-row.dc-log   { color: #a0aab8; }
+.dc-row.dc-debug { color: #4a5568; }
 .dc-row.dc-warn  { color: #f6ad55; }
 .dc-row.dc-error { color: #fc8181; }
 .dc-row.dc-info  { color: #61dafb; }
+
+/* ===== Tab System ===== */
+#tab-bar {
+  display: flex;
+  background: #0d1018;
+  border-bottom: 1px solid #1e2330;
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  color: #6b7280;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 8px 4px 7px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.15s;
+  margin-bottom: -1px;
+}
+
+.tab-btn:hover { color: #b4bcd0; opacity: 1; }
+.tab-btn.active { color: #61dafb; border-bottom-color: #61dafb; }
+
+.tab-icon { font-size: 14px; line-height: 1; }
+.tab-label { font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
+
+.tab-panel {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* ===== P2P Link Budget panel ===== */
+.hint-error { border-left-color: #fc8181 !important; background: #2d0f0f !important; color: #fc8181 !important; }
+
+.p2p-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.p2p-table td { padding: 4px 2px; }
+.p2p-key { color: #8892a4; width: 55%; }
+.p2p-val { color: #d4d8e2; font-weight: 600; text-align: right; }

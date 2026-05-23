@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "settings": {
+    "rx-height": "1.5",
+    "rx-sensitivity": "-132",
+    "fade-margin": "10",
+    "analysis-radius": "30",
+    "grid-res": "256",
+    "use-los": true,
+    "use-fresnel": true,
+    "use-foliage": true,
+    "foliage-loss-per-m": "0.05",
+    "use-buildings": true,
+    "building-loss-per-m": "0.5"
+  },
+  "repeaters": [
+    {
+      "name": "Repeater 1",
+      "lat": 48.295571624134055,
+      "lon": 18.521178960800174,
+      "height": 5,
+      "power": 20,
+      "freq": 869.618,
+      "gain": 5.5
+    },
+    {
+      "name": "Repeater 2",
+      "lat": 48.28596499281625,
+      "lon": 18.506619930267338,
+      "height": 8,
+      "power": 20,
+      "freq": 869.618,
+      "gain": 5
+    }
+  ]
+}

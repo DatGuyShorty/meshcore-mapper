@@ -4,6 +4,7 @@
  */
 import { map, state, clearCoverageLayers, clearFoliageLayers } from './map.js';
 import { escHtml, setStatus } from './ui.js';
+import { handleRepeaterClick, startPickingFrom } from './p2p.js';
 
 const PALETTE = [
   '#61dafb', '#4ade80', '#fb923c', '#f472b6',
@@ -11,8 +12,187 @@ const PALETTE = [
 ];
 
 // Module-local interaction state
-let placingMode = false;
-let editingId = null; // null = add mode, number = ID being edited
+let placingMode  = false;
+let editingId    = null; // null = add mode, number = ID being edited
+let _lastRemoved = null; // F5: single-level undo snapshot
+let _filterText  = '';
+let _sortMode    = 'added';
+
+// Context menu
+let _ctxMenu     = null;
+let _ctxTargetId = null;
+
+function _initCtxMenu() {
+  _ctxMenu = document.createElement('div');
+  _ctxMenu.id = 'node-ctx-menu';
+  _ctxMenu.style.display = 'none';
+  _ctxMenu.innerHTML = `
+    <div class="ctx-item" data-ctx="info">ℹ Info</div>
+    <div class="ctx-item" data-ctx="p2p">📡 P2P Link</div>
+    <div class="ctx-item" data-ctx="edit">✏️ Edit</div>
+    <div class="ctx-item" data-ctx="vis"></div>
+    <div class="ctx-item ctx-danger" data-ctx="delete">🗑 Remove</div>
+  `;
+  document.body.append(_ctxMenu);
+  _ctxMenu.addEventListener('click', e => {
+    const item = e.target.closest('[data-ctx]');
+    if (!item) return;
+    const id = _ctxTargetId;
+    _hideCtxMenu();
+    const rep = state.repeaters.find(x => x.id === id);
+    if (!rep) return;
+    if (item.dataset.ctx === 'info')   rep.marker.openPopup();
+    if (item.dataset.ctx === 'p2p')    startPickingFrom(rep);
+    if (item.dataset.ctx === 'edit')   editRepeater(id);
+    if (item.dataset.ctx === 'vis')    toggleVisibility(id);
+    if (item.dataset.ctx === 'delete') removeRepeater(id);
+  });
+  document.addEventListener('click', e => {
+    if (_ctxMenu && _ctxMenu.style.display !== 'none' && !_ctxMenu.contains(e.target)) {
+      _hideCtxMenu();
+    }
+  }, true);
+}
+
+function _showCtxMenu(r, mouseEvt) {
+  _ctxTargetId = r.id;
+  _ctxMenu.querySelector('[data-ctx="vis"]').textContent = r.visible ? '🚫 Hide' : '👁 Show';
+  // Position off-screen first so the browser lays the element out, then measure + reposition
+  _ctxMenu.style.left = '-9999px';
+  _ctxMenu.style.top  = '-9999px';
+  _ctxMenu.style.display = 'block';
+  const mw = _ctxMenu.offsetWidth;
+  const mh = _ctxMenu.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let x = mouseEvt.clientX + 4, y = mouseEvt.clientY + 4;
+  if (x + mw > vw) x = mouseEvt.clientX - mw - 4;
+  if (y + mh > vh) y = mouseEvt.clientY - mh - 4;
+  _ctxMenu.style.left = x + 'px';
+  _ctxMenu.style.top  = y + 'px';
+}
+
+function _hideCtxMenu() {
+  if (_ctxMenu) _ctxMenu.style.display = 'none';
+}
+
+function _saveWsToDb() {
+  const rows = state.repeaters
+    .filter(r => r.fromWs)
+    .map(r => ({ name: r.name, lat: r.lat, lon: r.lon, short: r.short ?? null, lastSeen: r.lastSeen ?? null }));
+  window.electronAPI.wsRepeatersSave(rows).catch(e => console.warn('[ws] DB save failed:', e));
+}
+
+async function _loadWsFromDb() {
+  try {
+    const rows = await window.electronAPI.wsRepeatersLoad();
+    if (!rows.length) return;
+    const savedUndo = _lastRemoved;
+    for (const r of rows) {
+      const rep    = addRepeater(r.name, r.lat, r.lon, 10, 20, 868, 2);
+      rep.fromWs   = true;
+      rep.short    = r.short    ?? null;
+      rep.lastSeen = r.lastSeen ?? null;
+      _wsRepeaterIds.add(rep.id);
+      const popupLines = [
+        `<b>${escHtml(r.name)}</b>`,
+        r.short    ? `ID: <code>${escHtml(r.short)}</code>`  : null,
+        r.lastSeen ? `Last seen: ${escHtml(r.lastSeen)}`     : null,
+      ].filter(Boolean).join('<br>');
+      rep.marker.setPopupContent(popupLines);
+    }
+    _lastRemoved = savedUndo;
+    _syncUndoBtn();
+    console.info(`[ws] restored ${rows.length} repeater(s) from DB`);
+  } catch (e) { console.warn('[ws] DB load failed:', e); }
+}
+
+// WebSocket live feed
+let _ws = null;
+const _wsRepeaterIds = new Set(); // IDs of repeaters imported from the live WS feed
+
+function _setWsStatus(status) {
+  const dot = document.getElementById('ws-status-dot');
+  const btn = document.getElementById('btn-ws-connect');
+  if (!dot || !btn) return;
+  dot.dataset.status = status;
+  dot.title = status;
+  btn.textContent = status === 'connected' ? 'Disconnect' : 'Connect';
+}
+
+function _syncWsRepeaters(data) {
+  // Accept bare array or Node-RED { payload: [...] } wrapper
+  const list = Array.isArray(data) ? data
+    : Array.isArray(data?.payload) ? data.payload
+    : null;
+  if (!list) { console.warn('[ws] unexpected message shape, expected array'); return; }
+
+  // Remove old WS repeaters without clobbering manual undo state
+  const savedUndo = _lastRemoved;
+  for (const id of [..._wsRepeaterIds]) removeRepeater(id);
+  _lastRemoved = savedUndo;
+  _syncUndoBtn();
+  _wsRepeaterIds.clear();
+
+  for (const r of list) {
+    // Payload shape from Node-RED: { name, lat, lon, short, prefix, last_seen }
+    const lat = parseFloat(r.lat);
+    const lon = parseFloat(r.lon);
+    if (isNaN(lat) || isNaN(lon)) { console.warn('[ws] skipping entry with no coords:', r); continue; }
+    const name = String(r.name ?? 'Unknown');
+    const rep      = addRepeater(name, lat, lon, 10, 20, 868, 2);
+    rep.fromWs     = true;
+    rep.short      = r.short    ?? null;
+    rep.lastSeen   = r.last_seen ?? null;
+    _wsRepeaterIds.add(rep.id);
+    const popupLines = [
+      `<b>${escHtml(name)}</b>`,
+      r.short     ? `ID: <code>${escHtml(r.short)}</code>` : null,
+      r.last_seen ? `Last seen: ${escHtml(r.last_seen)}`   : null,
+    ].filter(Boolean).join('<br>');
+    rep.marker.setPopupContent(popupLines);
+  }
+  console.info(`[ws] synced ${_wsRepeaterIds.size} repeater(s)`);
+  _saveWsToDb();
+}
+
+export function connectLiveFeed(url) {
+  disconnectLiveFeed();
+  const wsUrl = url.replace(/^http(s?)/, 'ws$1');
+  _setWsStatus('connecting');
+  _ws = new WebSocket(wsUrl);
+  _ws.onopen  = () => {
+    _setWsStatus('connected');
+    setStatus('Live feed connected.');
+    // Trigger Node-RED to send the current repeater list immediately
+    _ws.send('{}');
+  };
+  _ws.onerror = () => { _setWsStatus('error'); };
+  _ws.onclose = () => { _setWsStatus('disconnected'); _ws = null; };
+  _ws.onmessage = e => {
+    try { _syncWsRepeaters(JSON.parse(e.data)); }
+    catch (err) { console.warn('[ws] failed to parse message:', err); }
+  };
+}
+
+export function disconnectLiveFeed() {
+  if (!_ws) return;
+  _ws.onclose = null; // suppress status side-effect during manual disconnect
+  _ws.close();
+  _ws = null;
+  // Remove WS markers from map but keep IDs so the next reconnect’s sync can still find and clear them
+  const savedUndo = _lastRemoved;
+  for (const id of [..._wsRepeaterIds]) removeRepeater(id);
+  _lastRemoved = savedUndo;
+  _syncUndoBtn();
+  _wsRepeaterIds.clear();
+  _setWsStatus('disconnected');
+  setStatus('Live feed disconnected.');
+}
+
+function _syncUndoBtn() {
+  const btn = document.getElementById('btn-undo-remove');
+  if (btn) btn.disabled = _lastRemoved === null;
+}
 
 function makeMarkerIcon(color) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
@@ -41,7 +221,14 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2) {
     renderRepeaterList();
   });
 
-  const repeater = { id, name, lat, lon, height, power, freq, gain, marker, color };
+  marker.on('click', async () => {
+    const r = state.repeaters.find(x => x.id === id);
+    if (!r) return;
+    if (await handleRepeaterClick(r)) return; // consumed by P2P picking
+    _showCtxMenu(r, e.originalEvent);
+  });
+
+  const repeater = { id, name, lat, lon, height, power, freq, gain, marker, color, visible: true };
   state.repeaters.push(repeater);
   renderRepeaterList();
   return repeater;
@@ -50,11 +237,23 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2) {
 export function removeRepeater(id) {
   const idx = state.repeaters.findIndex(r => r.id === id);
   if (idx === -1) return;
-  state.repeaters[idx].marker.remove();
+  const r = state.repeaters[idx];
+  _lastRemoved = { name: r.name, lat: r.lat, lon: r.lon, height: r.height, power: r.power, freq: r.freq, gain: r.gain };
+  r.marker.remove();
   state.repeaters.splice(idx, 1);
   clearCoverageLayers();
   clearFoliageLayers(); // B2: remove foliage outlines when repeater is deleted
   renderRepeaterList();
+  _syncUndoBtn();
+}
+
+// F5: restore the last individually-deleted repeater
+export function undoLastRemove() {
+  if (!_lastRemoved) return;
+  const r = _lastRemoved;
+  _lastRemoved = null;
+  addRepeater(r.name, r.lat, r.lon, r.height, r.power, r.freq, r.gain);
+  _syncUndoBtn();
 }
 
 /** Cancel placement mode without placing — called by optimizerUI when it needs map clicks. */
@@ -95,24 +294,55 @@ export function editRepeater(id) {
   setEditMode(id);
 }
 
+function toggleVisibility(id) {
+  const r = state.repeaters.find(x => x.id === id);
+  if (!r) return;
+  r.visible = !r.visible;
+  if (r.visible) {
+    r.marker.addTo(map);
+  } else {
+    r.marker.remove();
+  }
+  const covLayer = state.coverageLayers.find(l => l._repeaterId === id);
+  if (covLayer) {
+    if (r.visible) covLayer.addTo(map); else covLayer.remove();
+  }
+  renderRepeaterList();
+}
+
 function renderRepeaterList() {
   const ul = document.getElementById('repeater-list');
-  if (state.repeaters.length === 0) {
-    ul.innerHTML = '<li class="empty-msg">No repeaters added yet.</li>';
+
+  let list = state.repeaters.filter(r =>
+    !_filterText || r.name.toLowerCase().includes(_filterText)
+  );
+  if (_sortMode === 'name-az') list.sort((a, b) => a.name.localeCompare(b.name));
+  else if (_sortMode === 'name-za') list.sort((a, b) => b.name.localeCompare(a.name));
+
+  if (list.length === 0) {
+    ul.innerHTML = state.repeaters.length === 0
+      ? '<li class="empty-msg">No repeaters added yet.</li>'
+      : '<li class="empty-msg">No nodes match the filter.</li>';
     return;
   }
-  // A1: use data-action/data-id attributes; delegation listener is in init()
-  ul.innerHTML = state.repeaters.map(r => `
-    <li class="repeater-item" data-id="${r.id}">
+
+  ul.innerHTML = list.map(r => {
+    const sub = (r.fromWs && r.lastSeen)
+      ? `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)} \u00b7 ${escHtml(r.lastSeen)}`
+      : `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)} \u00b7 ${r.height}m \u00b7 ${r.power}dBm+${r.gain}dBi \u00b7 ${r.freq}MHz`;
+    return `
+    <li class="repeater-item${r.visible ? '' : ' ri-hidden'}" data-id="${r.id}">
       <div class="ri-color" style="background:${r.color}"></div>
       <div class="ri-info">
         <div class="ri-name">${escHtml(r.name)}</div>
-        <div class="ri-coords">${r.lat.toFixed(4)}, ${r.lon.toFixed(4)} \u00b7 ${r.height}m \u00b7 ${r.power}dBm+${r.gain}dBi \u00b7 ${r.freq}MHz</div>
+        <div class="ri-coords">${sub}</div>
       </div>
+      <button class="ri-vis" data-action="toggle-vis" data-id="${r.id}" title="${r.visible ? 'Hide' : 'Show'}">${r.visible ? '👁' : '🚫'}</button>
       <button class="ri-edit" data-action="edit" data-id="${r.id}" title="Edit">\u270e</button>
       <button class="ri-del"  data-action="delete" data-id="${r.id}" title="Remove">\u00d7</button>
-    </li>`).join('');
-  // U1: highlight the currently-edited item
+    </li>`;
+  }).join('');
+
   if (editingId !== null) {
     const el = ul.querySelector(`[data-id="${editingId}"]`);
     if (el) el.classList.add('editing');
@@ -120,13 +350,32 @@ function renderRepeaterList() {
 }
 
 export function init() {
+  _initCtxMenu();
+  _loadWsFromDb();
+
+  document.getElementById('node-filter').addEventListener('input', e => {
+    _filterText = e.target.value.toLowerCase();
+    renderRepeaterList();
+  });
+  document.getElementById('node-sort').addEventListener('change', e => {
+    _sortMode = e.target.value;
+    renderRepeaterList();
+  });
+  document.getElementById('btn-toggle-all-vis').addEventListener('click', () => {
+    const anyHidden = state.repeaters.some(r => !r.visible);
+    for (const r of state.repeaters) {
+      if (anyHidden ? !r.visible : r.visible) toggleVisibility(r.id);
+    }
+  });
+
   // A1: delegated click handler — no window globals needed
   document.getElementById('repeater-list').addEventListener('click', e => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const id = parseInt(btn.dataset.id);
-    if (btn.dataset.action === 'edit')   editRepeater(id);
-    if (btn.dataset.action === 'delete') removeRepeater(id);
+    if (btn.dataset.action === 'edit')       editRepeater(id);
+    if (btn.dataset.action === 'delete')     removeRepeater(id);
+    if (btn.dataset.action === 'toggle-vis') toggleVisibility(id);
   });
   document.getElementById('btn-add-repeater').addEventListener('click', () => {
     const name   = document.getElementById('repeater-name').value.trim() || `Repeater ${state.nextId}`;
@@ -190,11 +439,24 @@ export function init() {
     cancelPlacing();
   });
 
+  document.getElementById('btn-undo-remove').addEventListener('click', undoLastRemove);
+
+  document.getElementById('btn-ws-connect').addEventListener('click', () => {
+    if (_ws) {
+      disconnectLiveFeed();
+    } else {
+      const url = document.getElementById('ws-url').value.trim();
+      if (url) connectLiveFeed(url);
+    }
+  });
+
   document.getElementById('btn-clear-nodes').addEventListener('click', () => {
     clearEditMode();
     [...state.repeaters].forEach(r => removeRepeater(r.id));
     clearCoverageLayers();
     clearFoliageLayers();
+    _lastRemoved = null;
+    _syncUndoBtn();
     setStatus('All nodes cleared.');
   });
 }

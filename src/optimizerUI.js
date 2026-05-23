@@ -62,6 +62,10 @@ function renderResults(results, txParams) {
 }
 
 export function init() {
+  document.getElementById('btn-copy-to-opt').addEventListener('click', () => {
+    document.getElementById('opt-height').value = document.getElementById('repeater-height').value;
+  });
+
   document.getElementById('btn-draw-area').addEventListener('click', () => {
     if (drawing) return;
     drawing = true;

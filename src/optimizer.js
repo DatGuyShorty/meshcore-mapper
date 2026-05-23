@@ -46,6 +46,7 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
   progress(5, `Fetching elevation for ${evalPoints.length + candidates.length} points…`);
   const allPoints = [...evalPoints, ...candidates];
   const allElevs  = useLos ? await fetchElevations(allPoints) : allPoints.map(() => 0);
+  console.info(`[optimizer] elevation fetched — ${evalPoints.length} eval pts, ${candidates.length} candidates`);
 
   const evalElevs      = allElevs.slice(0, evalPoints.length);
   const candidateElevs = allElevs.slice(evalPoints.length);
@@ -94,6 +95,7 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
       score: bestScore,
       elevM: candidateElevs[bestIdx],
     });
+    console.info(`[optimizer] round ${round + 1}/${nRepeaters}: best candidate at (${best.latitude.toFixed(5)}, ${best.longitude.toFixed(5)}), score=${bestScore}, elev=${candidateElevs[bestIdx].toFixed(1)} m`);
   }
 
   progress(100, 'Done.');

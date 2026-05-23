@@ -2,14 +2,22 @@
  * coverage.js — Coverage analysis and heatmap rendering.
  * Exports: init
  */
-import { map, state, clearCoverageLayers, clearFoliageLayers } from './map.js';
+import { map, state, clearCoverageLayers, clearFoliageLayers, clearBuildingLayers } from './map.js';
 import { setProgress, hideProgress, setStatus, yieldToUI } from './ui.js';
 import { fetchElevations } from './elevation.js';
-import { checkLoS, writePixel, bilinearElev } from './propagation.js';
-import { fetchFoliage, foliageLossDb } from './foliage.js';
+import { writePixel } from './propagation.js';
+import { fetchFoliage } from './foliage.js';
+import { fetchBuildings } from './buildings.js';
 
 const PROFILE_SAMPLES = 32; // terrain samples per path for LoS check
 let _isRunning = false;
+
+// Shared canvas renderer — avoids creating a separate SVG DOM element per polygon.
+let _polyRenderer = null;
+function _getRenderer() {
+  if (!_polyRenderer) _polyRenderer = L.canvas({ padding: 0.1 });
+  return _polyRenderer;
+}
 
 async function runCoverageAnalysis() {
   if (_isRunning) return;
@@ -18,6 +26,8 @@ async function runCoverageAnalysis() {
     return;
   }
   _isRunning = true;
+  const t0 = performance.now();
+  console.info(`[coverage] starting analysis — ${state.repeaters.length} repeater(s), radius=${document.getElementById('analysis-radius').value} km, grid=${document.getElementById('grid-res').value}`);
 
   const rxHeight   = parseFloat(document.getElementById('rx-height').value) || 1.5;
   const rxSens     = parseFloat(document.getElementById('rx-sensitivity').value) || -137;
@@ -29,9 +39,12 @@ async function runCoverageAnalysis() {
   const useFresnel     = document.getElementById('use-fresnel').checked;
   const useFoliage     = document.getElementById('use-foliage').checked;
   const foliageLossPerM = parseFloat(document.getElementById('foliage-loss-per-m').value) || 0.3;
+  const useBuildings    = document.getElementById('use-buildings').checked;
+  const buildingLossPerM = parseFloat(document.getElementById('building-loss-per-m').value) || 0.5;
 
   clearCoverageLayers();
   clearFoliageLayers();
+  clearBuildingLayers();
   setProgress(2, 'Initialising grid…');
 
   try {
@@ -41,6 +54,7 @@ async function runCoverageAnalysis() {
 
       const [txElev] = await fetchElevations([{ latitude: rep.lat, longitude: rep.lon }]);
       if (typeof txElev !== 'number' || isNaN(txElev)) throw new Error(`Could not fetch elevation for ${rep.name}.`);
+      console.info(`[coverage] ${rep.name}: TX elev=${txElev.toFixed(1)} m, ELEV_RES will be computed next`);
 
       const degPerKmLat = 1 / 110.574;
       const degPerKmLon = 1 / (111.320 * Math.cos(rep.lat * Math.PI / 180));
@@ -49,9 +63,11 @@ async function runCoverageAnalysis() {
       const lonMin = rep.lon - radiusKm * degPerKmLon;
       const lonMax = rep.lon + radiusKm * degPerKmLon;
 
-      // P10: elevation grid capped at 128×128 — SRTM native resolution is ~90 m,
-      // so fetching more points only yields interpolated data not real accuracy gains
-      const ELEV_RES = Math.min(gridRes, 128);
+      // P12: adaptive elevation grid — target ~150 m/cell to match SRTM30m detail,
+      // capped at 256×256 (beyond that the free API becomes impractically slow on cold cache).
+      // At ≤19 km radius this stays ≤256; at 50 km → 256 cells = ~195 m/cell (was ~780 m).
+      const ELEV_RES = Math.min(Math.ceil(radiusKm * 2000 / 150), 256);
+      console.debug(`[coverage] ${rep.name}: ELEV_RES=${ELEV_RES} (${(radiusKm*2000/ELEV_RES).toFixed(0)} m/cell), grid=${gridRes}×${gridRes}`);
       const elevGridPoints = [];
       for (let r = 0; r < ELEV_RES; r++) {
         for (let c = 0; c < ELEV_RES; c++) {
@@ -81,10 +97,12 @@ async function runCoverageAnalysis() {
         try {
           setProgress(55, `Fetching forest polygons for ${rep.name}…`);
           foliageData = await fetchFoliage(latMin, latMax, lonMin, lonMax);
+          console.info(`[coverage] ${rep.name}: foliage — ${foliageData.polygons.length} polygon(s) loaded`);
           for (const poly of foliageData.polygons) {
             const layer = L.polygon(poly, {
-              color: '#22c55e', weight: 1.5, opacity: 0.7,
-              fill: false, interactive: false,
+              renderer: _getRenderer(),
+              color: '#22c55e', weight: 1, opacity: 0.6,
+              fill: true, fillColor: '#22c55e', fillOpacity: 0.18, interactive: false,
             }).addTo(map);
             state.foliageLayers.push(layer);
           }
@@ -93,72 +111,65 @@ async function runCoverageAnalysis() {
         }
       }
 
-      setProgress(60, `Computing signal levels for ${rep.name}…`);
-      const signalGrid = new Float32Array(gridRes * gridRes);
-      const totalPts   = gridRes * gridRes;
-
-      // P3: pre-compute flat-Earth scale once per repeater (< 0.3% error within 50 km)
-      const mPerLat = 110574;
-      const mPerLon = 111320 * Math.cos(rep.lat * Math.PI / 180);
-
-      // P4: hoist frequency-constant part of FSPL outside the loop
-      const fsplBase = 20 * Math.log10(rep.freq * 1e6) - 147.55;
-
-      // P1: pre-allocate profile buffer — reused for every grid point
-      const profile = new Float32Array(PROFILE_SAMPLES);
-
-      for (let idx = 0; idx < totalPts; idx++) {
-        const ptLat = gridLats[idx];
-        const ptLon = gridLons[idx];
-
-        // P3: flat-Earth distance replaces haversine in the inner loop
-        const dLat = (ptLat - rep.lat) * mPerLat;
-        const dLon = (ptLon - rep.lon) * mPerLon;
-        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
-
-        if (dist > radiusKm * 1000) { signalGrid[idx] = -200; continue; }
-
-        // P4: inline FSPL with hoisted constant
-        let rxPower = rep.power + (rep.gain ?? 0) - (20 * Math.log10(Math.max(1, dist)) + fsplBase);
-
-        if (useLos && dist > 50) {
-          const profileLatLons = useFoliage ? [] : null;
-          // P1: fill pre-allocated profile in-place; P10: use ELEV_RES for bilinear lookup
-          for (let s = 0; s < PROFILE_SAMPLES; s++) {
-            const t = s / (PROFILE_SAMPLES - 1);
-            const sLat = rep.lat + (ptLat - rep.lat) * t;
-            const sLon = rep.lon + (ptLon - rep.lon) * t;
-            profile[s] = bilinearElev(sLat, sLon, gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
-            if (profileLatLons) profileLatLons.push([sLat, sLon]);
+      let buildingData = null;
+      if (useBuildings) {
+        try {
+          setProgress(57, `Fetching building footprints for ${rep.name}…`);
+          buildingData = await fetchBuildings(latMin, latMax, lonMin, lonMax);
+          console.info(`[coverage] ${rep.name}: buildings — ${buildingData.polygons.length} building(s) loaded`);
+          for (let bi = 0; bi < buildingData.polygons.length; bi++) {
+            const poly = buildingData.polygons[bi];
+            const h    = buildingData.heights[bi] ?? 5;
+            // Color by height: short=gray, medium=tan, tall=brownish
+            const t    = Math.min(1, h / 30);
+            const fill = t < 0.33 ? '#9ca3af' : t < 0.66 ? '#c4a875' : '#a0856e';
+            const layer = L.polygon(poly, {
+              renderer: _getRenderer(),
+              color: '#6b7280', weight: 0.8, opacity: 0.7,
+              fill: true, fillColor: fill, fillOpacity: 0.45, interactive: false,
+            }).addTo(map);
+            state.buildingLayers.push(layer);
           }
-          // P10: use bilinearElev instead of direct index for rx elevation
-          const rxElev = bilinearElev(ptLat, ptLon, gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
-          const los = checkLoS(txElev, rxElev, profile, rep.height, rxHeight, dist, rep.freq, useFresnel);
-          rxPower -= los.diffractionLossDb;
-          if (!los.los && los.diffractionLossDb > 60) rxPower = Math.min(rxPower, effectiveSens - 10);
-          if (useFoliage && foliageData) {
-            rxPower -= foliageLossDb(profileLatLons, foliageData.polygons, foliageData.bboxes, foliageData.factors, foliageData.tileIndex, dist, foliageLossPerM);
-          }
-        } else if (useFoliage && foliageData && dist > 50) {
-          const profileLatLons = [];
-          for (let s = 0; s < PROFILE_SAMPLES; s++) {
-            const t = s / (PROFILE_SAMPLES - 1);
-            profileLatLons.push([
-              rep.lat + (ptLat - rep.lat) * t,
-              rep.lon + (ptLon - rep.lon) * t,
-            ]);
-          }
-          rxPower -= foliageLossDb(profileLatLons, foliageData.polygons, foliageData.bboxes, foliageData.factors, foliageData.tileIndex, dist, foliageLossPerM);
-        }
-
-        signalGrid[idx] = rxPower;
-
-        if (idx % 4096 === 0) {
-          const pct = 60 + 35 * ((ri + idx / totalPts) / state.repeaters.length);
-          setProgress(pct, `${rep.name}: computing… ${Math.round(idx / totalPts * 100)}%`);
-          await yieldToUI();
+        } catch (e) {
+          console.warn('Buildings fetch failed, skipping:', e);
         }
       }
+
+      setProgress(60, `Computing signal levels for ${rep.name}…`);
+
+      // Offload the inner loop to a Web Worker to keep the UI thread responsive.
+      // gridLats/gridLons are transferred (zero-copy); gridElevs is cloned (large but one-time).
+      const gridElevsF32 = new Float32Array(gridElevs);
+      const signalGrid = await _runInWorker({
+        gridLats: gridLats.buffer,
+        gridLons: gridLons.buffer,
+        gridElevs: gridElevsF32.buffer,
+        gridRes, ELEV_RES,
+        rep: { lat: rep.lat, lon: rep.lon, height: rep.height, power: rep.power, freq: rep.freq, gain: rep.gain ?? 0 },
+        txElev, latMin, latMax, lonMin, lonMax,
+        radiusKm, rxHeight, effectiveSens, useLos, useFresnel,
+        useFoliage, foliageLossPerM, profileSamples: PROFILE_SAMPLES,
+        foliage: foliageData ? {
+          polygons:      foliageData.polygons,
+          bboxes:        foliageData.bboxes,
+          canopyHeights: foliageData.canopyHeights,
+          factors:       foliageData.factors,
+          tileIndex:     foliageData.tileIndex,
+        } : null,
+        useBuildings, buildingLossPerM,
+        buildings: buildingData ? {
+          polygons:  buildingData.polygons,
+          bboxes:    buildingData.bboxes,
+          heights:   buildingData.heights,
+          tileIndex: buildingData.tileIndex,
+        } : null,
+      }, [gridLats.buffer, gridLons.buffer, gridElevsF32.buffer],
+      (workerPct) => {
+        const pct = 60 + 35 * ((ri + workerPct) / state.repeaters.length);
+        setProgress(pct, `${rep.name}: computing… ${Math.round(workerPct * 100)}%`);
+      });
+
+      console.debug(`[coverage] ${rep.name}: signal grid computed (${gridRes}×${gridRes})`);
 
       // Render signal grid to canvas image overlay
       const canvas = document.createElement('canvas');
@@ -166,7 +177,7 @@ async function runCoverageAnalysis() {
       const ctx = canvas.getContext('2d');
       const imageData = ctx.createImageData(gridRes, gridRes);
       // P6: writePixel writes directly into buffer — no per-pixel array allocation
-      for (let idx = 0; idx < totalPts; idx++) {
+      for (let idx = 0; idx < signalGrid.length; idx++) {
         writePixel(imageData.data, idx * 4, signalGrid[idx], effectiveSens);
       }
       ctx.putImageData(imageData, 0, 0);
@@ -178,12 +189,15 @@ async function runCoverageAnalysis() {
         [[latMin, lonMin], [latMax, lonMax]],
         { opacity, interactive: false }
       ).addTo(map);
+      overlay._repeaterId = rep.id;
       state.coverageLayers.push(overlay);
     }
 
     setProgress(100, 'Done!');
     await yieldToUI();
     hideProgress();
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+    console.info(`[coverage] done in ${elapsed}s for ${state.repeaters.length} repeater(s)`);
     setStatus(`Coverage computed for ${state.repeaters.length} repeater(s). Elevation data via open-elevation.com`);
   } catch (err) {
     hideProgress();
@@ -192,6 +206,36 @@ async function runCoverageAnalysis() {
   } finally {
     _isRunning = false;
   }
+}
+
+/**
+ * Run the coverage inner loop inside a Web Worker.
+ * All typed arrays are transferred (zero-copy). Complex objects (foliage) are structured-cloned.
+ * @param {object}   payload    - all data the worker needs
+ * @param {ArrayBuffer[]} transfer - Transferable buffers list
+ * @param {function} onProgress - (0..1) progress callback
+ * @returns {Promise<Float32Array>} signalGrid
+ */
+function _runInWorker(payload, transfer, onProgress) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(
+      new URL('./coverageWorker.js', import.meta.url),
+      { type: 'module' }
+    );
+    worker.onmessage = ({ data: msg }) => {
+      if (msg.type === 'progress') {
+        onProgress(msg.pct);
+      } else if (msg.type === 'done') {
+        worker.terminate();
+        resolve(msg.signalGrid);
+      }
+    };
+    worker.onerror = (err) => {
+      worker.terminate();
+      reject(new Error(`Coverage worker error: ${err.message}`));
+    };
+    worker.postMessage(payload, transfer);
+  });
 }
 
 export function init() {
@@ -212,10 +256,20 @@ export function init() {
   });
   toggleFoliageRow();
 
+  const buildingToggle = document.getElementById('use-buildings');
+  const buildingRow    = document.getElementById('building-loss-per-m').closest('label');
+  const toggleBuildingRow = () => { buildingRow.style.display = buildingToggle.checked ? '' : 'none'; };
+  buildingToggle.addEventListener('change', (e) => {
+    if (!e.target.checked) clearBuildingLayers();
+    toggleBuildingRow();
+  });
+  toggleBuildingRow();
+
   // U3: clear coverage without removing repeaters
   document.getElementById('btn-clear-coverage').addEventListener('click', () => {
     clearCoverageLayers();
     clearFoliageLayers();
+    clearBuildingLayers();
     setStatus('Coverage cleared.');
   });
 }

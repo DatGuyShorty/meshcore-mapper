@@ -51,7 +51,11 @@ export async function fetchElevations(points) {
     }
   }
 
-  if (missingIdx.length === 0) return results;
+  if (missingIdx.length === 0) {
+    console.debug(`[elevation] cache hit — all ${points.length} points served from cache`);
+    return results;
+  }
+  console.info(`[elevation] cache: ${points.length - missingIdx.length} hits, ${missingIdx.length} misses — fetching from API`);
 
   // Fetch only the uncached points from the API
   const missingPoints = missingIdx.map(i => ({ latitude: rounded[i].lat, longitude: rounded[i].lon }));
@@ -65,6 +69,7 @@ export async function fetchElevations(points) {
   }
 
   await window.electronAPI.cacheElevationsStore(toStore);
+  console.debug(`[elevation] stored ${toStore.length} new elevation points to cache`);
   return results;
 }
 
@@ -105,6 +110,7 @@ async function _fetchFromAPI(points) {
     }
     if (!resp) throw new Error(`Elevation API unreachable: ${lastErr?.message ?? '429/5xx after all attempts'}`);
     if (!resp.ok) throw new Error(`Elevation API error: ${resp.status}`);
+    console.debug(`[elevation] API response OK for batch ${i}–${Math.min(i + BATCH_SIZE, points.length)} (${resp.url?.split('/')[2] ?? 'unknown'})`);
     const data = await resp.json();
     if (data.results.length !== batch.length) {
       console.warn(`[elevation] Expected ${batch.length} results, got ${data.results.length} — truncated response`);

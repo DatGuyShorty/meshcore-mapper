@@ -1,7 +1,7 @@
 /**
- * foliage.js — Fetch vegetation polygons from OpenStreetMap (via Overpass API)
- * and compute additional signal attenuation from forest traversal.
- * Exports: fetchFoliage, foliageLossDb
+ * buildings.js — Fetch building footprints from OpenStreetMap (via Overpass API)
+ * and compute additional signal attenuation from traversal through buildings.
+ * Exports: fetchBuildings, buildingLossDb
  */
 
 const OVERPASS_MIRRORS = [
@@ -9,43 +9,27 @@ const OVERPASS_MIRRORS = [
   'https://overpass.kumi.systems/api/interpreter',
 ];
 
-// Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same data.
-// Old 'v3:' per-repeater exact-bbox keys become unreachable (stale but harmless).
-const TILE_SIZE = 0.25;  // degrees — 0.25° ≈ 27 km lat; a 15 km radius spans ≤ 4 tiles
-const CACHE_V   = 'fv4:'; // bumped; key format is now tile-based
+// Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same tiles.
+const TILE_SIZE = 0.25;  // degrees
+const CACHE_V   = 'bv2:'; // bumped; key format is now tile-based
+const TILE_N    = 16;
 
-function _snap(v) { return Math.floor(v / TILE_SIZE) * TILE_SIZE; }
+function _snapB(v) { return Math.floor(v / TILE_SIZE) * TILE_SIZE; }
 
-/** Return 0.25° tile descriptors covering the given bbox. */
-function _tilesForBbox(latMin, latMax, lonMin, lonMax) {
+function _tilesForBboxB(latMin, latMax, lonMin, lonMax) {
   const tiles = [];
-  for (let la = _snap(latMin); la < latMax; la += TILE_SIZE) {
-    for (let lo = _snap(lonMin); lo < lonMax; lo += TILE_SIZE) {
+  for (let la = _snapB(latMin); la < latMax; la += TILE_SIZE) {
+    for (let lo = _snapB(lonMin); lo < lonMax; lo += TILE_SIZE) {
       tiles.push({ la, lo, key: `${CACHE_V}${la.toFixed(4)}:${lo.toFixed(4)}` });
     }
   }
   return tiles;
 }
+const DEFAULT_WALL_LOSS_DB_PER_M = 0.5; // ~0.5 dB/m at 868 MHz (ITU-R P.2040 residential)
 
-// P2: tile grid resolution for spatial index
-const TILE_N = 16;
-
-// Average canopy heights (m above terrain) per vegetation type
-const CANOPY_HEIGHTS = {
-  forest:  20,   // landuse=forest — mature closed forest
-  wood:    20,   // natural=wood
-  scrub:    3,   // natural=scrub — low shrubs
-  orchard:  5,   // landuse=orchard
-};
-
-// B3: multi-entry in-memory cache (LRU-capped at 8 entries)
-const _memCache    = new Map();
+const _memCache     = new Map();
 const MEM_CACHE_MAX = 8;
 
-/**
- * P2: Build a simple tile-grid spatial index for fast polygon lookup.
- * Returns null if there are no polygons.
- */
 function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
   if (polygons.length === 0) return null;
   const latSpan = (latMax - latMin) || 1;
@@ -65,31 +49,43 @@ function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
 }
 
 /**
- * Fetch one 0.25° tile of foliage polygons (mem-cache → SQLite → Overpass).
+ * Determine building height from OSM tags (m above ground).
+ * Priority: `height` tag → `building:levels * 3` → default 5 m.
+ */
+function _buildingHeight(tags) {
+  if (tags?.height) {
+    const h = parseFloat(tags.height);
+    if (!isNaN(h) && h > 0) return h;
+  }
+  if (tags?.['building:levels']) {
+    const levels = parseFloat(tags['building:levels']);
+    if (!isNaN(levels) && levels > 0) return levels * 3.0 + 1.0; // +1 for roof
+  }
+  return 5.0; // single-story default
+}
+
+/**
+ * Fetch one 0.25° tile of building footprints (mem-cache → SQLite → Overpass).
  * Tiles are shared across all repeaters — cached once, reused for every coverage run in the area.
  */
-async function _fetchFoliageTile(la, lo, key) {
+async function _fetchBuildingsTile(la, lo, key) {
   if (_memCache.has(key)) {
-    console.debug(`[foliage] mem-cache hit tile ${key}`);
+    console.debug(`[buildings] mem-cache hit tile ${key}`);
     return _memCache.get(key);
   }
-  const sqlCached = await window.electronAPI.cacheFoliageLookup(key);
+  const sqlCached = await window.electronAPI.cacheBuildingsLookup(key);
   if (sqlCached) {
-    console.debug(`[foliage] SQLite hit tile ${key} — ${sqlCached.polygons.length} polygon(s)`);
+    console.debug(`[buildings] SQLite hit tile ${key} — ${sqlCached.polygons.length} building(s)`);
     if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
     _memCache.set(key, sqlCached);
     return sqlCached;
   }
-  console.info(`[foliage] fetching tile ${key} from Overpass`);
+  console.info(`[buildings] fetching tile ${key} from Overpass`);
 
   const tLatMax = (la + TILE_SIZE).toFixed(4);
   const tLonMax = (lo + TILE_SIZE).toFixed(4);
-  const bbox = `(${la},${lo},${tLatMax},${tLonMax})`;
-  const filters = [
-    ['landuse', 'forest'], ['natural', 'wood'],
-    ['natural', 'scrub'],  ['landuse', 'orchard'],
-  ].flatMap(([k, v]) => [`way["${k}"="${v}"]${bbox};`, `relation["${k}"="${v}"]${bbox};`]).join('');
-  const query = `[out:json][timeout:60];(${filters});out geom;`;
+  const bbox  = `(${la},${lo},${tLatMax},${tLonMax})`;
+  const query = `[out:json][timeout:60];(way["building"]${bbox};relation["building"]${bbox};);out geom tags;`;
 
   let res = null, lastErr = null;
   for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 2; attempt++) {
@@ -109,9 +105,9 @@ async function _fetchFoliageTile(la, lo, key) {
   if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
 
   const data = await res.json();
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [];
+  const polygons = [], bboxes = [], heights = [];
 
-  const addRing = (ring, factor, canopyH) => {
+  const addRing = (ring, h) => {
     if (ring.length < 3) return;
     let la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity;
     for (const [rla, rlo] of ring) {
@@ -120,88 +116,81 @@ async function _fetchFoliageTile(la, lo, key) {
     }
     polygons.push(ring);
     bboxes.push({ latMin: la0, latMax: la1, lonMin: lo0, lonMax: lo1 });
-    factors.push(factor);
-    canopyHeights.push(canopyH);
+    heights.push(h);
   };
 
   for (const el of data.elements) {
-    const tag      = el.tags?.landuse || el.tags?.natural;
-    const factor   = (tag === 'scrub' || tag === 'orchard') ? 0.5 : 1.0;
-    const canopyH  = CANOPY_HEIGHTS[tag] ?? 10;
+    const h = _buildingHeight(el.tags);
     if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
-      addRing(el.geometry.map(n => [n.lat, n.lon]), factor, canopyH);
+      addRing(el.geometry.map(n => [n.lat, n.lon]), h);
     } else if (el.type === 'relation' && el.members) {
       for (const m of el.members) {
         if (m.type !== 'way' || m.role === 'inner' || !m.geometry || m.geometry.length < 3) continue;
-        addRing(m.geometry.map(n => [n.lat, n.lon]), factor, canopyH);
+        addRing(m.geometry.map(n => [n.lat, n.lon]), h);
       }
     }
   }
 
-  console.info(`[foliage] tile ${key}: ${polygons.length} polygon(s)`);
-  const tileData = { polygons, bboxes, factors, canopyHeights };
+  console.info(`[buildings] tile ${key}: ${polygons.length} building(s)`);
+  const tileData = { polygons, bboxes, heights };
   if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
   _memCache.set(key, tileData);
-  await window.electronAPI.cacheFoliageStore(key, tileData);
+  await window.electronAPI.cacheBuildingsStore(key, tileData);
   return tileData;
 }
 
 /**
- * Fetch forest/wood polygons within a bounding box.
+ * Fetch building footprints within a bounding box.
  * Data is fetched and cached per 0.25° tile — nearby repeaters share the same tile data.
- * @returns {Promise<{ polygons, bboxes, factors, canopyHeights, tileIndex }>}
+ * @returns {Promise<{ polygons, bboxes, heights, tileIndex }>}
  */
-export async function fetchFoliage(latMin, latMax, lonMin, lonMax) {
-  const tiles = _tilesForBbox(latMin, latMax, lonMin, lonMax);
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [];
+export async function fetchBuildings(latMin, latMax, lonMin, lonMax) {
+  const tiles = _tilesForBboxB(latMin, latMax, lonMin, lonMax);
+  const polygons = [], bboxes = [], heights = [];
 
   for (const { la, lo, key } of tiles) {
     let td;
-    try { td = await _fetchFoliageTile(la, lo, key); }
-    catch (e) { console.warn(`[foliage] tile ${key} failed, skipping:`, e); continue; }
+    try { td = await _fetchBuildingsTile(la, lo, key); }
+    catch (e) { console.warn(`[buildings] tile ${key} failed, skipping:`, e); continue; }
     for (let i = 0; i < td.polygons.length; i++) {
       polygons.push(td.polygons[i]);
       bboxes.push(td.bboxes[i]);
-      factors.push(td.factors[i]);
-      canopyHeights.push(td.canopyHeights[i]);
+      heights.push(td.heights[i]);
     }
   }
 
-  console.info(`[foliage] merged ${polygons.length} polygon(s) from ${tiles.length} tile(s)`);
+  console.info(`[buildings] merged ${polygons.length} building(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);
-  return { polygons, bboxes, factors, canopyHeights, tileIndex };
+  return { polygons, bboxes, heights, tileIndex };
 }
 
 /**
- * Compute total foliage attenuation (dB) along a terrain profile path.
- * Height-aware: only attenuates the signal when the ray passes below the canopy top.
- * Uses the tile index (P2) to skip irrelevant polygons.
+ * Compute total building attenuation (dB) along a terrain profile path.
+ * The ray is attenuated when it passes through a building footprint below the rooftop.
  *
- * @param {Array<[number,number]>} profileLatLons  - [[lat,lon], …] for each sample
- * @param {number[]|Float32Array}  profileElevs    - terrain elevation (m AMSL) at each sample
- * @param {number}  txAntH      - TX antenna height above ground (m)
- * @param {number}  rxAntH      - RX antenna height above ground (m)
- * @param {Array<Array<[number,number]>>} polygons
+ * @param {Array<[number,number]>} profileLatLons
+ * @param {number[]|Float32Array}  profileElevs
+ * @param {number}  txAntH
+ * @param {number}  rxAntH
+ * @param {Array}   polygons
  * @param {Array}   bboxes
- * @param {number[]} canopyHeights  - canopy height (m above terrain) per polygon
- * @param {number[]} factors        - loss multiplier per polygon
+ * @param {number[]} heights     - building height (m above terrain) per polygon
  * @param {object|null} tileIndex
  * @param {number}  totalDistM
  * @param {number}  lossPerMeterDb
- * @returns {number} total foliage loss in dB
+ * @returns {number} total building loss in dB
  */
-export function foliageLossDb(profileLatLons, profileElevs, txAntH, rxAntH, polygons, bboxes, canopyHeights, factors, tileIndex, totalDistM, lossPerMeterDb) {
+export function buildingLossDb(profileLatLons, profileElevs, txAntH, rxAntH,
+                               polygons, bboxes, heights, tileIndex, totalDistM, lossPerMeterDb = DEFAULT_WALL_LOSS_DB_PER_M) {
   if (!polygons || polygons.length === 0) return 0;
   const n = profileLatLons.length;
   const segLen = totalDistM / (n - 1);
-  // Compute absolute elevation (AMSL) of TX and RX antenna tips
   const txAbsElev = (profileElevs?.[0]     ?? 0) + txAntH;
   const rxAbsElev = (profileElevs?.[n - 1] ?? 0) + rxAntH;
   let loss = 0;
   for (let si = 0; si < n; si++) {
     const [lat, lon] = profileLatLons[si];
-    // Ray absolute elevation at this sample (linear interpolation between antennas)
-    const t           = si / (n - 1);
+    const t = si / (n - 1);
     const rayAbsElev  = txAbsElev + (rxAbsElev - txAbsElev) * t;
     const terrainElev = profileElevs?.[si] ?? 0;
 
@@ -217,10 +206,9 @@ export function foliageLossDb(profileLatLons, profileElevs, txAntH, rxAntH, poly
       const bb = bboxes[i];
       if (lat < bb.latMin || lat > bb.latMax || lon < bb.lonMin || lon > bb.lonMax) continue;
       if (_pointInPolygon(lat, lon, polygons[i])) {
-        const canopyTop = terrainElev + (canopyHeights?.[i] ?? 10);
-        // Only attenuate when ray is physically within the canopy
-        if (rayAbsElev <= canopyTop) {
-          loss += segLen * lossPerMeterDb * (factors?.[i] ?? 1.0);
+        const rooftopElev = terrainElev + (heights?.[i] ?? 5);
+        if (rayAbsElev <= rooftopElev) {
+          loss += segLen * lossPerMeterDb;
         }
         break;
       }
@@ -239,4 +227,3 @@ function _pointInPolygon(lat, lon, poly) {
   }
   return inside;
 }
-

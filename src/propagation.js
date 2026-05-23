@@ -73,6 +73,11 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
   const λ    = _getLambda(freqMHz);
   const fracs = _getFracs(n);
 
+  // Earth-curvature correction using effective Earth radius (k = 4/3, standard atmosphere).
+  // Adds d1*d2/(2*Re_eff) to each terrain sample, accounting for the planet's curvature
+  // over long paths.  At 15 km the peak bulge is ~14 m — significant for marginal links.
+  const Re_eff = 6371000 * (4 / 3);
+
   let maxV = -Infinity;
 
   for (let i = 1; i < n - 1; i++) {
@@ -80,7 +85,8 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
     const d2    = totalDistM - d1;
     const lineH = txH + (rxH - txH) * fracs[i];
     const r1    = useFresnel ? Math.sqrt(λ * d1 * d2 / totalDistM) : 0;
-    const h     = profileElevs[i] + r1 - lineH;
+    const bulge = d1 * d2 / (2 * Re_eff);               // effective terrain rise due to Earth curvature
+    const h     = profileElevs[i] + bulge + r1 - lineH;
     const v     = h * Math.sqrt(2 * totalDistM / (λ * d1 * d2));
     if (v > maxV) maxV = v;
   }
@@ -95,19 +101,6 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
   return { los: maxV < 0, diffractionLossDb: Math.max(0, loss) };
 }
 
-// ─── Signal strength → RGBA colour ──────────────────────────────
-/**
- * @param {number} sigDbm   - received signal power (dBm)
- * @param {number} rxSens   - receiver sensitivity threshold (dBm)
- * @returns {[number,number,number,number]} [r, g, b, a]
- */
-export function signalToRGBA(sigDbm, rxSens) {
-  if (sigDbm < rxSens)  return [80,   0,  0,  90]; // below threshold
-  if (sigDbm > -90)     return [0,  200, 80, 180]; // strong
-  if (sigDbm > -110)    return [100, 220,  0, 165]; // good
-  if (sigDbm > -125)    return [255, 200,  0, 155]; // marginal
-  return                       [255,  80,  0, 140]; // weak
-}
 
 // P6: write directly into a Uint8ClampedArray — avoids one [r,g,b,a] allocation per pixel
 /**
@@ -116,14 +109,35 @@ export function signalToRGBA(sigDbm, rxSens) {
  * @param {number}            sigDbm
  * @param {number}            rxSens
  */
+// Gradient stops: [normalised 0-1, r, g, b, alpha]
+// 0 = at rxSens (threshold), 1 = strong signal (cap at -70 dBm)
+const GRAD = [
+  [0.00, 220,  40,   0, 120],  // red-orange  — just above threshold
+  [0.25, 255, 160,   0, 145],  // amber
+  [0.50, 230, 220,   0, 155],  // yellow
+  [0.75,  80, 210,  30, 165],  // yellow-green
+  [1.00,   0, 200,  90, 180],  // green       — strong signal
+];
+
 export function writePixel(buf, base, sigDbm, rxSens) {
-  let r, g, b, a;
-  if      (sigDbm < rxSens) { r=80;  g=0;   b=0;  a=90;  }
-  else if (sigDbm > -90)    { r=0;   g=200; b=80; a=180; }
-  else if (sigDbm > -110)   { r=100; g=220; b=0;  a=165; }
-  else if (sigDbm > -125)   { r=255; g=200; b=0;  a=155; }
-  else                      { r=255; g=80;  b=0;  a=140; }
-  buf[base]=r; buf[base+1]=g; buf[base+2]=b; buf[base+3]=a;
+  if (sigDbm < rxSens) {
+    // Below threshold — dark red, semi-transparent
+    buf[base]=70; buf[base+1]=0; buf[base+2]=0; buf[base+3]=70;
+    return;
+  }
+  const CAP = rxSens + 50;                    // map [rxSens … rxSens+50 dB] → [0 … 1]
+  const t = Math.min(1, (sigDbm - rxSens) / (CAP - rxSens));
+
+  // Find which segment t falls in
+  let i = 1;
+  while (i < GRAD.length - 1 && t > GRAD[i][0]) i++;
+  const lo = GRAD[i - 1], hi = GRAD[i];
+  const f = (t - lo[0]) / (hi[0] - lo[0]);
+
+  buf[base]   = Math.round(lo[1] + f * (hi[1] - lo[1]));
+  buf[base+1] = Math.round(lo[2] + f * (hi[2] - lo[2]));
+  buf[base+2] = Math.round(lo[3] + f * (hi[3] - lo[3]));
+  buf[base+3] = Math.round(lo[4] + f * (hi[4] - lo[4]));
 }
 
 // ─── Bilinear elevation interpolation ───────────────────────────
