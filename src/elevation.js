@@ -2,30 +2,70 @@
  * elevation.js
  * Fetches terrain elevation data using high-accuracy APIs, with SQLite caching.
  * Cache is keyed on lat/lon rounded to 4 decimal places (~11m precision).
- *
- * API priority (best-to-worst resolution):
- *   1. opentopodata.org/srtm30m  — SRTM 1 arc-second, 30m global coverage
- *   2. opentopodata.org/aster30m — ASTER GDEM v3, 30m (different source fills SRTM voids)
- *   3. open-elevation.com        — SRTM ~90m, last resort
- *
- * Null elevations (SRTM voids) are filled by forward/backward propagation from
- * neighbouring profile points instead of defaulting to 0m.
  */
 
-// Per-API config: url, max locations per POST request, inter-batch delay (ms)
 const ELEVATION_APIS = [
-  { url: 'https://api.opentopodata.org/v1/srtm30m',  maxBatch: 100, delayMs: 1100, name: 'opentopodata/srtm30m'  },
-  { url: 'https://api.opentopodata.org/v1/aster30m', maxBatch: 100, delayMs: 1100, name: 'opentopodata/aster30m' },
-  { url: 'https://api.open-elevation.com/api/v1/lookup', maxBatch: 256, delayMs: 500, name: 'open-elevation.com' },
+  {
+    url: 'https://api.opentopodata.org/v1/srtm30m,aster30m',
+    maxBatch: 100,
+    delayMs: 1100,
+    name: 'opentopodata/srtm30m+aster30m',
+    body: 'pipe',
+  },
+  {
+    url: 'https://api.open-elevation.com/api/v1/lookup',
+    maxBatch: 256,
+    delayMs: 500,
+    name: 'open-elevation.com',
+    body: 'array',
+  },
 ];
 
-const sleep  = ms => new Promise(r => setTimeout(r, ms));
-const round4 = v  => Math.round(v * 1e4) / 1e4;
+function _abortError() {
+  const err = new Error('Cancelled');
+  err.name = 'AbortError';
+  err.cancelled = true;
+  return err;
+}
 
-// Session-scoped in-memory cache — keyed on "lat,lon" (rounded 4 dp).
-// P13: capped at ELEV_MEM_MAX entries; when exceeded the oldest 25% are evicted.
+function _throwIfAborted(signal) {
+  if (signal?.aborted) throw _abortError();
+}
+
+function _isAbort(err) {
+  return err?.cancelled || err?.name === 'AbortError';
+}
+
+function sleep(ms, signal) {
+  _throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(cleanup, ms);
+    function cleanup() {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }
+    function onAbort() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(_abortError());
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+const round4 = v => Math.round(v * 1e4) / 1e4;
+
 const _elevMem = new Map();
 const ELEV_MEM_MAX = 500_000;
+
+function _metric(stats, key, amount = 1) {
+  if (!stats) return;
+  stats[key] = (stats[key] ?? 0) + amount;
+}
+
+function _key(lat, lon) {
+  return `${lat},${lon}`;
+}
+
 function _elevMemSet(k, v) {
   if (_elevMem.size >= ELEV_MEM_MAX) {
     const evict = Math.ceil(ELEV_MEM_MAX * 0.25);
@@ -39,143 +79,195 @@ function _elevMemSet(k, v) {
   _elevMem.set(k, v);
 }
 
-/**
- * Fetch elevations for an array of { latitude, longitude } points.
- * Returns a matching array of elevation values in metres.
- * Lookup order: in-memory → SQLite bbox query (IPC) → external API.
- *
- * @param {Array<{latitude: number, longitude: number}>} points
- * @returns {Promise<number[]>}
- */
-export async function fetchElevations(points) {
-  const rounded = points.map(p => ({ lat: round4(p.latitude), lon: round4(p.longitude) }));
+function _dedupeRounded(points) {
+  const unique = [];
+  const byKey = new Map();
+  const pointToUnique = new Int32Array(points.length);
 
-  // 1. Check in-memory cache first — zero IPC cost
-  const results       = new Array(points.length);
-  const missingMemIdx = [];
-  for (let i = 0; i < rounded.length; i++) {
-    const k = `${rounded[i].lat},${rounded[i].lon}`;
-    if (_elevMem.has(k)) {
-      results[i] = _elevMem.get(k);
-    } else {
-      missingMemIdx.push(i);
+  for (let i = 0; i < points.length; i++) {
+    const lat = round4(points[i].latitude);
+    const lon = round4(points[i].longitude);
+    const key = _key(lat, lon);
+    let idx = byKey.get(key);
+    if (idx === undefined) {
+      idx = unique.length;
+      byKey.set(key, idx);
+      unique.push({ lat, lon, key, elev: undefined });
     }
+    pointToUnique[i] = idx;
   }
 
-  if (missingMemIdx.length === 0) {
-    console.debug(`[elevation] mem-cache hit — all ${points.length} points`);
-    return results;
+  return { unique, pointToUnique };
+}
+
+async function _lookupCache(points) {
+  if (window.electronAPI?.cacheElevationsLookupMany) {
+    return window.electronAPI.cacheElevationsLookupMany(points);
   }
 
-  // 2. SQLite bbox query for points not yet in memory (P11)
   let latMin = Infinity, latMax = -Infinity, lonMin = Infinity, lonMax = -Infinity;
-  for (const i of missingMemIdx) {
-    const p = rounded[i];
+  for (const p of points) {
     if (p.lat < latMin) latMin = p.lat;
     if (p.lat > latMax) latMax = p.lat;
     if (p.lon < lonMin) lonMin = p.lon;
     if (p.lon > lonMax) lonMax = p.lon;
   }
-  const cachedRows = await window.electronAPI.cacheElevationsLookupBbox({ latMin, latMax, lonMin, lonMax });
-
-  const dbMap = new Map();
-  for (const row of cachedRows) {
-    const k = `${row.lat},${row.lon}`;
-    dbMap.set(k, row.elev);
-    _elevMemSet(k, row.elev);
-  }
-
-  const missingApiIdx = [];
-  for (const i of missingMemIdx) {
-    const k = `${rounded[i].lat},${rounded[i].lon}`;
-    if (dbMap.has(k)) {
-      results[i] = dbMap.get(k);
-    } else {
-      missingApiIdx.push(i);
-    }
-  }
-
-  if (missingApiIdx.length === 0) {
-    console.debug(`[elevation] mem: ${points.length - missingMemIdx.length} / SQLite: ${missingMemIdx.length} — no API call needed`);
-    return results;
-  }
-  console.info(`[elevation] mem: ${points.length - missingMemIdx.length}, SQLite: ${missingMemIdx.length - missingApiIdx.length}, API: ${missingApiIdx.length}`);
-
-  // 3. Fetch remaining from external API
-  const missingPoints = missingApiIdx.map(i => ({ latitude: rounded[i].lat, longitude: rounded[i].lon }));
-  const fetched = await _fetchFromAPI(missingPoints);
-
-  const toStore = [];
-  for (let j = 0; j < missingApiIdx.length; j++) {
-    const idx = missingApiIdx[j];
-    const k   = `${rounded[idx].lat},${rounded[idx].lon}`;
-    results[idx] = fetched[j];
-    _elevMemSet(k, fetched[j]);
-    toStore.push({ lat: rounded[idx].lat, lon: rounded[idx].lon, elev: fetched[j] });
-  }
-
-  await window.electronAPI.cacheElevationsStore(toStore);
-  console.debug(`[elevation] stored ${toStore.length} new points to SQLite`);
-  return results;
+  return window.electronAPI.cacheElevationsLookupBbox({ latMin, latMax, lonMin, lonMax });
 }
 
 /**
- * Try each API in priority order until one succeeds for all points.
- * Each API has its own maxBatch limit and inter-batch pacing.
+ * Fetch elevations for an array of { latitude, longitude } points.
+ * Returns a matching array of elevation values in metres.
+ *
+ * @param {Array<{latitude: number, longitude: number}>} points
+ * @param {object|null} stats optional mutable metrics object
+ * @returns {Promise<number[]>}
  */
-async function _fetchFromAPI(points) {
+export async function fetchElevations(points, stats = null, options = {}) {
+  if (!points.length) return [];
+  const signal = options.signal;
+  _throwIfAborted(signal);
+
+  _metric(stats, 'calls');
+  _metric(stats, 'requestedPoints', points.length);
+
+  const { unique, pointToUnique } = _dedupeRounded(points);
+  _metric(stats, 'uniquePoints', unique.length);
+  _metric(stats, 'duplicatePoints', points.length - unique.length);
+
+  const missingMem = [];
+  for (const item of unique) {
+    if (_elevMem.has(item.key)) {
+      item.elev = _elevMem.get(item.key);
+      _metric(stats, 'memHits');
+    } else {
+      missingMem.push(item);
+    }
+  }
+
+  if (missingMem.length) {
+    _throwIfAborted(signal);
+    const cachedRows = await _lookupCache(missingMem.map(({ lat, lon }) => ({ lat, lon })));
+    _throwIfAborted(signal);
+    const dbMap = new Map();
+    for (const row of cachedRows) {
+      const key = _key(row.lat, row.lon);
+      dbMap.set(key, row.elev);
+      _elevMemSet(key, row.elev);
+    }
+
+    const missingApi = [];
+    for (const item of missingMem) {
+      if (dbMap.has(item.key)) {
+        item.elev = dbMap.get(item.key);
+        _metric(stats, 'dbHits');
+      } else {
+        missingApi.push(item);
+      }
+    }
+
+    if (missingApi.length) {
+      _metric(stats, 'cacheMisses', missingApi.length);
+      _metric(stats, 'apiPoints', missingApi.length);
+      const missingPoints = missingApi.map(({ lat, lon }) => ({ latitude: lat, longitude: lon }));
+      const fetched = await _fetchFromAPI(missingPoints, stats, signal);
+      const toStore = [];
+
+      for (let i = 0; i < missingApi.length; i++) {
+        const item = missingApi[i];
+        item.elev = fetched[i];
+        _elevMemSet(item.key, fetched[i]);
+        toStore.push({ lat: item.lat, lon: item.lon, elev: fetched[i] });
+      }
+
+      _throwIfAborted(signal);
+      await window.electronAPI.cacheElevationsStore(toStore);
+      _metric(stats, 'storedPoints', toStore.length);
+      console.debug(`[elevation] stored ${toStore.length} new points to SQLite`);
+    }
+  }
+
+  const results = new Array(points.length);
+  for (let i = 0; i < pointToUnique.length; i++) {
+    results[i] = unique[pointToUnique[i]].elev;
+  }
+
+  console.info(
+    `[elevation] requested=${points.length}, unique=${unique.length}, ` +
+    `mem=${stats?.memHits ?? 0}, db=${stats?.dbHits ?? 0}, api=${stats?.apiPoints ?? 0}`
+  );
+  return results;
+}
+
+async function _fetchFromAPI(points, stats, signal) {
   let lastErr = null;
   for (const api of ELEVATION_APIS) {
     try {
-      const result = await _fetchFromSingleAPI(api, points);
-      return result;
+      return await _fetchFromSingleAPI(api, points, stats, signal);
     } catch (err) {
-      console.warn(`[elevation] ${api.name} failed: ${err.message} — trying next source`);
+      if (_isAbort(err)) throw err;
+      console.warn(`[elevation] ${api.name} failed: ${err.message} - trying next source`);
       lastErr = err;
     }
   }
   throw new Error(`All elevation sources exhausted: ${lastErr?.message ?? 'unknown'}`);
 }
 
-async function _fetchFromSingleAPI(api, points) {
+function _requestBody(api, batch) {
+  if (api.body === 'pipe') {
+    return JSON.stringify({
+      locations: batch.map(p => `${p.latitude},${p.longitude}`).join('|'),
+      interpolation: 'bilinear',
+    });
+  }
+  return JSON.stringify({ locations: batch });
+}
+
+async function _fetchFromSingleAPI(api, points, stats, signal) {
   const results = new Array(points.length).fill(null);
 
   for (let i = 0; i < points.length; i += api.maxBatch) {
-    if (i > 0) await sleep(api.delayMs);
+    _throwIfAborted(signal);
+    if (i > 0) await sleep(api.delayMs, signal);
 
     const batch = points.slice(i, i + api.maxBatch);
     let resp = null, lastErr = null;
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await sleep(2000 * attempt);
+      _throwIfAborted(signal);
+      if (attempt > 0) await sleep(2000 * attempt, signal);
       const controller = new AbortController();
+      const onAbort = () => controller.abort();
+      signal?.addEventListener('abort', onAbort, { once: true });
       const timer = setTimeout(() => controller.abort(), 25000);
       try {
+        _metric(stats, 'apiRequests');
         resp = await fetch(api.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ locations: batch }),
+          body: _requestBody(api, batch),
           signal: controller.signal,
         });
         clearTimeout(timer);
       } catch (err) {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        if (signal?.aborted) throw _abortError();
         lastErr = err;
-        continue; // likely network timeout — retry
+        continue;
       }
+      signal?.removeEventListener('abort', onAbort);
 
       if (resp.status === 429) {
-        // Rate-limited — wait a bit longer and retry
         resp = null;
-        await sleep(5000);
+        await sleep(5000, signal);
         continue;
       }
       if (resp.status >= 400) {
-        // HTTP 4xx/5xx — this API can't serve this batch; try the next API
         resp = null;
         break;
       }
-      break; // success
+      break;
     }
 
     if (!resp) throw new Error(`${api.name}: ${lastErr?.message ?? 'HTTP error after retries'}`);
@@ -193,33 +285,24 @@ async function _fetchFromSingleAPI(api, points) {
     console.debug(`[elevation] ${api.name}: fetched ${Math.min(i + api.maxBatch, points.length) - i} points`);
   }
 
-  // Fill SRTM voids: propagate from neighbours instead of defaulting to 0 m.
-  // A 0 m value on a 2000 m ridge causes catastrophic diffraction errors.
   _fillNulls(results, points);
   return results;
 }
 
-/**
- * Fill null elevations (data voids) using forward/backward propagation along
- * the profile array. This preserves correct terrain heights at either end of a void.
- * Absolute fallback of 0 m should never fire for real terrain if the API works.
- */
 function _fillNulls(results, points) {
-  // Forward fill
   let last = null;
   for (let i = 0; i < results.length; i++) {
-    if (results[i] !== null) { last = results[i]; }
-    else if (last !== null)  { results[i] = last; }
+    if (results[i] !== null) last = results[i];
+    else if (last !== null) results[i] = last;
   }
-  // Backward fill (handles leading nulls)
+
   last = null;
   for (let i = results.length - 1; i >= 0; i--) {
-    if (results[i] !== null) { last = results[i]; }
-    else if (last !== null)  { results[i] = last; }
+    if (results[i] !== null) last = results[i];
+    else if (last !== null) results[i] = last;
     else {
       results[i] = 0;
-      console.warn(`[elevation] no elevation data at ${points[i]?.latitude},${points[i]?.longitude} — defaulting to 0 m`);
+      console.warn(`[elevation] no elevation data at ${points[i]?.latitude},${points[i]?.longitude} - defaulting to 0 m`);
     }
   }
 }
-

@@ -32,6 +32,12 @@ L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
 // Subsequent launches restore the position saved in localStorage.
 (function _initMapCenter() {
   const GEO_KEY = 'meshcoreMapper_mapCenter';
+  const persistCenter = () => {
+    const c = map.getCenter();
+    localStorage.setItem(GEO_KEY, JSON.stringify({ lat: c.lat, lon: c.lng, zoom: map.getZoom() }));
+  };
+  map.on('moveend', persistCenter);
+
   const saved = localStorage.getItem(GEO_KEY);
   if (saved) {
     try {
@@ -47,11 +53,6 @@ L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
       localStorage.setItem(GEO_KEY, JSON.stringify({ lat, lon, zoom: 10 }));
     }, () => {}); // silently ignore if denied / unavailable
   }
-  // persist centre on every subsequent map move so the next launch restores position
-  map.on('moveend', () => {
-    const c = map.getCenter();
-    localStorage.setItem(GEO_KEY, JSON.stringify({ lat: c.lat, lon: c.lng, zoom: map.getZoom() }));
-  });
 })();
 
 map.on('mousemove', (e) => {

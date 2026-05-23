@@ -1,5 +1,5 @@
 /**
- * mapLayers.js — Independent OSM overlay layers (foliage, buildings).
+ * mapLayers.js - Independent OSM overlay layers (foliage, buildings).
  * These are visual reference layers shown on the map regardless of whether
  * coverage analysis is running. Fetched based on the current map viewport.
  * Exports: init
@@ -7,23 +7,22 @@
 import { map, state, clearFoliageLayers, clearBuildingLayers } from './map.js';
 import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
+import { setButtonBusy, setInlineStatus } from './ui.js';
 
-let _foliageEnabled   = false;
+let _foliageEnabled = false;
 let _buildingsEnabled = false;
-let _autoRefresh      = true;
-let _loading          = false;
-let _refreshTimer     = null;
+let _autoRefresh = true;
+let _loading = false;
+let _refreshTimer = null;
 
-// Shared canvas renderer for all overlay polygons
 let _polyRenderer = null;
 function _getRenderer() {
   if (!_polyRenderer) _polyRenderer = L.canvas({ padding: 0.1 });
   return _polyRenderer;
 }
 
-function _setStatus(msg) {
-  const el = document.getElementById('layer-status');
-  if (el) el.textContent = msg;
+function _setStatus(msg, kind = 'info') {
+  setInlineStatus('layer-status', msg, kind);
 }
 
 async function _loadFoliage() {
@@ -47,8 +46,8 @@ async function _loadBuildings() {
   const data = await fetchBuildings(b.getSouth(), b.getNorth(), b.getWest(), b.getEast());
   for (let bi = 0; bi < data.polygons.length; bi++) {
     const poly = data.polygons[bi];
-    const h    = data.heights[bi] ?? 5;
-    const t    = Math.min(1, h / 30);
+    const h = data.heights[bi] ?? 5;
+    const t = Math.min(1, h / 30);
     const fill = t < 0.33 ? '#9ca3af' : t < 0.66 ? '#c4a875' : '#a0856e';
     const layer = L.polygon(poly, {
       renderer: _getRenderer(),
@@ -62,12 +61,15 @@ async function _loadBuildings() {
 
 async function _refresh() {
   if (_loading) return;
-  if (!_foliageEnabled && !_buildingsEnabled) return;
+  if (!_foliageEnabled && !_buildingsEnabled) {
+    _setStatus('Enable vegetation or buildings before refreshing.', 'warning');
+    return;
+  }
 
   _loading = true;
   const btn = document.getElementById('btn-refresh-layers');
-  if (btn) btn.disabled = true;
-  _setStatus('Loading…');
+  setButtonBusy(btn, true, 'Loading...');
+  _setStatus('Loading layers...');
 
   try {
     const parts = [];
@@ -79,13 +81,13 @@ async function _refresh() {
       const n = await _loadBuildings();
       parts.push(`${n} building${n !== 1 ? 's' : ''}`);
     }
-    _setStatus(parts.length ? parts.join(', ') + ' loaded.' : '');
+    _setStatus(parts.length ? parts.join(', ') + ' loaded.' : '', parts.length ? 'success' : 'info');
   } catch (e) {
-    _setStatus('Fetch failed — check connection.');
+    _setStatus('Layer fetch failed. Check connection.', 'error');
     console.warn('[mapLayers] refresh failed:', e);
   } finally {
     _loading = false;
-    if (btn) btn.disabled = false;
+    setButtonBusy(btn, false);
   }
 }
 
@@ -96,23 +98,32 @@ function _scheduleRefresh() {
 }
 
 export function init() {
-  document.getElementById('layer-foliage').addEventListener('change', async (e) => {
+  const foliageEl = document.getElementById('layer-foliage');
+  const buildingsEl = document.getElementById('layer-buildings');
+  const autoRefreshEl = document.getElementById('layer-auto-refresh');
+
+  _foliageEnabled = foliageEl.checked;
+  _buildingsEnabled = buildingsEl.checked;
+  _autoRefresh = autoRefreshEl.checked;
+
+  foliageEl.addEventListener('change', async (e) => {
     _foliageEnabled = e.target.checked;
     if (!_foliageEnabled) { clearFoliageLayers(); _setStatus(''); return; }
     await _refresh();
   });
 
-  document.getElementById('layer-buildings').addEventListener('change', async (e) => {
+  buildingsEl.addEventListener('change', async (e) => {
     _buildingsEnabled = e.target.checked;
     if (!_buildingsEnabled) { clearBuildingLayers(); _setStatus(''); return; }
     await _refresh();
   });
 
-  document.getElementById('layer-auto-refresh').addEventListener('change', (e) => {
+  autoRefreshEl.addEventListener('change', (e) => {
     _autoRefresh = e.target.checked;
   });
 
   document.getElementById('btn-refresh-layers').addEventListener('click', _refresh);
 
   map.on('moveend', _scheduleRefresh);
+  if (_foliageEnabled || _buildingsEnabled) setTimeout(_refresh, 0);
 }

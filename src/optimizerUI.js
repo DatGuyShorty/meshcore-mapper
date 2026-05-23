@@ -3,10 +3,16 @@
  * Exports: init
  */
 import { map } from './map.js';
-import { setProgress, hideProgress, setStatus, yieldToUI } from './ui.js';
+import {
+  setProgress, hideProgress, setStatus, yieldToUI,
+  setActiveTab, setButtonBusy, setInlineStatus,
+} from './ui.js';
 import { addRepeater, cancelPlacing } from './repeaters.js';
 import { buildGrid } from './optimizer.js';
 import { fetchElevations } from './elevation.js';
+import { fetchFoliage } from './foliage.js';
+import { fetchBuildings } from './buildings.js';
+import { getOptimizerSettings } from './settings.js';
 
 // Module-local interaction state
 let drawing     = false;
@@ -26,6 +32,7 @@ function clearArea() {
   drawing = false;
   document.getElementById('draw-hint').classList.add('hidden');
   document.getElementById('btn-optimize').disabled = true;
+  setInlineStatus('opt-status', 'Draw a search area to enable the optimizer.', 'info');
   map.getContainer().style.cursor = '';
   clearResults();
 }
@@ -52,7 +59,7 @@ function renderResults(results, txParams) {
       <span class="ori-rank">#${i + 1}</span>
       <div class="ori-info">
         <div class="ori-coords">${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}</div>
-        <div class="ori-score">${(r.score * 100).toFixed(1)}% coverage · ${r.elevM.toFixed(0)} m elev</div>
+        <div class="ori-score">${(r.score * 100).toFixed(1)}% coverage, ${r.elevM.toFixed(0)} m elev</div>
       </div>
       <button class="ori-add" title="Add as repeater">+ Add</button>`;
     li.querySelector('.ori-add').addEventListener('click', () => {
@@ -76,6 +83,7 @@ export function init() {
     corner1 = null;
     cancelPlacing();
     document.getElementById('draw-hint').classList.remove('hidden');
+    setInlineStatus('opt-status', 'Draw mode active.', 'warning');
     map.getContainer().style.cursor = 'crosshair';
   });
 
@@ -93,10 +101,10 @@ export function init() {
     drawing = false;
     document.getElementById('draw-hint').classList.add('hidden');
     document.getElementById('btn-optimize').disabled = false;
+    setInlineStatus('opt-status', 'Search area ready.', 'success');
     clearResults();
     map.fitBounds(bounds, { padding: [40, 40] });
-    // Switch to Tools tab so the optimizer panel is visible
-    document.querySelector('[data-tab="tools"]')?.click();
+    setActiveTab('planning');
   });
 
   map.on('click', (e) => {
@@ -105,7 +113,7 @@ export function init() {
 
     if (!corner1) {
       corner1 = { lat: e.latlng.lat, lon: e.latlng.lng };
-      document.getElementById('draw-hint').textContent = 'Now click the opposite corner…';
+      document.getElementById('draw-hint').textContent = 'Now click the opposite corner.';
       return;
     }
 
@@ -120,8 +128,9 @@ export function init() {
 
     drawing = false;
     document.getElementById('draw-hint').classList.add('hidden');
-    document.getElementById('draw-hint').textContent = 'Click two opposite corners of the search area on the map…';
+    document.getElementById('draw-hint').textContent = 'Click two opposite corners of the search area on the map.';
     document.getElementById('btn-optimize').disabled = false;
+    setInlineStatus('opt-status', 'Search area ready.', 'success');
     map.getContainer().style.cursor = '';
     clearResults();
   });
@@ -137,43 +146,44 @@ export function init() {
 
     if (bounds.latMax - bounds.latMin < 0.001 || bounds.lonMax - bounds.lonMin < 0.001) {
       setStatus('Search area is too small. Draw a larger rectangle.');
+      setInlineStatus('opt-status', 'Search area is too small.', 'error');
       return;
     }
 
-    const txParams = {
-      height: parseFloat(document.getElementById('opt-height').value)       || 10,
-      power:  parseFloat(document.getElementById('repeater-power').value)   || 20,
-      freq:   parseFloat(document.getElementById('repeater-freq').value)    || 868,
-      gain:   parseFloat(document.getElementById('repeater-gain').value)    || 2,
-    };
-
-    const opts = {
-      rxHeight:     parseFloat(document.getElementById('rx-height').value)       || 1.5,
-      rxSens:       parseFloat(document.getElementById('rx-sensitivity').value)  || -137,
-      fadeMargin:   parseFloat(document.getElementById('fade-margin').value)     || 0,
-      radiusKm:     parseFloat(document.getElementById('analysis-radius').value) || 15,
-      useLos:       document.getElementById('use-los').checked,
-      useFresnel:   document.getElementById('use-fresnel').checked,
-      candidateRes: parseInt(document.getElementById('opt-candidate-res').value) || 20,
-      evalRes: 48,
-    };
-
-    const nRepeaters = parseInt(document.getElementById('opt-n-repeaters').value) || 1;
+    const { txParams, opts, nRepeaters } = getOptimizerSettings();
 
     clearResults();
+    setButtonBusy('btn-optimize', true, 'Scoring...');
+    setInlineStatus('opt-status', 'Scoring candidate locations...', 'info');
 
     try {
-      setProgress(2, 'Building evaluation grid…');
+      setProgress(2, 'Building evaluation grid...');
       const evalPoints = buildGrid(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax, opts.evalRes);
       const candidates = buildGrid(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax, opts.candidateRes);
 
-      setProgress(5, `Fetching elevation for ${evalPoints.length + candidates.length} points…`);
+      setProgress(5, `Fetching elevation for ${evalPoints.length + candidates.length} points...`);
       const allPoints = [...evalPoints, ...candidates];
       const allElevs  = opts.useLos ? await fetchElevations(allPoints) : allPoints.map(() => 0);
       const evalElevs      = allElevs.slice(0, evalPoints.length);
       const candidateElevs = allElevs.slice(evalPoints.length);
 
-      setProgress(20, 'Scoring candidate locations…');
+      if (opts.useFoliage || opts.useBuildings) {
+        setProgress(12, 'Fetching obstacle layers...');
+        const [foliage, buildings] = await Promise.all([
+          opts.useFoliage
+            ? fetchFoliage(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax)
+                .catch(e => { console.warn('[optimizer] foliage fetch failed, skipping:', e); return null; })
+            : Promise.resolve(null),
+          opts.useBuildings
+            ? fetchBuildings(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax)
+                .catch(e => { console.warn('[optimizer] buildings fetch failed, skipping:', e); return null; })
+            : Promise.resolve(null),
+        ]);
+        opts.foliage = foliage;
+        opts.buildings = buildings;
+      }
+
+      setProgress(20, 'Scoring candidate locations...');
 
       const results = await _runOptimizerWorker(
         { evalPoints, evalElevs, candidates, candidateElevs, nRepeaters, txParams,
@@ -187,10 +197,14 @@ export function init() {
       hideProgress();
       renderResults(results, txParams);
       setStatus(`Optimizer found ${results.length} best location(s).`);
+      setInlineStatus('opt-status', `Found ${results.length} best location${results.length !== 1 ? 's' : ''}.`, 'success');
     } catch (err) {
       hideProgress();
       setStatus(`Optimizer error: ${err.message}`);
+      setInlineStatus('opt-status', `Optimizer error: ${err.message}`, 'error');
       console.error(err);
+    } finally {
+      setButtonBusy('btn-optimize', false);
     }
   });
 }

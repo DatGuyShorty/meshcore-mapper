@@ -3,7 +3,7 @@
  * and compute additional signal attenuation from forest traversal.
  * Exports: fetchFoliage, foliageLossDb
  */
-import { pointInPolygon } from './propagation.js';
+import { earthBulgeM, segmentPolygonIntervals } from './propagation.js';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -14,6 +14,34 @@ const OVERPASS_MIRRORS = [
 // Old 'v3:' per-repeater exact-bbox keys become unreachable (stale but harmless).
 const TILE_SIZE = 0.25;  // degrees — 0.25° ≈ 27 km lat; a 15 km radius spans ≤ 4 tiles
 const CACHE_V   = 'fv4:'; // bumped; key format is now tile-based
+
+function _abortError() {
+  const err = new Error('Cancelled');
+  err.name = 'AbortError';
+  err.cancelled = true;
+  return err;
+}
+
+function _throwIfAborted(signal) {
+  if (signal?.aborted) throw _abortError();
+}
+
+function _sleep(ms, signal) {
+  _throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(cleanup, ms);
+    function cleanup() {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }
+    function onAbort() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(_abortError());
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 function _snap(v) { return Math.floor(v / TILE_SIZE) * TILE_SIZE; }
 
@@ -75,7 +103,8 @@ function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
  * Fetch one 0.25° tile of foliage polygons (mem-cache → SQLite → Overpass).
  * Tiles are shared across all repeaters — cached once, reused for every coverage run in the area.
  */
-async function _fetchFoliageTile(la, lo, key) {
+async function _fetchFoliageTile(la, lo, key, { signal = null } = {}) {
+  _throwIfAborted(signal);
   if (_memCache.has(key)) {
     console.debug(`[foliage] mem-cache hit tile ${key}`);
     return _memCache.get(key);
@@ -104,15 +133,25 @@ async function _fetchFoliageTile(la, lo, key) {
 
   let res = null, lastErr = null;
   for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 2; attempt++) {
+    _throwIfAborted(signal);
     const base = OVERPASS_MIRRORS[attempt % OVERPASS_MIRRORS.length];
     const url  = `${base}?data=${encodeURIComponent(query)}`;
-    if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length)));
+    if (attempt > 0) await _sleep(2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length), signal);
     const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), 60000);
     try {
       res = await fetch(url, { headers: { 'Accept': '*/*' }, signal: controller.signal });
       clearTimeout(timer);
-    } catch (err) { clearTimeout(timer); lastErr = err; continue; }
+    } catch (err) {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      if (signal?.aborted) throw _abortError();
+      lastErr = err;
+      continue;
+    }
+    signal?.removeEventListener('abort', onAbort);
     if (res.status === 429 || res.status === 406 || res.status >= 500) { res = null; continue; }
     break;
   }
@@ -166,14 +205,21 @@ async function _fetchFoliageTile(la, lo, key) {
  * Data is fetched and cached per 0.25° tile — nearby repeaters share the same tile data.
  * @returns {Promise<{ polygons, bboxes, factors, canopyHeights, tileIndex }>}
  */
-export async function fetchFoliage(latMin, latMax, lonMin, lonMax) {
+export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {}) {
+  const { signal = null } = options;
+  _throwIfAborted(signal);
   const tiles = _tilesForBbox(latMin, latMax, lonMin, lonMax);
   const polygons = [], bboxes = [], factors = [], canopyHeights = [];
 
   for (const { la, lo, key } of tiles) {
+    _throwIfAborted(signal);
     let td;
-    try { td = await _fetchFoliageTile(la, lo, key); }
-    catch (e) { console.warn(`[foliage] tile ${key} failed, skipping:`, e); continue; }
+    try { td = await _fetchFoliageTile(la, lo, key, { signal }); }
+    catch (e) {
+      if (e?.cancelled || e?.name === 'AbortError') throw e;
+      console.warn(`[foliage] tile ${key} failed, skipping:`, e);
+      continue;
+    }
     for (let i = 0; i < td.polygons.length; i++) {
       polygons.push(td.polygons[i]);
       bboxes.push(td.bboxes[i]);
@@ -185,6 +231,31 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax) {
   console.info(`[foliage] merged ${polygons.length} polygon(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);
   return { polygons, bboxes, factors, canopyHeights, tileIndex };
+}
+
+function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCount) {
+  const latLo = Math.min(lat1, lat2), latHi = Math.max(lat1, lat2);
+  const lonLo = Math.min(lon1, lon2), lonHi = Math.max(lon1, lon2);
+  if (!tileIndex) {
+    return Array.from({ length: polygonCount }, (_, i) => i)
+      .filter(i => !(latHi < bboxes[i].latMin || latLo > bboxes[i].latMax || lonHi < bboxes[i].lonMin || lonLo > bboxes[i].lonMax));
+  }
+
+  const rMin = Math.max(0, Math.min(TILE_N - 1, Math.floor((latLo - tileIndex.latMin) / tileIndex.latSpan * TILE_N)));
+  const rMax = Math.max(0, Math.min(TILE_N - 1, Math.floor((latHi - tileIndex.latMin) / tileIndex.latSpan * TILE_N)));
+  const cMin = Math.max(0, Math.min(TILE_N - 1, Math.floor((lonLo - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
+  const cMax = Math.max(0, Math.min(TILE_N - 1, Math.floor((lonHi - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
+  const set = new Set();
+  for (let r = Math.min(rMin, rMax); r <= Math.max(rMin, rMax); r++) {
+    for (let c = Math.min(cMin, cMax); c <= Math.max(cMin, cMax); c++) {
+      for (const i of tileIndex.tiles[r * TILE_N + c]) {
+        const bb = bboxes[i];
+        if (latHi < bb.latMin || latLo > bb.latMax || lonHi < bb.lonMin || lonLo > bb.lonMax) continue;
+        set.add(i);
+      }
+    }
+  }
+  return set;
 }
 
 /**
@@ -214,32 +285,21 @@ export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rx
   const txAbsElev = (profileElevs?.[0]     ?? 0) + txAntH;
   const rxAbsElev = (profileElevs?.[n - 1] ?? 0) + rxAntH;
   let loss = 0;
-  for (let si = 0; si < n; si++) {
-    const lat = profileLats[si];
-    const lon = profileLons[si];
-    // Ray absolute elevation at this sample (linear interpolation between antennas)
-    const t           = si / (n - 1);
-    const rayAbsElev  = txAbsElev + (rxAbsElev - txAbsElev) * t;
-    const terrainElev = profileElevs?.[si] ?? 0;
-
-    let candidates;
-    if (tileIndex) {
-      const r = Math.max(0, Math.min(TILE_N - 1, Math.floor((lat - tileIndex.latMin) / tileIndex.latSpan * TILE_N)));
-      const c = Math.max(0, Math.min(TILE_N - 1, Math.floor((lon - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
-      candidates = tileIndex.tiles[r * TILE_N + c];
-    } else {
-      candidates = Array.from({ length: polygons.length }, (_, i) => i);
-    }
+  for (let si = 0; si < n - 1; si++) {
+    const lat1 = profileLats[si], lon1 = profileLons[si];
+    const lat2 = profileLats[si + 1], lon2 = profileLons[si + 1];
+    const candidates = _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygons.length);
     for (const i of candidates) {
-      const bb = bboxes[i];
-      if (lat < bb.latMin || lat > bb.latMax || lon < bb.lonMin || lon > bb.lonMax) continue;
-      if (pointInPolygon(lat, lon, polygons[i])) {
-        const canopyTop = terrainElev + (canopyHeights?.[i] ?? 10);
-        // Only attenuate when ray is physically within the canopy
+      const intervals = segmentPolygonIntervals(lat1, lon1, lat2, lon2, polygons[i]);
+      for (const [a, b] of intervals) {
+        const f = (a + b) / 2;
+        const t = (si + f) / (n - 1);
+        const rayAbsElev  = txAbsElev + (rxAbsElev - txAbsElev) * t;
+        const terrainElev = (profileElevs?.[si] ?? 0) + ((profileElevs?.[si + 1] ?? 0) - (profileElevs?.[si] ?? 0)) * f;
+        const canopyTop = terrainElev + earthBulgeM(t, totalDistM) + (canopyHeights?.[i] ?? 10);
         if (rayAbsElev <= canopyTop) {
-          loss += segLen * lossPerMeterDb * (factors?.[i] ?? 1.0);
+          loss += segLen * (b - a) * lossPerMeterDb * (factors?.[i] ?? 1.0);
         }
-        break;
       }
     }
   }

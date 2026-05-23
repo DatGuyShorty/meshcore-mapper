@@ -35,6 +35,8 @@ export function fspl(distanceM, freqMHz) {
 /**
  * Check LoS along a pre-sampled terrain profile and compute diffraction loss.
  * Uses the Fresnel-Kirchhoff diffraction parameter (ITU-R P.526).
+ * Fresnel clearance is reported separately; it is not added to terrain height
+ * for diffraction loss.
  *
  * @param {number}   txElevM      - TX ground elevation (m AMSL)
  * @param {number}   rxElevM      - RX ground elevation (m AMSL)
@@ -43,7 +45,7 @@ export function fspl(distanceM, freqMHz) {
  * @param {number}   rxHeightM    - RX antenna height above ground (m)
  * @param {number}   totalDistM   - total path length (m)
  * @param {number}   freqMHz      - frequency (MHz)
- * @param {boolean}  useFresnel   - include first Fresnel zone clearance requirement
+ * @param {boolean}  useFresnel   - use first Fresnel zone clearance for the returned `los` flag
  * @returns {{ los: boolean, diffractionLossDb: number }}
  */
 // B6: single source of truth for the effective Earth radius used everywhere in the propagation model
@@ -69,7 +71,16 @@ function _getFracs(n) {
 
 export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, totalDistM, freqMHz, useFresnel) {
   const n = profileElevs.length;
-  if (n < 2) return { los: true, diffractionLossDb: 0 };
+  if (n < 2) {
+    return {
+      los: true,
+      geometricLos: true,
+      fresnelClear: true,
+      diffractionLossDb: 0,
+      minClearanceM: Infinity,
+      minFresnelClearanceRatio: Infinity,
+    };
+  }
 
   const txH  = txElevM + txHeightM;
   const rxH  = rxElevM + rxHeightM;
@@ -81,26 +92,108 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
   // over long paths.  At 15 km the peak bulge is ~14 m — significant for marginal links.
 
   let maxV = -Infinity;
+  let minClearanceM = Infinity;
+  let minFresnelClearanceRatio = Infinity;
 
   for (let i = 1; i < n - 1; i++) {
     const d1    = fracs[i] * totalDistM;
     const d2    = totalDistM - d1;
     const lineH = txH + (rxH - txH) * fracs[i];
-    const r1    = useFresnel ? Math.sqrt(λ * d1 * d2 / totalDistM) : 0;
+    const r1    = Math.sqrt(λ * d1 * d2 / totalDistM);
     const bulge = d1 * d2 / (2 * RE_EFF);              // effective terrain rise due to Earth curvature
-    const h     = profileElevs[i] + bulge + r1 - lineH;
+    const terrainH = profileElevs[i] + bulge;
+    const clearanceM = lineH - terrainH;
+    const h     = terrainH - lineH;
     const v     = h * Math.sqrt(2 * totalDistM / (λ * d1 * d2));
     if (v > maxV) maxV = v;
+    if (clearanceM < minClearanceM) minClearanceM = clearanceM;
+    if (r1 > 0) {
+      const ratio = clearanceM / r1;
+      if (ratio < minFresnelClearanceRatio) minFresnelClearanceRatio = ratio;
+    }
   }
 
-  if (maxV < -0.7) return { los: true, diffractionLossDb: 0 };
+  const geometricLos = maxV < 0;
+  const fresnelClear = minFresnelClearanceRatio >= 1;
+  const los = useFresnel ? fresnelClear : geometricLos;
+
+  if (maxV < -0.7) {
+    return {
+      los,
+      geometricLos,
+      fresnelClear,
+      diffractionLossDb: 0,
+      minClearanceM,
+      minFresnelClearanceRatio,
+    };
+  }
 
   // Continuous ITU-R P.526-15 approximation — no discontinuity, < 0.5 dB error for v > 2
   const loss = maxV > -0.78
     ? 6.9 + 20 * Math.log10(Math.sqrt((maxV - 0.1) ** 2 + 1) + maxV - 0.1)
     : 0;
 
-  return { los: maxV < 0, diffractionLossDb: Math.max(0, loss) };
+  return {
+    los,
+    geometricLos,
+    fresnelClear,
+    diffractionLossDb: Math.max(0, loss),
+    minClearanceM,
+    minFresnelClearanceRatio,
+  };
+}
+
+export function profileSampleCount(distanceM, targetSpacingM = 50, minSamples = 16, maxSamples = 512) {
+  if (!Number.isFinite(distanceM) || distanceM <= 0) return minSamples;
+  return Math.max(minSamples, Math.min(maxSamples, Math.ceil(distanceM / targetSpacingM) + 1));
+}
+
+export function earthBulgeM(fraction, totalDistM) {
+  const d1 = fraction * totalDistM;
+  const d2 = totalDistM - d1;
+  return (d1 > 0 && d2 > 0) ? d1 * d2 / (2 * RE_EFF) : 0;
+}
+
+export function segmentPolygonIntervals(lat1, lon1, lat2, lon2, poly) {
+  if (!poly || poly.length < 3) return [];
+
+  const ts = [0, 1];
+  const dx = lon2 - lon1;
+  const dy = lat2 - lat1;
+  const EPS = 1e-9;
+
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [y3, x3] = poly[j];
+    const [y4, x4] = poly[i];
+    const sx = x4 - x3;
+    const sy = y4 - y3;
+    const denom = dx * sy - dy * sx;
+    if (Math.abs(denom) < EPS) continue;
+
+    const qpx = x3 - lon1;
+    const qpy = y3 - lat1;
+    const t = (qpx * sy - qpy * sx) / denom;
+    const u = (qpx * dy - qpy * dx) / denom;
+    if (t > EPS && t < 1 - EPS && u >= -EPS && u <= 1 + EPS) ts.push(t);
+  }
+
+  ts.sort((a, b) => a - b);
+  const uniq = [];
+  for (const t of ts) {
+    if (uniq.length === 0 || Math.abs(t - uniq[uniq.length - 1]) > 1e-6) uniq.push(t);
+  }
+
+  const intervals = [];
+  for (let i = 0; i < uniq.length - 1; i++) {
+    const a = uniq[i];
+    const b = uniq[i + 1];
+    if (b - a < EPS) continue;
+    const mid = (a + b) / 2;
+    const lat = lat1 + (lat2 - lat1) * mid;
+    const lon = lon1 + (lon2 - lon1) * mid;
+    if (pointInPolygon(lat, lon, poly)) intervals.push([a, b]);
+  }
+  return intervals;
 }
 
 

@@ -3,7 +3,7 @@
  * and compute additional signal attenuation from traversal through buildings.
  * Exports: fetchBuildings, buildingLossDb
  */
-import { pointInPolygon } from './propagation.js';
+import { earthBulgeM, segmentPolygonIntervals } from './propagation.js';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -14,6 +14,34 @@ const OVERPASS_MIRRORS = [
 const TILE_SIZE = 0.25;  // degrees
 const CACHE_V   = 'bv2:'; // bumped; key format is now tile-based
 const TILE_N    = 16;
+
+function _abortError() {
+  const err = new Error('Cancelled');
+  err.name = 'AbortError';
+  err.cancelled = true;
+  return err;
+}
+
+function _throwIfAborted(signal) {
+  if (signal?.aborted) throw _abortError();
+}
+
+function _sleep(ms, signal) {
+  _throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(cleanup, ms);
+    function cleanup() {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }
+    function onAbort() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(_abortError());
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 function _snapB(v) { return Math.floor(v / TILE_SIZE) * TILE_SIZE; }
 
@@ -85,7 +113,8 @@ function _buildingHeight(tags) {
  * Fetch one 0.25° tile of building footprints (mem-cache → SQLite → Overpass).
  * Tiles are shared across all repeaters — cached once, reused for every coverage run in the area.
  */
-async function _fetchBuildingsTile(la, lo, key) {
+async function _fetchBuildingsTile(la, lo, key, { signal = null } = {}) {
+  _throwIfAborted(signal);
   if (_memCache.has(key)) {
     console.debug(`[buildings] mem-cache hit tile ${key}`);
     return _memCache.get(key);
@@ -106,15 +135,25 @@ async function _fetchBuildingsTile(la, lo, key) {
 
   let res = null, lastErr = null;
   for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 2; attempt++) {
+    _throwIfAborted(signal);
     const base = OVERPASS_MIRRORS[attempt % OVERPASS_MIRRORS.length];
     const url  = `${base}?data=${encodeURIComponent(query)}`;
-    if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length)));
+    if (attempt > 0) await _sleep(2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length), signal);
     const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), 60000);
     try {
       res = await fetch(url, { headers: { 'Accept': '*/*' }, signal: controller.signal });
       clearTimeout(timer);
-    } catch (err) { clearTimeout(timer); lastErr = err; continue; }
+    } catch (err) {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      if (signal?.aborted) throw _abortError();
+      lastErr = err;
+      continue;
+    }
+    signal?.removeEventListener('abort', onAbort);
     if (res.status === 429 || res.status === 406 || res.status >= 500) { res = null; continue; }
     break;
   }
@@ -161,14 +200,21 @@ async function _fetchBuildingsTile(la, lo, key) {
  * Data is fetched and cached per 0.25° tile — nearby repeaters share the same tile data.
  * @returns {Promise<{ polygons, bboxes, heights, tileIndex }>}
  */
-export async function fetchBuildings(latMin, latMax, lonMin, lonMax) {
+export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {}) {
+  const { signal = null } = options;
+  _throwIfAborted(signal);
   const tiles = _tilesForBboxB(latMin, latMax, lonMin, lonMax);
   const polygons = [], bboxes = [], heights = [];
 
   for (const { la, lo, key } of tiles) {
+    _throwIfAborted(signal);
     let td;
-    try { td = await _fetchBuildingsTile(la, lo, key); }
-    catch (e) { console.warn(`[buildings] tile ${key} failed, skipping:`, e); continue; }
+    try { td = await _fetchBuildingsTile(la, lo, key, { signal }); }
+    catch (e) {
+      if (e?.cancelled || e?.name === 'AbortError') throw e;
+      console.warn(`[buildings] tile ${key} failed, skipping:`, e);
+      continue;
+    }
     for (let i = 0; i < td.polygons.length; i++) {
       polygons.push(td.polygons[i]);
       bboxes.push(td.bboxes[i]);
@@ -179,6 +225,31 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax) {
   console.info(`[buildings] merged ${polygons.length} building(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);
   return { polygons, bboxes, heights, tileIndex };
+}
+
+function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCount) {
+  const latLo = Math.min(lat1, lat2), latHi = Math.max(lat1, lat2);
+  const lonLo = Math.min(lon1, lon2), lonHi = Math.max(lon1, lon2);
+  if (!tileIndex) {
+    return Array.from({ length: polygonCount }, (_, i) => i)
+      .filter(i => !(latHi < bboxes[i].latMin || latLo > bboxes[i].latMax || lonHi < bboxes[i].lonMin || lonLo > bboxes[i].lonMax));
+  }
+
+  const rMin = Math.max(0, Math.min(TILE_N - 1, Math.floor((latLo - tileIndex.latMin) / tileIndex.latSpan * TILE_N)));
+  const rMax = Math.max(0, Math.min(TILE_N - 1, Math.floor((latHi - tileIndex.latMin) / tileIndex.latSpan * TILE_N)));
+  const cMin = Math.max(0, Math.min(TILE_N - 1, Math.floor((lonLo - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
+  const cMax = Math.max(0, Math.min(TILE_N - 1, Math.floor((lonHi - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
+  const set = new Set();
+  for (let r = Math.min(rMin, rMax); r <= Math.max(rMin, rMax); r++) {
+    for (let c = Math.min(cMin, cMax); c <= Math.max(cMin, cMax); c++) {
+      for (const i of tileIndex.tiles[r * TILE_N + c]) {
+        const bb = bboxes[i];
+        if (latHi < bb.latMin || latLo > bb.latMax || lonHi < bb.lonMin || lonLo > bb.lonMax) continue;
+        set.add(i);
+      }
+    }
+  }
+  return set;
 }
 
 /**
@@ -207,46 +278,25 @@ export function buildingLossDb(profileLats, profileLons, profileElevs, txAntH, r
   const rxAbsElev = (profileElevs?.[n - 1] ?? 0) + rxAntH;
   const wallCrossLossDb = 14; // Typical external wall penetration (sub-GHz urban average)
   let loss = 0;
-  let prevBuilding = -1;
-  for (let si = 0; si < n; si++) {
-    const lat = profileLats[si];
-    const lon = profileLons[si];
-    const t = si / (n - 1);
-    const rayAbsElev  = txAbsElev + (rxAbsElev - txAbsElev) * t;
-    const terrainElev = profileElevs?.[si] ?? 0;
-
-    let candidates;
-    if (tileIndex) {
-      const r = Math.max(0, Math.min(TILE_N - 1, Math.floor((lat - tileIndex.latMin) / tileIndex.latSpan * TILE_N)));
-      const c = Math.max(0, Math.min(TILE_N - 1, Math.floor((lon - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
-      candidates = tileIndex.tiles[r * TILE_N + c];
-    } else {
-      candidates = Array.from({ length: polygons.length }, (_, i) => i);
-    }
-    let curBuilding = -1;
+  for (let si = 0; si < n - 1; si++) {
+    const lat1 = profileLats[si], lon1 = profileLons[si];
+    const lat2 = profileLats[si + 1], lon2 = profileLons[si + 1];
+    const candidates = _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygons.length);
     for (const i of candidates) {
-      const bb = bboxes[i];
-      if (lat < bb.latMin || lat > bb.latMax || lon < bb.lonMin || lon > bb.lonMax) continue;
-      if (pointInPolygon(lat, lon, polygons[i])) {
-        const rooftopElev = terrainElev + (heights?.[i] ?? 5);
+      const intervals = segmentPolygonIntervals(lat1, lon1, lat2, lon2, polygons[i]);
+      for (const [a, b] of intervals) {
+        const f = (a + b) / 2;
+        const t = (si + f) / (n - 1);
+        const rayAbsElev  = txAbsElev + (rxAbsElev - txAbsElev) * t;
+        const terrainElev = (profileElevs?.[si] ?? 0) + ((profileElevs?.[si + 1] ?? 0) - (profileElevs?.[si] ?? 0)) * f;
+        const rooftopElev = terrainElev + earthBulgeM(t, totalDistM) + (heights?.[i] ?? 5);
         if (rayAbsElev <= rooftopElev) {
-          curBuilding = i;
-          // Optional interior attenuation for long through-building paths
-          loss += segLen * lossPerMeterDb;
+          loss += segLen * (b - a) * lossPerMeterDb;
+          if (a > 1e-6) loss += wallCrossLossDb;
+          if (b < 1 - 1e-6) loss += wallCrossLossDb;
         }
-        break;
       }
     }
-
-    // Charge wall penetration only when crossing a building boundary.
-    if (curBuilding !== prevBuilding) {
-      if (prevBuilding !== -1) loss += wallCrossLossDb; // exiting previous building
-      if (curBuilding !== -1)  loss += wallCrossLossDb; // entering new building
-    }
-    prevBuilding = curBuilding;
   }
-
-  // If path ends while still inside a building, account for exit wall.
-  if (prevBuilding !== -1) loss += wallCrossLossDb;
   return loss;
 }

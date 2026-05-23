@@ -58,7 +58,7 @@ export function init() {
     const body = document.getElementById('dev-console-body');
     const btn  = document.getElementById('btn-dev-console-toggle');
     const collapsed = body.classList.toggle('hidden');
-    btn.textContent = collapsed ? '▲' : '▼';
+    btn.textContent = collapsed ? 'Up' : 'Down';
     if (!collapsed) _output.scrollTop = _output.scrollHeight;
   }
 

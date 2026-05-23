@@ -2,8 +2,8 @@
  * repeaters.js — Repeater CRUD, map markers, and placement UI.
  * Exports: addRepeater, removeRepeater, cancelPlacing, init
  */
-import { map, state, clearCoverageLayers, clearFoliageLayers, clearBuildingLayers } from './map.js';
-import { escHtml, setStatus } from './ui.js';
+import { map, state, clearCoverageLayers } from './map.js';
+import { confirmAction, escHtml, setStatus } from './ui.js';
 import { handleRepeaterClick, startPickingFrom } from './p2p.js';
 import { runCoverageAnalysis } from './coverage.js';
 
@@ -28,16 +28,16 @@ function _initCtxMenu() {
   _ctxMenu.id = 'node-ctx-menu';
   _ctxMenu.style.display = 'none';
   _ctxMenu.innerHTML = `
-    <div class="ctx-item" data-ctx="info">ℹ Info</div>
-    <div class="ctx-item" data-ctx="p2p">📡 P2P Link</div>
-    <div class="ctx-item" data-ctx="edit">✏️ Edit</div>
+    <div class="ctx-item" data-ctx="info">Info</div>
+    <div class="ctx-item" data-ctx="p2p">P2P Link</div>
+    <div class="ctx-item" data-ctx="edit">Edit</div>
     <div class="ctx-item" data-ctx="vis"></div>
     <div class="ctx-separator"></div>
-    <div class="ctx-item" data-ctx="coverage">▶ Run Coverage</div>
-    <div class="ctx-item" data-ctx="optimize">🎯 Optimize Here</div>
-    <div class="ctx-item" data-ctx="pathfrom">🔗 Best Path From…</div>
+    <div class="ctx-item" data-ctx="coverage">Run Coverage</div>
+    <div class="ctx-item" data-ctx="optimize">Optimize Here</div>
+    <div class="ctx-item" data-ctx="pathfrom">Best Path From...</div>
     <div class="ctx-separator"></div>
-    <div class="ctx-item ctx-danger" data-ctx="delete">🗑 Remove</div>
+    <div class="ctx-item ctx-danger" data-ctx="delete">Remove</div>
   `;
   document.body.append(_ctxMenu);
   _ctxMenu.addEventListener('click', e => {
@@ -69,7 +69,7 @@ function _initCtxMenu() {
 
 function _showCtxMenu(r, mouseEvt) {
   _ctxTargetId = r.id;
-  _ctxMenu.querySelector('[data-ctx="vis"]').textContent = r.visible ? '🚫 Hide' : '👁 Show';
+  _ctxMenu.querySelector('[data-ctx="vis"]').textContent = r.visible ? 'Hide' : 'Show';
   // Position off-screen first so the browser lays the element out, then measure + reposition
   _ctxMenu.style.left = '-9999px';
   _ctxMenu.style.top  = '-9999px';
@@ -230,6 +230,7 @@ function makeMarkerIcon(color) {
 }
 
 export function addRepeater(name, lat, lon, height, power, freq, gain = 2) {
+  name = String(name ?? `Repeater ${state.nextId}`);
   const color = PALETTE[state.repeaters.length % PALETTE.length];
   const id = state.nextId++;
 
@@ -272,8 +273,6 @@ export function removeRepeater(id) {
   r.marker.remove();
   state.repeaters.splice(idx, 1);
   clearCoverageLayers();
-  clearFoliageLayers();
-  clearBuildingLayers();
   renderRepeaterList();
   _syncUndoBtn();
   document.dispatchEvent(new CustomEvent('repeaters:changed'));
@@ -293,7 +292,7 @@ export function cancelPlacing() {
   if (!placingMode) return;
   placingMode = false;
   document.getElementById('place-hint').classList.add('hidden');
-  document.getElementById('btn-add-click').textContent = '📍 Place on Map';
+  document.getElementById('btn-add-click').textContent = 'Place on Map';
   map.getContainer().style.cursor = '';
 }
 
@@ -308,8 +307,9 @@ function setEditMode(id) {
   document.getElementById('repeater-freq').value   = r.freq;
   document.getElementById('repeater-gain').value   = r.gain;  // B4: reset preset selects so stale selections don't overwrite the loaded values
   document.getElementById('radio-preset').value   = '';
-  document.getElementById('antenna-preset').value = '';  document.getElementById('btn-add-repeater').textContent = '✓ Update';
-  document.getElementById('btn-add-click').textContent    = '✕ Cancel';
+  document.getElementById('antenna-preset').value = '';
+  document.getElementById('btn-add-repeater').textContent = 'Update Node';
+  document.getElementById('btn-add-click').textContent = 'Cancel';
   const addPanel = document.getElementById('add-repeater-summary')?.closest('details');
   if (addPanel) addPanel.open = true;
   document.getElementById('sidebar').scrollTo({ top: 0, behavior: 'smooth' });
@@ -317,8 +317,8 @@ function setEditMode(id) {
 
 function clearEditMode() {
   editingId = null;
-  document.getElementById('btn-add-repeater').textContent = '+ Add';
-  document.getElementById('btn-add-click').textContent    = '📍 Place on Map';
+  document.getElementById('btn-add-repeater').textContent = 'Add Node';
+  document.getElementById('btn-add-click').textContent = 'Place on Map';
 }
 
 export function editRepeater(id) {
@@ -369,7 +369,7 @@ function renderRepeaterList() {
         <div class="ri-name">${escHtml(r.name)}</div>
         <div class="ri-coords">${sub}</div>
       </div>
-      <button class="ri-vis" data-action="toggle-vis" data-id="${r.id}" title="${r.visible ? 'Hide' : 'Show'}">${r.visible ? '👁' : '🚫'}</button>
+      <button class="ri-vis" data-action="toggle-vis" data-id="${r.id}" title="${r.visible ? 'Hide' : 'Show'}">${r.visible ? 'On' : 'Off'}</button>
       <button class="ri-edit" data-action="edit" data-id="${r.id}" title="Edit">\u270e</button>
       <button class="ri-del"  data-action="delete" data-id="${r.id}" title="Remove">\u00d7</button>
     </li>`;
@@ -451,11 +451,11 @@ export function init() {
     const btn  = document.getElementById('btn-add-click');
     if (placingMode) {
       hint.classList.remove('hidden');
-      btn.textContent = '✕ Cancel';
+      btn.textContent = 'Cancel';
       map.getContainer().style.cursor = 'crosshair';
     } else {
       hint.classList.add('hidden');
-      btn.textContent = '📍 Place on Map';
+      btn.textContent = 'Place on Map';
       map.getContainer().style.cursor = '';
     }
   });
@@ -483,10 +483,10 @@ export function init() {
   });
 
   document.getElementById('btn-clear-nodes').addEventListener('click', () => {
+    if (!confirmAction('Clear all nodes and coverage overlays?')) return;
     clearEditMode();
     [...state.repeaters].forEach(r => removeRepeater(r.id));
     clearCoverageLayers();
-    clearFoliageLayers();
     _lastRemoved = null;
     _syncUndoBtn();
     setStatus('All nodes cleared.');

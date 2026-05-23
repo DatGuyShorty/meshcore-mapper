@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPresets:  ()        => ipcRenderer.invoke('get-presets'),
   // SQLite cache
   cacheElevationsLookupBbox: (bbox)    => ipcRenderer.invoke('cache-elevations-lookup-bbox', bbox),
+  cacheElevationsLookupMany: (points)  => ipcRenderer.invoke('cache-elevations-lookup-many', points),
   cacheElevationsStore:      (entries) => ipcRenderer.invoke('cache-elevations-store', entries),
   cacheFoliageLookup:        (key)     => ipcRenderer.invoke('cache-foliage-lookup', key),
   cacheFoliageStore:         (key, data) => ipcRenderer.invoke('cache-foliage-store', key, data),

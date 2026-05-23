@@ -12,10 +12,10 @@ import { init as initPresets     } from './src/presets.js';
 import { init as initP2P         } from './src/p2p.js';
 
 initRepeaters();
+initConfig();
 initCoverage();
 initMapLayers();
 initOptimizer();
-initConfig();
 initDevConsole();
 initP2P();
 await initPresets(); // async — populates selects from presets.yaml via IPC

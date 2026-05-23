@@ -1,106 +1,76 @@
 /**
- * coverageWorker.js — Web Worker for the coverage signal-computation inner loop.
- * Runs off the main thread so the UI stays responsive during heavy calculations.
- *
- * Receives a postMessage with all required pre-fetched data, computes a
- * Float32Array signalGrid, and returns it via postMessage (transferred).
+ * coverageWorker.js - Web Worker row-band renderer for coverage analysis.
  */
-import { checkLoS, bilinearElev } from './propagation.js';
-import { foliageLossDb } from './foliage.js';
-import { buildingLossDb } from './buildings.js';
+import { writePixel } from './propagation.js';
+import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
 self.onmessage = ({ data }) => {
   const {
-    gridLats: gridLatsBuf, gridLons: gridLonsBuf, gridElevs: gridElevsBuf,
-    gridRes, ELEV_RES,
+    gridElevs: gridElevsBuf,
+    gridRes, ELEV_RES, rowStart, rowEnd,
     rep, txElev, latMin, latMax, lonMin, lonMax,
     radiusKm, rxHeight, effectiveSens, useLos, useFresnel,
-    useFoliage, foliageLossPerM, profileSamples, foliage,
+    useFoliage, foliageLossPerM, profileTargetSpacingM, profileMaxSamples, foliage,
     useBuildings, buildingLossPerM, buildings,
   } = data;
 
-  // Reconstruct typed arrays from transferred ArrayBuffers
-  const gridLats  = new Float64Array(gridLatsBuf);
-  const gridLons  = new Float64Array(gridLonsBuf);
+  const t0 = performance.now();
   const gridElevs = new Float32Array(gridElevsBuf);
+  const rowCount = rowEnd - rowStart;
+  const rgba = new Uint8ClampedArray(rowCount * gridRes * 4);
+  const fsplBase = fsplBaseDb(rep.freq);
+  const profileBuffers = ensureProfileBuffers(profileMaxSamples);
+  const bounds = { latMin, latMax, lonMin, lonMax };
+  const radiusM = radiusKm * 1000;
 
-  const totalPts = gridRes * gridRes;
-  const signalGrid = new Float32Array(totalPts);
+  let insidePoints = 0;
+  let processed = 0;
+  const totalBandPts = rowCount * gridRes;
 
-  const mPerLat  = 110574;
-  const mPerLon  = 111320 * Math.cos(rep.lat * Math.PI / 180);
-  const fsplBase = 20 * Math.log10(rep.freq * 1e6) - 147.55;
-  const profile      = new Float32Array(profileSamples);
-  const profileLats  = new Float64Array(profileSamples);
-  const profileLons  = new Float64Array(profileSamples);
+  for (let r = rowStart; r < rowEnd; r++) {
+    const rowFrac = gridRes > 1 ? r / (gridRes - 1) : 0;
+    const ptLat = latMax - rowFrac * (latMax - latMin);
 
-  for (let idx = 0; idx < totalPts; idx++) {
-    const ptLat = gridLats[idx];
-    const ptLon = gridLons[idx];
+    for (let c = 0; c < gridRes; c++) {
+      const colFrac = gridRes > 1 ? c / (gridRes - 1) : 0;
+      const ptLon = lonMin + colFrac * (lonMax - lonMin);
+      const localBase = ((r - rowStart) * gridRes + c) * 4;
+      const dist = flatDistanceM(rep.lat, rep.lon, ptLat, ptLon);
 
-    const dLat = (ptLat - rep.lat) * mPerLat;
-    const dLon = (ptLon - rep.lon) * mPerLon;
-    const dist = Math.sqrt(dLat * dLat + dLon * dLon);
-
-    if (dist > radiusKm * 1000) { signalGrid[idx] = -200; continue; }
-
-    let rxPower = rep.power + (rep.gain ?? 0) - (20 * Math.log10(Math.max(1, dist)) + fsplBase);
-
-    if (useLos && dist > 50) {
-      for (let s = 0; s < profileSamples; s++) {
-        const t = s / (profileSamples - 1);
-        profileLats[s] = rep.lat + (ptLat - rep.lat) * t;
-        profileLons[s] = rep.lon + (ptLon - rep.lon) * t;
-        profile[s] = bilinearElev(profileLats[s], profileLons[s], gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
+      if (dist > radiusM) {
+        writePixel(rgba, localBase, -200, effectiveSens);
+        continue;
       }
-      const rxElev = bilinearElev(ptLat, ptLon, gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
-      const los = checkLoS(txElev, rxElev, profile, rep.height, rxHeight, dist, rep.freq, useFresnel);
-      rxPower -= los.diffractionLossDb;
-      if (!los.los && los.diffractionLossDb > 60) rxPower = Math.min(rxPower, effectiveSens - 10);
-      if (foliage) {
-        rxPower -= foliageLossDb(
-          profileLats, profileLons, profile, rep.height, rxHeight,
-          foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
-          foliage.tileIndex, dist, foliageLossPerM
-        );
-      }
-      if (buildings) {
-        rxPower -= buildingLossDb(
-          profileLats, profileLons, profile, rep.height, rxHeight,
-          buildings.polygons, buildings.bboxes, buildings.heights,
-          buildings.tileIndex, dist, buildingLossPerM
-        );
-      }
-    } else if ((foliage || buildings) && dist > 50) {
-      for (let s = 0; s < profileSamples; s++) {
-        const t = s / (profileSamples - 1);
-        profileLats[s] = rep.lat + (ptLat - rep.lat) * t;
-        profileLons[s] = rep.lon + (ptLon - rep.lon) * t;
-        profile[s] = bilinearElev(profileLats[s], profileLons[s], gridElevs, ELEV_RES, latMin, latMax, lonMin, lonMax);
-      }
-      if (foliage) {
-        rxPower -= foliageLossDb(
-          profileLats, profileLons, profile, rep.height, rxHeight,
-          foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
-          foliage.tileIndex, dist, foliageLossPerM
-        );
-      }
-      if (buildings) {
-        rxPower -= buildingLossDb(
-          profileLats, profileLons, profile, rep.height, rxHeight,
-          buildings.polygons, buildings.bboxes, buildings.heights,
-          buildings.tileIndex, dist, buildingLossPerM
-        );
-      }
+
+      insidePoints++;
+      const { rxPower } = computeSignalToPoint({
+        tx: rep, txElev, rxLat: ptLat, rxLon: ptLon,
+        distM: dist, fsplBase, elevGrid: gridElevs, elevRes: ELEV_RES, bounds,
+        rxHeight, effectiveSens, useLos, useFresnel,
+        foliage: useFoliage ? foliage : null,
+        foliageLossPerM,
+        buildings: useBuildings ? buildings : null,
+        buildingLossPerM,
+        profileTargetSpacingM, profileMaxSamples, profileBuffers,
+      });
+
+      writePixel(rgba, localBase, rxPower, effectiveSens);
     }
 
-    signalGrid[idx] = rxPower;
-
-    // Report progress every 4096 points so the main thread can update the progress bar
-    if (idx % 4096 === 0) {
-      self.postMessage({ type: 'progress', pct: idx / totalPts });
+    processed += gridRes;
+    if ((r - rowStart) % 4 === 0) {
+      self.postMessage({ type: 'progress', rowStart, pct: processed / totalBandPts });
     }
   }
 
-  self.postMessage({ type: 'done', signalGrid }, [signalGrid.buffer]);
+  self.postMessage({
+    type: 'done',
+    rowStart,
+    rowEnd,
+    rgbaBuffer: rgba.buffer,
+    stats: {
+      computeMs: performance.now() - t0,
+      insidePoints,
+    },
+  }, [rgba.buffer]);
 };

@@ -13,18 +13,21 @@
  * Exports: findBestPath
  */
 import { fetchElevations } from './elevation.js';
-import { haversine, fspl, checkLoS } from './propagation.js';
+import { fetchFoliage, foliageLossDb } from './foliage.js';
+import { fetchBuildings, buildingLossDb } from './buildings.js';
+import { haversine, fspl, checkLoS, profileSampleCount } from './propagation.js';
 
-const PROFILE_SAMPLES = 24; // samples per edge terrain profile
+const PROFILE_TARGET_SPACING_M = 75;
+const PROFILE_MAX_SAMPLES = 512;
 const MAX_EDGE_KM = 200;    // skip edges longer than this — no LoRa link will span 200 km
 
 /**
  * Build profile sample-point array from node A to node B.
  */
-function _profilePoints(a, b) {
+function _profilePoints(a, b, samples) {
   const pts = [];
-  for (let i = 0; i < PROFILE_SAMPLES; i++) {
-    const t = i / (PROFILE_SAMPLES - 1);
+  for (let i = 0; i < samples; i++) {
+    const t = i / (samples - 1);
     pts.push({
       latitude:  a.lat + (b.lat - a.lat) * t,
       longitude: a.lon + (b.lon - a.lon) * t,
@@ -33,20 +36,63 @@ function _profilePoints(a, b) {
   return pts;
 }
 
+function _nodesBbox(nodes) {
+  const PAD = 0.003;
+  return {
+    latMin: Math.min(...nodes.map(n => n.lat)) - PAD,
+    latMax: Math.max(...nodes.map(n => n.lat)) + PAD,
+    lonMin: Math.min(...nodes.map(n => n.lon)) - PAD,
+    lonMax: Math.max(...nodes.map(n => n.lon)) + PAD,
+  };
+}
+
+function _profileCoordArrays(points) {
+  const lats = new Float64Array(points.length);
+  const lons = new Float64Array(points.length);
+  for (let i = 0; i < points.length; i++) {
+    lats[i] = points[i].latitude;
+    lons[i] = points[i].longitude;
+  }
+  return { lats, lons };
+}
+
+function _reverseFloat64(src) {
+  const out = new Float64Array(src.length);
+  for (let i = 0; i < src.length; i++) out[i] = src[src.length - 1 - i];
+  return out;
+}
+
 /**
  * Link margin (dB) when node txNode transmits to rxNode.
  * rxGain  — RX antenna gain, dBi (assumed same for all RX nodes)
- * rxSens  — RX sensitivity, dBm
- * profile — pre-fetched elevation array (length = PROFILE_SAMPLES)
+ * rxSens  — required RX level, dBm, including any requested fade margin
+ * profile — pre-fetched elevation array
  * txElev  — ground elevation at txNode (m AMSL)
  * rxElev  — ground elevation at rxNode (m AMSL)
  */
-function _linkMargin(txNode, txElev, rxNode, rxElev, profile, rxGain, rxSens, useFresnel) {
+function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profileLons, rxGain, rxSens, useFresnel, scenario) {
   const distM = haversine(txNode.lat, txNode.lon, rxNode.lat, rxNode.lon);
   if (distM < 1) return 60; // same location
   const pathLoss = fspl(distM, txNode.freq);
   const los = checkLoS(txElev, rxElev, profile, txNode.height, rxNode.height, distM, txNode.freq, useFresnel);
-  return txNode.power + txNode.gain + rxGain - pathLoss - los.diffractionLossDb - rxSens;
+  const foliageLoss = scenario.foliage
+    ? foliageLossDb(
+        profileLats, profileLons, profile, txNode.height, rxNode.height,
+        scenario.foliage.polygons, scenario.foliage.bboxes,
+        scenario.foliage.canopyHeights, scenario.foliage.factors,
+        scenario.foliage.tileIndex, distM, scenario.foliageLossPerM
+      )
+    : 0;
+  const buildingLoss = scenario.buildings
+    ? buildingLossDb(
+        profileLats, profileLons, profile, txNode.height, rxNode.height,
+        scenario.buildings.polygons, scenario.buildings.bboxes,
+        scenario.buildings.heights, scenario.buildings.tileIndex,
+        distM, scenario.buildingLossPerM
+      )
+    : 0;
+  const effectiveRxGain = Number.isFinite(rxNode.gain) ? rxNode.gain : rxGain;
+  return txNode.power + txNode.gain + effectiveRxGain - pathLoss - los.diffractionLossDb - foliageLoss - buildingLoss - rxSens;
 }
 
 /**
@@ -55,9 +101,9 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, rxGain, rxSens, us
  * @param {Array<{id, name, lat, lon, height, power, freq, gain}>} nodes  — all candidate nodes
  * @param {number}  fromId     — source node id
  * @param {number}  toId       — destination node id
- * @param {number}  rxSens     — receiver sensitivity dBm (applied to all hops)
+ * @param {number}  rxSens     — required receiver level dBm, including fade margin
  * @param {number}  rxGain     — RX antenna gain dBi (applied to all hops)
- * @param {boolean} useFresnel — include Fresnel-zone clearance in loss model
+ * @param {boolean} useFresnel - use Fresnel clearance for the returned LoS flag
  * @returns {Promise<{
  *   path: Array<{node, incomingMargin: number|null}>,
  *   bottleneck: number,
@@ -65,7 +111,7 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, rxGain, rxSens, us
  *   edgeDistances: number[],
  * } | null>}  null = no path found
  */
-export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresnel) {
+export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresnel, scenario = {}) {
   const n = nodes.length;
   if (n < 2) return null;
 
@@ -89,8 +135,9 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
     for (let j = i + 1; j < n; j++) {
       const distM = haversine(nodes[i].lat, nodes[i].lon, nodes[j].lat, nodes[j].lon);
       if (distM > MAX_EDGE_KM * 1000) continue;
-      edges.push({ i, j, distM, offset: allProfilePts.length });
-      _profilePoints(nodes[i], nodes[j]).forEach(p => allProfilePts.push(p));
+      const samples = profileSampleCount(distM, PROFILE_TARGET_SPACING_M, 16, PROFILE_MAX_SAMPLES);
+      edges.push({ i, j, distM, samples, offset: allProfilePts.length });
+      _profilePoints(nodes[i], nodes[j], samples).forEach(p => allProfilePts.push(p));
     }
   }
 
@@ -101,13 +148,40 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
 
   // ── 3. Build directed margin matrix ──
   // margin[i*n+j] = margin when node[i] TXs to node[j], -Inf if no usable edge
+  let foliage = null;
+  let buildings = null;
+  if (scenario.useFoliage || scenario.useBuildings) {
+    const bbox = _nodesBbox(nodes);
+    [foliage, buildings] = await Promise.all([
+      scenario.useFoliage
+        ? fetchFoliage(bbox.latMin, bbox.latMax, bbox.lonMin, bbox.lonMax)
+            .catch(e => { console.warn('[pathfinder] foliage fetch failed, skipping:', e); return null; })
+        : Promise.resolve(null),
+      scenario.useBuildings
+        ? fetchBuildings(bbox.latMin, bbox.latMax, bbox.lonMin, bbox.lonMax)
+            .catch(e => { console.warn('[pathfinder] buildings fetch failed, skipping:', e); return null; })
+        : Promise.resolve(null),
+    ]);
+  }
+  const linkScenario = {
+    foliage,
+    buildings,
+    foliageLossPerM: scenario.foliageLossPerM ?? 0.3,
+    buildingLossPerM: scenario.buildingLossPerM ?? 0.5,
+  };
+
   const margin  = new Float32Array(n * n).fill(-Infinity);
   const distMat = new Float32Array(n * n).fill(0);
 
-  for (const { i, j, distM, offset } of edges) {
-    const profile = profileElevs.slice(offset, offset + PROFILE_SAMPLES);
-    margin[i * n + j] = _linkMargin(nodes[i], nodeElevs[i], nodes[j], nodeElevs[j], profile, rxGain, rxSens, useFresnel);
-    margin[j * n + i] = _linkMargin(nodes[j], nodeElevs[j], nodes[i], nodeElevs[i], profile, rxGain, rxSens, useFresnel);
+  for (const { i, j, distM, samples, offset } of edges) {
+    const profile = profileElevs.slice(offset, offset + samples);
+    const profilePoints = allProfilePts.slice(offset, offset + samples);
+    const { lats, lons } = _profileCoordArrays(profilePoints);
+    const reverseProfile = profile.slice().reverse();
+    const reverseLats = _reverseFloat64(lats);
+    const reverseLons = _reverseFloat64(lons);
+    margin[i * n + j] = _linkMargin(nodes[i], nodeElevs[i], nodes[j], nodeElevs[j], profile, lats, lons, rxGain, rxSens, useFresnel, linkScenario);
+    margin[j * n + i] = _linkMargin(nodes[j], nodeElevs[j], nodes[i], nodeElevs[i], reverseProfile, reverseLats, reverseLons, rxGain, rxSens, useFresnel, linkScenario);
     distMat[i * n + j] = distMat[j * n + i] = distM;
   }
 

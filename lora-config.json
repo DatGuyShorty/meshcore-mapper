@@ -2,7 +2,7 @@
   "version": 1,
   "settings": {
     "rx-height": "1.5",
-    "rx-sensitivity": "-132",
+    "rx-sensitivity": "-126",
     "fade-margin": "10",
     "analysis-radius": "30",
     "grid-res": "256",
@@ -11,26 +11,4394 @@
     "use-foliage": true,
     "foliage-loss-per-m": "0.05",
     "use-buildings": true,
-    "building-loss-per-m": "0.5"
+    "building-loss-per-m": "0.25",
+    "layer-foliage": true,
+    "layer-buildings": true,
+    "layer-auto-refresh": true
   },
   "repeaters": [
     {
-      "name": "Repeater 1",
-      "lat": 48.295571624134055,
-      "lon": 18.521178960800174,
-      "height": 5,
+      "name": "SK-TT-BASE",
+      "lat": 48.4737,
+      "lon": 17.4326,
+      "height": 10,
       "power": 20,
-      "freq": 869.618,
-      "gain": 5.5
+      "freq": 868,
+      "gain": 2
     },
     {
-      "name": "Repeater 2",
-      "lat": 48.28596499281625,
-      "lon": 18.506619930267338,
-      "height": 8,
+      "name": "AT-LF-TraisenSiedlung",
+      "lat": 48.04662,
+      "lon": 15.6245,
+      "height": 10,
       "power": 20,
-      "freq": 869.618,
-      "gain": 5
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PD-Cierna-Hora",
+      "lat": 48.88325,
+      "lon": 18.3525,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PK-Modra-Kralova",
+      "lat": 48.349249,
+      "lon": 17.327134,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-NQatHome",
+      "lat": 48.38612,
+      "lon": 16.365079,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Bernolakovo",
+      "lat": 48.193357,
+      "lon": 17.334893,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-OM1ASD(Xtender)",
+      "lat": 48.213782,
+      "lon": 17.176298,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PU-2",
+      "lat": 49.22566,
+      "lon": 18.2494,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PK-Maly-Raj",
+      "lat": 48.24554,
+      "lon": 17.262029,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Zalesie",
+      "lat": 48.16558,
+      "lon": 17.26588,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-GS-Gyor-Belvaros",
+      "lat": 47.684678,
+      "lon": 17.636749,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Pécel-Kopaszhegy",
+      "lat": 47.477075,
+      "lon": 19.347302,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Mobile",
+      "lat": 48.217779,
+      "lon": 16.372689,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1220-Essling-Lobau",
+      "lat": 48.20671,
+      "lon": 16.52202,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-Michelbach-Durlas",
+      "lat": 48.08154,
+      "lon": 15.76843,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-LOAV",
+      "lat": 47.96399,
+      "lon": 16.250689,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-GKS",
+      "lat": 48.148065,
+      "lon": 16.320785,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-LF-Kaiserkogel",
+      "lat": 48.059784,
+      "lon": 15.54018,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-KBW-Solar",
+      "lat": 48.282492,
+      "lon": 16.418966,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "GL-Online RP2340",
+      "lat": 48.088361,
+      "lon": 16.294816,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-GA-Sladkovicovo",
+      "lat": 48.20151,
+      "lon": 17.62617,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU19-Tex",
+      "lat": 47.4626,
+      "lon": 19.13252,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-OE1EMP-Repeater",
+      "lat": 48.152908,
+      "lon": 16.46689,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Berndorf HT.V4",
+      "lat": 47.94572,
+      "lon": 16.108631,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Marianka-HMI🌳",
+      "lat": 48.263822,
+      "lon": 17.050447,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Érd-Tusculanum",
+      "lat": 47.38382,
+      "lon": 18.89366,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-TU-StaW-Y",
+      "lat": 48.32973,
+      "lon": 16.22149,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-ZA-Lentihegy",
+      "lat": 46.604047,
+      "lon": 16.544429,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZV-Slatina",
+      "lat": 48.56595,
+      "lon": 19.26465,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1150-Fenzlgasse",
+      "lat": 48.193963,
+      "lon": 16.314725,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-KE-Vazec",
+      "lat": 48.675049,
+      "lon": 21.301171,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Stary-Haj",
+      "lat": 48.122229,
+      "lon": 17.121536,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-AltErlaa OE1OIW",
+      "lat": 48.151153,
+      "lon": 16.31379,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TN-Inovec",
+      "lat": 48.77391,
+      "lon": 18.042,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-K2",
+      "lat": 49.09042,
+      "lon": 18.93748,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1150-Johnstraße",
+      "lat": 48.19622,
+      "lon": 16.318439,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1050-Wiedner Guert",
+      "lat": 48.183252,
+      "lon": 16.347216,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-NSU-R23",
+      "lat": 48.156297,
+      "lon": 16.286767,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1120-Gatterhölzl",
+      "lat": 48.17897,
+      "lon": 16.32075,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU17-Csab",
+      "lat": 47.471,
+      "lon": 19.251,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Grillenberg",
+      "lat": 47.942587,
+      "lon": 16.083666,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Volhovisko",
+      "lat": 48.29393,
+      "lon": 17.13966,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PU-Bariny",
+      "lat": 49.194389,
+      "lon": 18.227672,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-P-Innenstadt1-TMP",
+      "lat": 48.204002,
+      "lon": 15.627097,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-LM-Chopok-SKYMAX",
+      "lat": 48.94376,
+      "lon": 19.59006,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT_HL_BRG-TLora",
+      "lat": 48.55838,
+      "lon": 16.08344,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Hu-Bu-G2 test",
+      "lat": 47.513924,
+      "lon": 19.146238,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-HL-OE3TEC-REP-🐓",
+      "lat": 48.51018,
+      "lon": 16.06634,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Selciansky-Diel",
+      "lat": 48.791172,
+      "lon": 19.169903,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-BF1",
+      "lat": 47.015655,
+      "lon": 18.205215,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Bojnicka",
+      "lat": 48.19374,
+      "lon": 17.157983,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1020-taconet1",
+      "lat": 48.22821,
+      "lon": 16.3919,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VB-LCHZ-R",
+      "lat": 47.211541,
+      "lon": 18.964108,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TT-Cifer - OM2ET",
+      "lat": 48.312473,
+      "lon": 17.498861,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Lubovnianska",
+      "lat": 48.09737,
+      "lon": 17.11566,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Karlovo",
+      "lat": 48.751743,
+      "lon": 19.145632,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TO-Krusovska",
+      "lat": 48.560089,
+      "lon": 18.17873,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-DT-Polana🌋",
+      "lat": 48.62806,
+      "lon": 19.47526,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TO-Salgovce",
+      "lat": 48.53058,
+      "lon": 17.88837,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Karlovka-Test",
+      "lat": 48.1462,
+      "lon": 17.0562,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-Gföhlberg",
+      "lat": 48.06933,
+      "lon": 15.827816,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Erdokertes",
+      "lat": 47.667518,
+      "lon": 19.30665,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NK-AmSpitz-RIT",
+      "lat": 47.716068,
+      "lon": 16.068885,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BUD-REP2-HH",
+      "lat": 47.48019,
+      "lon": 19.038459,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TO-Tvrdomestice",
+      "lat": 48.64086,
+      "lon": 18.13583,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Jankova",
+      "lat": 49.005149,
+      "lon": 18.7264,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-2380-BMKf-R",
+      "lat": 48.119515,
+      "lon": 16.282536,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZH-KCA-00",
+      "lat": 48.690731,
+      "lon": 18.909479,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KR-SAN",
+      "lat": 48.433162,
+      "lon": 15.472839,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-Kab 433",
+      "lat": 47.046846,
+      "lon": 17.656965,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1220-Aspern",
+      "lat": 48.237694,
+      "lon": 16.489486,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-DS-Cenkovce",
+      "lat": 48.109184,
+      "lon": 17.429349,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-SZSZM-Bucka",
+      "lat": 47.33,
+      "lon": 19.0356,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1030 Akri 🚲",
+      "lat": 48.189352,
+      "lon": 16.397614,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1030-Fasan1/4",
+      "lat": 48.19226,
+      "lon": 16.38904,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-SW-IMW",
+      "lat": 48.121289,
+      "lon": 16.459845,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-FE-Meleghegy",
+      "lat": 47.258598,
+      "lon": 18.596809,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NK-Ternitz-Gfieder",
+      "lat": 47.715302,
+      "lon": 16.009647,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "GL-Online RP2514",
+      "lat": 48.018084,
+      "lon": 16.290097,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TN-Turna",
+      "lat": 48.848272,
+      "lon": 18.012432,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-P-WG13-TEST",
+      "lat": 48.20741,
+      "lon": 15.63342,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Arsenal",
+      "lat": 48.18425,
+      "lon": 16.39442,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KG-MHX",
+      "lat": 48.300795,
+      "lon": 16.326515,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Bisamberg",
+      "lat": 48.306733,
+      "lon": 16.384943,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-StockerauJSU",
+      "lat": 48.39074,
+      "lon": 16.23423,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-EU-BMKx-R",
+      "lat": 47.850586,
+      "lon": 16.382542,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-LF-Hainfelderhuette",
+      "lat": 48.01918,
+      "lon": 15.75368,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W02-MASH_☠️ricRE",
+      "lat": 48.225451,
+      "lon": 16.400483,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NOE-SW Brauhaus",
+      "lat": 48.14309,
+      "lon": 16.46955,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BUD-REP-HH",
+      "lat": 47.480012,
+      "lon": 19.038809,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-NZ-Mana-StaraHora",
+      "lat": 48.13868,
+      "lon": 18.29974,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TT-Losonec",
+      "lat": 48.489081,
+      "lon": 17.391095,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1140-VET-Repeater",
+      "lat": 48.20067,
+      "lon": 16.25666,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-FFHz-R",
+      "lat": 48.12225,
+      "lon": 16.23406,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-DNV-Joe",
+      "lat": 48.220188,
+      "lon": 16.96688,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-FE-Csóka",
+      "lat": 47.37057,
+      "lon": 18.25557,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SKYMAX-R01",
+      "lat": 49.033476,
+      "lon": 20.33107,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1120-Strohberg-R",
+      "lat": 48.16824,
+      "lon": 16.312159,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-NaszEye",
+      "lat": 47.834273,
+      "lon": 19.151963,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KR-3512-868RP",
+      "lat": 48.377536,
+      "lon": 15.578508,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-VLAB01",
+      "lat": 48.13284,
+      "lon": 17.1015,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-BF3",
+      "lat": 47.024851,
+      "lon": 18.226015,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "solar-repeater#1",
+      "lat": 47.370377,
+      "lon": 18.866268,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-MLD-Repeater",
+      "lat": 48.242659,
+      "lon": 16.44632,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SKYMAX-PORTABLE",
+      "lat": 49.036485,
+      "lon": 20.287653,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-MIF-12",
+      "lat": 48.41684,
+      "lon": 16.246279,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Kahlenberg",
+      "lat": 48.276447,
+      "lon": 16.333324,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-GF-2221-Wald🌲",
+      "lat": 48.42412,
+      "lon": 16.64853,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Solar-Podhaj",
+      "lat": 49.075985,
+      "lon": 18.914057,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-G61",
+      "lat": 48.28457,
+      "lon": 16.420359,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TO-Wir",
+      "lat": 48.558735,
+      "lon": 18.133219,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-FE-Zámoly",
+      "lat": 47.323446,
+      "lon": 18.400888,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Pribisova",
+      "lat": 48.153556,
+      "lon": 17.04936,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BL-2410-Solar",
+      "lat": 48.151797,
+      "lon": 16.948237,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-FE-Székesfehérvár",
+      "lat": 47.19131,
+      "lon": 18.462749,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-Várpalota",
+      "lat": 47.200294,
+      "lon": 18.128415,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Landegg-N",
+      "lat": 47.900179,
+      "lon": 16.397884,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZA-Svedernik Test nR",
+      "lat": 49.2649,
+      "lon": 18.64727,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZA-Zavodie OBS nRF",
+      "lat": 49.21842,
+      "lon": 18.72154,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "WOPR Solar",
+      "lat": 48.06198,
+      "lon": 16.347719,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Pottendorf-O",
+      "lat": 47.910911,
+      "lon": 16.396992,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-GF-Haringsee",
+      "lat": 48.191476,
+      "lon": 16.790543,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1220-Essling-REP",
+      "lat": 48.20484,
+      "lon": 16.5201,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Halova",
+      "lat": 48.120877,
+      "lon": 17.104597,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Bystrička",
+      "lat": 49.062561,
+      "lon": 18.86407,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Vartovka",
+      "lat": 48.71796,
+      "lon": 19.15378,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-St.Andrä",
+      "lat": 48.298937,
+      "lon": 15.719457,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Oper",
+      "lat": 48.20254,
+      "lon": 16.36868,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "T3S3-1262 Repeater",
+      "lat": 47.957765,
+      "lon": 16.216978,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-GF-OE3UKW",
+      "lat": 48.38676,
+      "lon": 16.684059,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NK-Ternitz-RIT",
+      "lat": 47.7129,
+      "lon": 16.02812,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Landegg-S",
+      "lat": 47.893795,
+      "lon": 16.398569,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "ebyte_e77 Repeater",
+      "lat": 47.55,
+      "lon": 19.12,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BL-OE1EMP-FFSW",
+      "lat": 48.13305,
+      "lon": 16.466449,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Landegg-SO",
+      "lat": 47.893833,
+      "lon": 16.406606,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KS-RKM",
+      "lat": 48.42976,
+      "lon": 15.61966,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-WB-NPStuberl-RIT",
+      "lat": 47.835083,
+      "lon": 16.015796,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1100-MUE-Repeater",
+      "lat": 48.175935,
+      "lon": 16.372322,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Pansky-diel",
+      "lat": 48.798653,
+      "lon": 19.149748,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-2331",
+      "lat": 48.11809,
+      "lon": 16.349979,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-LV-Tlmace",
+      "lat": 48.2949,
+      "lon": 18.52119,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-LV-TLM-Mladeznicka",
+      "lat": 48.295384,
+      "lon": 18.521454,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-GA-Sered Test",
+      "lat": 48.282189,
+      "lon": 17.737171,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TT-SlepyVrch",
+      "lat": 48.4581,
+      "lon": 17.4126,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Grand Hotel Savoy",
+      "lat": 47.494934,
+      "lon": 19.071464,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-XTZ-Arminenstrasse",
+      "lat": 48.236699,
+      "lon": 16.437778,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-VK-Lesenice",
+      "lat": 48.10758,
+      "lon": 19.25163,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-Sissihigh",
+      "lat": 48.319618,
+      "lon": 16.362728,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1090-Rossau",
+      "lat": 48.220037,
+      "lon": 16.365572,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VA-ha1mp_433_vaci",
+      "lat": 47.244438,
+      "lon": 16.603939,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Ostredky",
+      "lat": 48.15864,
+      "lon": 17.17111,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-OE3CMW",
+      "lat": 48.46819,
+      "lon": 16.29975,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-FE-FCS",
+      "lat": 47.290717,
+      "lon": 18.262192,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Repeater JZG1",
+      "lat": 48.273719,
+      "lon": 16.392438,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PK-Senkvice-East",
+      "lat": 48.289608,
+      "lon": 17.369275,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TT-Parna",
+      "lat": 48.474544,
+      "lon": 17.415359,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-KN-Komarno",
+      "lat": 47.774608,
+      "lon": 18.092569,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU-xndr_nrf52",
+      "lat": 47.472429,
+      "lon": 19.078179,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Pottendorf-SW",
+      "lat": 47.9024,
+      "lon": 16.385839,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-WB-NPHW-RIT",
+      "lat": 47.838359,
+      "lon": 16.018722,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Nemes",
+      "lat": 47.43813,
+      "lon": 19.20608,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KR-TOP",
+      "lat": 48.435654,
+      "lon": 15.631309,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-KAB-⛰️",
+      "lat": 47.046844,
+      "lon": 17.656911,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZH-Etapa",
+      "lat": 48.596568,
+      "lon": 18.841243,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-LF-Kirchenberg",
+      "lat": 48.019186,
+      "lon": 15.753683,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Érd",
+      "lat": 47.39048,
+      "lon": 18.905298,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Luky-HMI🏙",
+      "lat": 48.10434,
+      "lon": 17.100037,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU11-karolina",
+      "lat": 47.47976,
+      "lon": 19.03141,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-XTZ-Essling",
+      "lat": 48.21713,
+      "lon": 16.53075,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1230-Didi",
+      "lat": 48.140979,
+      "lon": 16.31924,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZV-Sielnica",
+      "lat": 48.62649,
+      "lon": 19.10408,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Csovympus",
+      "lat": 47.949094,
+      "lon": 18.948284,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Tarcsa-2",
+      "lat": 47.53617,
+      "lon": 19.266639,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1110-MG25-REP",
+      "lat": 48.15925,
+      "lon": 16.45082,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-WB-SMT/Eggendorf",
+      "lat": 47.88061,
+      "lon": 16.264589,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-DH-GerusRep",
+      "lat": 47.363677,
+      "lon": 19.094476,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Csomor-4e",
+      "lat": 47.562847,
+      "lon": 19.220117,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-GA-Cierny-Brod",
+      "lat": 48.156311,
+      "lon": 17.648239,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-NM-Podolie",
+      "lat": 48.666519,
+      "lon": 17.770589,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Patronka",
+      "lat": 48.163883,
+      "lon": 17.082569,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SilentMesh",
+      "lat": 48.7103,
+      "lon": 19.1304,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "OUTPOST 1-REPEATER",
+      "lat": 48.18378,
+      "lon": 16.256023,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-Gerasdorf",
+      "lat": 48.295096,
+      "lon": 16.452808,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-SWV🏳️‍🌈",
+      "lat": 48.18058,
+      "lon": 16.384799,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KR-SA",
+      "lat": 48.43,
+      "lon": 15.473,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-DS-CP-OM3KAA",
+      "lat": 48.0361,
+      "lon": 17.3893,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TT-StaraCesta",
+      "lat": 48.47372,
+      "lon": 17.43262,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-OE1AFU",
+      "lat": 48.236064,
+      "lon": 16.345352,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-City-Park",
+      "lat": 48.14572,
+      "lon": 17.14432,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PN-Piestany 🇸🇰",
+      "lat": 48.596114,
+      "lon": 17.825778,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Tarcsa-1",
+      "lat": 47.541536,
+      "lon": 19.260529,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL- Klammhoehe",
+      "lat": 48.06259,
+      "lon": 15.84537,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Sasova",
+      "lat": 48.760231,
+      "lon": 19.169929,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Okruzna",
+      "lat": 48.727109,
+      "lon": 19.124941,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1050-WieGue-rep",
+      "lat": 48.181179,
+      "lon": 16.348913,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Rovinka",
+      "lat": 48.09928,
+      "lon": 17.24126,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Acc-1210",
+      "lat": 48.271526,
+      "lon": 16.38791,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KR-Langenlois",
+      "lat": 48.477558,
+      "lon": 15.65262,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU3_OBD",
+      "lat": 47.54388,
+      "lon": 19.04173,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-ADL313",
+      "lat": 48.34686,
+      "lon": 16.40735,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Solosnica-2RC",
+      "lat": 48.46596,
+      "lon": 17.23391,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KS-RKR",
+      "lat": 48.43,
+      "lon": 15.61,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-GA-Kralov-Brod",
+      "lat": 48.058722,
+      "lon": 17.829091,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-Budafok",
+      "lat": 47.43658,
+      "lon": 19.02047,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-Mobil-CHZ",
+      "lat": 48.293495,
+      "lon": 16.451106,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PK-Casta",
+      "lat": 48.39899,
+      "lon": 17.355779,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Panorama",
+      "lat": 48.141445,
+      "lon": 17.126651,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-SNO2",
+      "lat": 48.287131,
+      "lon": 16.384159,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KS-EBR4",
+      "lat": 48.429776,
+      "lon": 15.619686,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Dvory",
+      "lat": 48.130232,
+      "lon": 17.099331,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PD-Handlova",
+      "lat": 48.725405,
+      "lon": 18.767132,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Traiskirchen-Ohs",
+      "lat": 48.015544,
+      "lon": 16.296743,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-NR-Bratislavska",
+      "lat": 48.313011,
+      "lon": 18.07086,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Rovinka-OM1ALX",
+      "lat": 48.1004,
+      "lon": 17.2428,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Javorova-2RC",
+      "lat": 48.432239,
+      "lon": 17.03132,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-DS-Velke-Blahovo",
+      "lat": 48.012856,
+      "lon": 17.567859,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-SZSZM-GerusRep",
+      "lat": 47.355872,
+      "lon": 19.033977,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-2345-Campus21-rep",
+      "lat": 48.114944,
+      "lon": 16.295009,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Vartovka",
+      "lat": 48.71796,
+      "lon": 19.15378,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-Várpalota",
+      "lat": 47.199968,
+      "lon": 18.128919,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NOE-MD-REPEATER",
+      "lat": 48.096145,
+      "lon": 16.283262,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TT-Zelenec",
+      "lat": 48.332172,
+      "lon": 17.597114,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-2761-Rep1",
+      "lat": 47.86647,
+      "lon": 15.969633,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Mierova",
+      "lat": 48.14893,
+      "lon": 17.165033,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-BMKz-RPI",
+      "lat": 48.112979,
+      "lon": 16.272127,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Oberlaa",
+      "lat": 48.140375,
+      "lon": 16.413053,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-Hagenbrunn",
+      "lat": 48.33949,
+      "lon": 16.39639,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Bystrička",
+      "lat": 49.062542,
+      "lon": 18.864021,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU18-North🇭🇺",
+      "lat": 47.451632,
+      "lon": 19.170425,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Csömör🌲",
+      "lat": 47.55772,
+      "lon": 19.22651,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Zohor🧅",
+      "lat": 48.31795,
+      "lon": 16.98307,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-Acc-2103",
+      "lat": 48.308777,
+      "lon": 16.350024,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-BirdHouse-HMI🐥",
+      "lat": 48.24789,
+      "lon": 17.043149,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-HC-Hlohovec",
+      "lat": 48.434258,
+      "lon": 17.81057,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Krizna",
+      "lat": 48.15314,
+      "lon": 17.122491,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PK-Senkvice",
+      "lat": 48.292518,
+      "lon": 17.359998,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZA-Platanova",
+      "lat": 49.198927,
+      "lon": 18.743404,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Siegenfeld",
+      "lat": 48.03836,
+      "lon": 16.181059,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Zaluhy-BCO",
+      "lat": 48.17944,
+      "lon": 17.04766,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KS-EBR",
+      "lat": 48.42976,
+      "lon": 15.619628,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU3-Csucshegy🏔️",
+      "lat": 47.571086,
+      "lon": 18.987834,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Bisamtest",
+      "lat": 48.306733,
+      "lon": 16.384943,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1100-Hbf 🚉",
+      "lat": 48.18449,
+      "lon": 16.37313,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Zlate-Piesky",
+      "lat": 48.190741,
+      "lon": 17.19452,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-FE-SF-Köfém🌞",
+      "lat": 47.19131,
+      "lon": 18.462749,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "🇸🇰Core-FNet_Pol",
+      "lat": 48.62806,
+      "lon": 19.47526,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Labutia (Maveric)",
+      "lat": 48.092611,
+      "lon": 17.103361,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-HaZZ",
+      "lat": 49.07983,
+      "lon": 18.905203,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Raca-Vinica 🍇",
+      "lat": 48.22826,
+      "lon": 17.16827,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-DD-952A",
+      "lat": 48.1521,
+      "lon": 17.0507,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-NaszEye",
+      "lat": 47.834273,
+      "lon": 19.151963,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Grunty-OM3KFF",
+      "lat": 48.15889,
+      "lon": 17.06376,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-SZSZM-Bucka-2",
+      "lat": 47.329886,
+      "lon": 19.034964,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Hruba-Ples",
+      "lat": 48.212027,
+      "lon": 17.049557,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Lab-02B8",
+      "lat": 48.366593,
+      "lon": 16.972703,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-Szigetcsúcs-mc868.h",
+      "lat": 47.4349,
+      "lon": 19.0725,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Nove-Mesto",
+      "lat": 48.17,
+      "lon": 17.13,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-EU-Klingenbach",
+      "lat": 47.753192,
+      "lon": 16.541742,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-BadVoeslau-Falk",
+      "lat": 47.968258,
+      "lon": 16.218266,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Kutiky-4",
+      "lat": 48.16,
+      "lon": 17.046133,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Karlovo",
+      "lat": 48.751755,
+      "lon": 19.145648,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Repeater OBG2",
+      "lat": 48.26584,
+      "lon": 16.393339,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-WB-Capture",
+      "lat": 47.871506,
+      "lon": 16.20407,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-BMKf-R",
+      "lat": 48.11943,
+      "lon": 16.28255,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Stupava",
+      "lat": 48.272971,
+      "lon": 17.022778,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-P-ARDV-Spratzern",
+      "lat": 48.17117,
+      "lon": 15.6241,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-East",
+      "lat": 47.9981,
+      "lon": 16.25203,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZV-Sliac",
+      "lat": 48.616619,
+      "lon": 19.148639,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-PB",
+      "lat": 48.136588,
+      "lon": 17.203394,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-Somló",
+      "lat": 47.146655,
+      "lon": 17.372118,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-GA-Bratislavska",
+      "lat": 48.186588,
+      "lon": 17.716669,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-DT-Sever",
+      "lat": 48.595776,
+      "lon": 19.430426,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU-XVI-Sashalom 📡",
+      "lat": 47.505008,
+      "lon": 19.17925,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-EST Palais Chotek",
+      "lat": 48.218978,
+      "lon": 16.35814,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-2482-WstrSolar",
+      "lat": 48.03289,
+      "lon": 16.379909,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VA-ha1mp_vaci",
+      "lat": 47.24395,
+      "lon": 16.60625,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZV-Pusty-Vrch",
+      "lat": 48.555846,
+      "lon": 19.108948,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU11-VRK-NRF52",
+      "lat": 47.475696,
+      "lon": 19.055946,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Hole",
+      "lat": 49.09177,
+      "lon": 18.833862,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-SO-Zamardi-OBI1",
+      "lat": 46.88426,
+      "lon": 17.94247,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZV-Kovacova",
+      "lat": 48.604771,
+      "lon": 19.104099,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PD-Poruba",
+      "lat": 48.833389,
+      "lon": 18.593693,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Solosnica3-2RC",
+      "lat": 48.44348,
+      "lon": 17.22323,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU3-Kaszasdulo",
+      "lat": 47.557901,
+      "lon": 19.043909,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Donau observer",
+      "lat": 48.236156,
+      "lon": 16.438262,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-Anzenberg",
+      "lat": 48.31898,
+      "lon": 15.66947,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Priekopa",
+      "lat": 49.105987,
+      "lon": 18.931311,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BS-Sitno",
+      "lat": 48.403192,
+      "lon": 18.877241,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VA-ha1mp_433_park",
+      "lat": 47.21118,
+      "lon": 16.57822,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-2340-Vierjochkoge",
+      "lat": 48.0524,
+      "lon": 16.252279,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-GF-B1526",
+      "lat": 48.258627,
+      "lon": 16.620718,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU-XVII",
+      "lat": 47.46463,
+      "lon": 19.30399,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZA-1.Maja",
+      "lat": 49.224337,
+      "lon": 18.750113,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Galvaniho",
+      "lat": 48.173,
+      "lon": 17.1725,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Acc-Mobile",
+      "lat": 48.271008,
+      "lon": 16.388866,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-BMKz-C-R",
+      "lat": 48.112934,
+      "lon": 16.272081,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1110-Kaiser-Rep",
+      "lat": 48.158931,
+      "lon": 16.453729,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZA-Zavodie",
+      "lat": 49.218454,
+      "lon": 18.721723,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Irongate",
+      "lat": 48.008111,
+      "lon": 16.13308,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VA-Luk@868🔆",
+      "lat": 47.329105,
+      "lon": 16.563244,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-WalCore",
+      "lat": 48.235,
+      "lon": 16.37463,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-TestBench1",
+      "lat": 48.24176,
+      "lon": 15.53811,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-BMKd-R",
+      "lat": 48.115423,
+      "lon": 16.272889,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PD-Sever",
+      "lat": 48.78098,
+      "lon": 18.63896,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VA-EHC.BR🔆",
+      "lat": 47.083272,
+      "lon": 16.611963,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Rustensteg",
+      "lat": 48.19457,
+      "lon": 16.32565,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Fleck-001",
+      "lat": 48.201763,
+      "lon": 16.287693,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Core-PlavStvrtok-Gama",
+      "lat": 48.375383,
+      "lon": 16.994428,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VB-HOME-R",
+      "lat": 47.46956,
+      "lon": 19.01152,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Koziarka",
+      "lat": 48.18747,
+      "lon": 17.11837,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Ch-Grob-CV",
+      "lat": 48.21841,
+      "lon": 17.233451,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU-Barad-dûr",
+      "lat": 47.47292,
+      "lon": 19.0532,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Dunajska-Luzna",
+      "lat": 48.09086,
+      "lon": 17.26216,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VA-roho",
+      "lat": 47.236869,
+      "lon": 16.605304,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VA-ha1mp_433_roho",
+      "lat": 47.23698,
+      "lon": 16.605609,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU20-OBI1",
+      "lat": 47.42618,
+      "lon": 19.12775,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-Landersdorf",
+      "lat": 48.31727,
+      "lon": 15.57942,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-St.Marx",
+      "lat": 48.188959,
+      "lon": 16.399709,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Kottingbrunn",
+      "lat": 47.936,
+      "lon": 16.218,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZA-Borova",
+      "lat": 49.199863,
+      "lon": 18.740505,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-BadVoeslau",
+      "lat": 47.967815,
+      "lon": 16.204139,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-NR-Kalvaria",
+      "lat": 48.299526,
+      "lon": 18.081386,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Moskovska",
+      "lat": 48.724361,
+      "lon": 19.117879,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Port",
+      "lat": 49.078787,
+      "lon": 18.915698,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Pécel-v4",
+      "lat": 47.47868,
+      "lon": 19.35641,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU18-South🇭🇺",
+      "lat": 47.450337,
+      "lon": 19.171069,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-DS-Golf⛳️",
+      "lat": 48.0107,
+      "lon": 17.36636,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TT-Majcichov",
+      "lat": 48.284263,
+      "lon": 17.631173,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-LV-TLM-Test",
+      "lat": 48.285921,
+      "lon": 18.506676,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PN-Velke-Orviste",
+      "lat": 48.619952,
+      "lon": 17.792351,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-ANALYZER",
+      "lat": 49.079616,
+      "lon": 18.906211,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Tbeam Repeater",
+      "lat": 48.391281,
+      "lon": 15.580991,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Panonska-38D6",
+      "lat": 48.121465,
+      "lon": 17.099434,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Enzesfeld-Li-V4",
+      "lat": 47.91261,
+      "lon": 16.18957,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Albertfalva",
+      "lat": 47.409546,
+      "lon": 19.033781,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-LM-Smrecany",
+      "lat": 49.117176,
+      "lon": 19.649543,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Slavin🗼",
+      "lat": 48.15391,
+      "lon": 17.0996,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NK-Ternitz-WeRe",
+      "lat": 47.72184,
+      "lon": 16.04154,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Nova-Dedinka",
+      "lat": 48.1854,
+      "lon": 17.3561,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Karlovo-2",
+      "lat": 48.751759,
+      "lon": 19.146286,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-DS-HornyBar",
+      "lat": 47.941023,
+      "lon": 17.470463,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-ZahorskeSady",
+      "lat": 48.226181,
+      "lon": 17.04244,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-RK-Bystricka-TEST",
+      "lat": 49.073156,
+      "lon": 19.313752,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-EnkBase",
+      "lat": 48.176365,
+      "lon": 16.415897,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-LV-Levice-Rybniky",
+      "lat": 48.207774,
+      "lon": 18.602689,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1030-Gasometer",
+      "lat": 48.184309,
+      "lon": 16.417932,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KR-3512-433RP",
+      "lat": 48.37396,
+      "lon": 15.58126,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Zaluhy-1AEG",
+      "lat": 48.18039,
+      "lon": 17.04133,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-SNO1",
+      "lat": 48.287479,
+      "lon": 16.38764,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-BadVoeslau-Test",
+      "lat": 47.96759,
+      "lon": 16.2183,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-DS-Velka-Paka",
+      "lat": 48.033538,
+      "lon": 17.384222,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TO-Wir",
+      "lat": 48.558735,
+      "lon": 18.133219,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Ovsiste",
+      "lat": 48.12437,
+      "lon": 17.13039,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Blatnica-Solar",
+      "lat": 48.927773,
+      "lon": 18.917812,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Donaustadt",
+      "lat": 48.23635,
+      "lon": 16.43842,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-Korneuburgv4",
+      "lat": 48.362131,
+      "lon": 16.314017,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Kramare-HMI 🚲",
+      "lat": 48.16837,
+      "lon": 17.08541,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-BISAMBERG",
+      "lat": 48.306439,
+      "lon": 16.389243,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Floridsdorf-AB",
+      "lat": 48.25554,
+      "lon": 16.39732,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-KBW-Mobil",
+      "lat": 48.28256,
+      "lon": 16.41897,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-2331",
+      "lat": 48.11823,
+      "lon": 16.350259,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU_HE_Hatvan",
+      "lat": 47.673327,
+      "lon": 19.682009,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU13-VIZA",
+      "lat": 47.531704,
+      "lon": 19.060432,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT_HL-BreitenWaida-tLor",
+      "lat": 48.51107,
+      "lon": 16.073999,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KR-3561-Heiligenstei",
+      "lat": 48.48933,
+      "lon": 15.72217,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-2482-Wienerst",
+      "lat": 48.03315,
+      "lon": 16.38056,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Rovinka-4631",
+      "lat": 48.092463,
+      "lon": 17.249015,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Vrakuna",
+      "lat": 48.152502,
+      "lon": 17.208323,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1160-Willi",
+      "lat": 48.21867,
+      "lon": 16.29503,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-ZV-Podborova",
+      "lat": 48.591513,
+      "lon": 19.13689,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Leo",
+      "lat": 48.277646,
+      "lon": 16.343661,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-XTZ-KarlSargSteg",
+      "lat": 48.13411,
+      "lon": 16.28605,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Lamac-HMI 🦒",
+      "lat": 48.19191,
+      "lon": 17.06261,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-DNV-VW",
+      "lat": 48.22832,
+      "lon": 16.99704,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BL-HaD",
+      "lat": 48.138681,
+      "lon": 16.937325,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Vlcie-Hrdlo",
+      "lat": 48.127769,
+      "lon": 17.180259,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1010 Akri 🚲",
+      "lat": 48.215242,
+      "lon": 16.370518,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Most-1EPT",
+      "lat": 48.134708,
+      "lon": 17.276904,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PD-Prievidza",
+      "lat": 48.768224,
+      "lon": 18.605795,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-HellBird",
+      "lat": 48.114448,
+      "lon": 15.933318,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Hviezdko-MSH",
+      "lat": 48.141164,
+      "lon": 17.106611,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-Kohlreith",
+      "lat": 48.172796,
+      "lon": 15.942935,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-OldTown-BCO",
+      "lat": 48.14466,
+      "lon": 17.10838,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-RK-SvosovHrdos",
+      "lat": 49.134734,
+      "lon": 19.20761,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PK-Centrum",
+      "lat": 48.285869,
+      "lon": 17.272071,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SKYMAX-Lomnicak",
+      "lat": 49.195225,
+      "lon": 20.213301,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-P-ARDV-1",
+      "lat": 48.22113,
+      "lon": 15.62261,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Zaborie",
+      "lat": 49.024309,
+      "lon": 19.018095,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Klac-Magura",
+      "lat": 49.148033,
+      "lon": 18.950397,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Kutiky",
+      "lat": 48.16059,
+      "lon": 17.04532,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MA-Stupava-Park",
+      "lat": 48.269476,
+      "lon": 17.0398,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-SW",
+      "lat": 48.00069,
+      "lon": 16.224799,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Devin",
+      "lat": 48.17868,
+      "lon": 16.98933,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NOE-TU-TulbingRP1",
+      "lat": 48.283868,
+      "lon": 16.096328,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU11-N32",
+      "lat": 47.46241,
+      "lon": 19.046095,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-Murstetten",
+      "lat": 48.239883,
+      "lon": 15.827538,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-TU-Langenlebarn-Test",
+      "lat": 48.33133,
+      "lon": 16.12089,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Luky-VI",
+      "lat": 48.10411,
+      "lon": 17.11226,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Kahlenberg-Solar",
+      "lat": 48.27678,
+      "lon": 16.333189,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KR-3550-Loistal",
+      "lat": 48.491739,
+      "lon": 15.628466,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Biskupice",
+      "lat": 48.13399,
+      "lon": 17.21308,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-GROSSAU",
+      "lat": 47.948565,
+      "lon": 16.162718,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Adler-Test",
+      "lat": 48.192161,
+      "lon": 17.0293,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Karlova-ves",
+      "lat": 48.158618,
+      "lon": 17.050399,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1239-Verdi",
+      "lat": 48.1372,
+      "lon": 16.349799,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-STVEIT",
+      "lat": 47.940575,
+      "lon": 16.156735,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU20-BU177🇭🇺",
+      "lat": 47.437316,
+      "lon": 19.114626,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BA-Kramare-LD8-TEST",
+      "lat": 48.165323,
+      "lon": 17.100472,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-P-SZN",
+      "lat": 48.21828,
+      "lon": 15.64847,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Au-Siedlung",
+      "lat": 47.946676,
+      "lon": 16.234016,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-BB-Radvan",
+      "lat": 48.720647,
+      "lon": 19.136184,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-UWD-SolarNode-R",
+      "lat": 47.96514,
+      "lon": 16.424364,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-NZ-Mana-StaraHora",
+      "lat": 48.13868,
+      "lon": 18.29974,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-MT-Strane-Test",
+      "lat": 49.084542,
+      "lon": 18.908688,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-P-SegVault1",
+      "lat": 48.20367,
+      "lon": 15.62026,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-BU11-test",
+      "lat": 47.45594,
+      "lon": 19.03984,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-HL-OE3XHU-REP-🏢",
+      "lat": 48.56097,
+      "lon": 16.06717,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-LaBu-HOI",
+      "lat": 48.062043,
+      "lon": 16.344968,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-XTZ-Siegesplatz",
+      "lat": 48.215728,
+      "lon": 16.48476,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-TN-Hrad",
+      "lat": 48.89372,
+      "lon": 18.04444,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-NSU-RBB",
+      "lat": 48.5746,
+      "lon": 16.39654,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Hirtenberg",
+      "lat": 48.0048,
+      "lon": 16.21885,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-SR-Stp1",
+      "lat": 48.03745,
+      "lon": 14.41569,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-SR-sta1",
+      "lat": 48.050481,
+      "lon": 14.418302,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Planet Express",
+      "lat": 48.153,
+      "lon": 11.415,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-Ausee-Heltec V4",
+      "lat": 48.249039,
+      "lon": 14.415826,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "OT40 Repeater",
+      "lat": 48.108269,
+      "lon": 11.618607,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "DL4RD",
+      "lat": 48.80094,
+      "lon": 13.13691,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Neusaess Repeater 1",
+      "lat": 48.39238,
+      "lon": 10.83627,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-GF-2231-Fichtantenne",
+      "lat": 48.30671,
+      "lon": 16.661943,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W21-ZeREP",
+      "lat": 48.27868,
+      "lon": 16.41233,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "LRR_02",
+      "lat": 47.8477,
+      "lon": 13.220693,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Jagdfeld🚫",
+      "lat": 48.105963,
+      "lon": 11.722213,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-SR-Stu2",
+      "lat": 47.97448,
+      "lon": 14.41274,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-BadVoeslau-Falk",
+      "lat": 47.968258,
+      "lon": 16.218266,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "DE.83064.SU.RepSolar#17",
+      "lat": 47.746193,
+      "lon": 12.060249,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-UU-Zwe1",
+      "lat": 48.485173,
+      "lon": 14.276073,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "DL_BY_94065_DL1RCK_Repe",
+      "lat": 48.724681,
+      "lon": 13.599189,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "DE-BY-Pilsting DF5LR",
+      "lat": 48.67643,
+      "lon": 12.667837,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-SzSzM-BlueLake",
+      "lat": 47.33662,
+      "lon": 19.04443,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-2345-SEEED",
+      "lat": 48.10435,
+      "lon": 16.28575,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-NR-Ludov",
+      "lat": 48.396224,
+      "lon": 18.078839,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-MD-BMKa-GAT-R",
+      "lat": 48.112876,
+      "lon": 16.271982,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-LV-TLM-Plesovica",
+      "lat": 48.28651278263405,
+      "lon": 18.505643606185917,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Aporka-1",
+      "lat": 47.223607,
+      "lon": 19.010659,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "CatNet🏳️‍⚧",
+      "lat": 47.906911,
+      "lon": 11.432219,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-XTZ-Favoriten",
+      "lat": 48.16791,
+      "lon": 16.352329,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "haidhausen-repeater",
+      "lat": 48.136317,
+      "lon": 11.60909,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-SR-FeSR1",
+      "lat": 48.032499,
+      "lon": 14.418865,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SC-Malinovo-3vody",
+      "lat": 48.14723,
+      "lon": 17.29533,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1200-CLR",
+      "lat": 48.230003,
+      "lon": 16.378798,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-2551-ELV",
+      "lat": 47.915317,
+      "lon": 16.198909,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NK-Ternitz-WRB",
+      "lat": 47.722779,
+      "lon": 16.040825,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-1130-RAP03-Dach",
+      "lat": 48.17499,
+      "lon": 16.28245,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W21-F9³-☀️",
+      "lat": 48.25743,
+      "lon": 16.41349,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-VK-okolie-🌞",
+      "lat": 48.214885,
+      "lon": 19.349446,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-TU-StaW-O",
+      "lat": 48.329884,
+      "lon": 16.22063,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BL-test2",
+      "lat": 48.10712,
+      "lon": 16.460613,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-Balatonfüred",
+      "lat": 46.957349,
+      "lon": 17.889023,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-KE-KVP",
+      "lat": 48.719921,
+      "lon": 21.20598,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-PE-Pécel-Kopaszhegy",
+      "lat": 47.477067,
+      "lon": 19.347323,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "PL-KTA-R2-Rpt☀️",
+      "lat": 50.07016,
+      "lon": 20.97366,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SA-solar",
+      "lat": 48.137523,
+      "lon": 17.887817,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-MySolartest",
+      "lat": 47.935161,
+      "lon": 16.217186,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PD-Barborka2",
+      "lat": 48.745319,
+      "lon": 18.760339,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-Test-Markus-1",
+      "lat": 48.108187,
+      "lon": 15.75963,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-SA top of the distri",
+      "lat": 47.989746,
+      "lon": 18.501607,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-SR-FeSR2",
+      "lat": 48.032304,
+      "lon": 14.418872,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT_HL_SenseCap_Solar⚠",
+      "lat": 48.513503,
+      "lon": 16.071546,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-W-Arsenal ",
+      "lat": 48.18397,
+      "lon": 16.39438,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-2544-Beltalowda",
+      "lat": 47.92,
+      "lon": 16.21,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-ZA-Padkűi kilátó",
+      "lat": 46.805143,
+      "lon": 17.327946,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "Tatra 2 SHB",
+      "lat": 49.121322,
+      "lon": 20.063137,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-GF-2263 🐔",
+      "lat": 48.473787,
+      "lon": 16.846628,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-NOE-TU-Koenigstetten",
+      "lat": 48.29604,
+      "lon": 16.16139,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PD-Poruba",
+      "lat": 48.833436,
+      "lon": 18.593785,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-PL-Hofstetten01",
+      "lat": 48.105142,
+      "lon": 15.507847,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-HL-Puch_didi_SenseCa",
+      "lat": 48.50033,
+      "lon": 16.04529,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-KAB 1W RAK",
+      "lat": 47.046859,
+      "lon": 17.656919,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "HU-VE-KAB G2",
+      "lat": 47.04715,
+      "lon": 17.65688,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PE-Navojovce",
+      "lat": 48.653873,
+      "lon": 18.359701,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-KO-OE3DCP-R",
+      "lat": 48.38977,
+      "lon": 16.23354,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-BN-Au-Siedlung",
+      "lat": 47.94669,
+      "lon": 16.23402,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "SK-PE-Krstenany",
+      "lat": 48.63595,
+      "lon": 18.40594,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "AT-ME-MfG",
+      "lat": 48.21213,
+      "lon": 15.32932,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "PL_RJS_Patronus☀️",
+      "lat": 49.811935,
+      "lon": 21.446014,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
+    },
+    {
+      "name": "VePro Solare",
+      "lat": 45.4944,
+      "lon": 12.1416,
+      "height": 10,
+      "power": 20,
+      "freq": 868,
+      "gain": 2
     }
   ]
 }

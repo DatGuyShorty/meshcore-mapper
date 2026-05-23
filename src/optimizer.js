@@ -1,18 +1,17 @@
 /**
  * optimizer.js
  * Finds the best repeater placement location(s) within a bounding box.
- * No DOM, no map, no network I/O — all inputs are plain data.
+ * Main-thread fallback for optimizer scoring. The UI normally uses
+ * optimizerWorker.js after pre-fetching terrain and obstacle layers.
  *
  * Algorithm: exhaustive grid search over candidate TX locations, scoring each
  * with scoreCoverage(). For multiple repeaters, a greedy incremental pass is
  * used (place each repeater to maximise marginal new coverage).
  */
 import { fetchElevations } from './elevation.js';
-import { checkLoS, bilinearElev } from './propagation.js';
-
-// P1: module-level profile buffer — pre-allocated once, reused across all computeSignal calls
-const PROFILE_SAMPLES = 16;
-const _profile = new Float32Array(PROFILE_SAMPLES);
+import { fetchFoliage } from './foliage.js';
+import { fetchBuildings } from './buildings.js';
+import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
 /**
  * Find the best N repeater locations within a bounding box.
@@ -29,7 +28,7 @@ const _profile = new Float32Array(PROFILE_SAMPLES);
 export async function findBestLocations(bounds, nRepeaters, txParams, opts, onProgress) {
   const { latMin, latMax, lonMin, lonMax } = bounds;
   const { height, power, freq, gain } = txParams;
-  const { rxHeight, rxSens, radiusKm, useLos, useFresnel } = opts;
+  const { rxHeight, rxSens, fadeMargin = 0, radiusKm, useLos, useFresnel } = opts;
   const candidateRes = opts.candidateRes ?? 16;
   const evalRes      = opts.evalRes      ?? 48;
 
@@ -51,25 +50,49 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
   const evalElevs      = allElevs.slice(0, evalPoints.length);
   const candidateElevs = allElevs.slice(evalPoints.length);
 
+  let foliage = null;
+  let buildings = null;
+  if (opts.useFoliage || opts.useBuildings) {
+    progress(12, 'Fetching obstacle layers...');
+    [foliage, buildings] = await Promise.all([
+      opts.useFoliage
+        ? fetchFoliage(latMin, latMax, lonMin, lonMax)
+            .catch(e => { console.warn('[optimizer] foliage fetch failed, skipping:', e); return null; })
+        : Promise.resolve(null),
+      opts.useBuildings
+        ? fetchBuildings(latMin, latMax, lonMin, lonMax)
+            .catch(e => { console.warn('[optimizer] buildings fetch failed, skipping:', e); return null; })
+        : Promise.resolve(null),
+    ]);
+  }
+
   progress(20, 'Scoring candidate locations…');
 
   // shared opts for scoreCoverage
   const scoreOpts = {
-    rxHeight, rxSens, radiusKm, useLos, useFresnel,
+    rxHeight, rxSens, fadeMargin, radiusKm, useLos, useFresnel,
     gridRes: evalRes,
     latMin, latMax, lonMin, lonMax,
+    profileTargetSpacingM: opts.profileTargetSpacingM,
+    profileMaxSamples: opts.profileMaxSamples,
+    foliage,
+    foliageLossPerM: opts.foliageLossPerM,
+    buildings,
+    buildingLossPerM: opts.buildingLossPerM,
   };
 
   // ── Greedy incremental search ──
   const placed = [];
   const covered = new Uint8Array(evalPoints.length);
+  const selectedCandidates = new Uint8Array(candidates.length);
 
   for (let round = 0; round < nRepeaters; round++) {
     let bestScore   = -1;
-    let bestIdx     = 0;
-    let bestSignals = null; // P7: cache the winning candidate's signal array
+    let bestIdx     = -1;
+    let bestSignals = null; // Cache the winning candidate's signal array.
 
     for (let ci = 0; ci < candidates.length; ci++) {
+      if (selectedCandidates[ci]) continue;
       const cand = candidates[ci];
       const tx   = { lat: cand.latitude, lon: cand.longitude, height, power, freq, gain };
 
@@ -85,7 +108,9 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
       }
     }
 
-    // P7: use cached signals from the winning pass — no second computeSignal sweep
+    // Use cached signals from the winning pass; avoid a second signal sweep.
+    if (bestIdx === -1 || bestScore <= 0 || !bestSignals) break;
+    selectedCandidates[bestIdx] = 1;
     markCovered(bestSignals, evalPoints, covered, scoreOpts);
 
     const best = candidates[bestIdx];
@@ -118,43 +143,34 @@ export function buildGrid(latMin, latMax, lonMin, lonMax, res) {
 }
 
 /**
- * Score marginal new coverage; also returns the per-point signal array for the winner (P7).
+ * Score marginal new coverage and return the per-point signal array for the winner.
  */
 function scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, opts) {
   const { rxSens, radiusKm } = opts;
   const threshold = rxSens + (opts.fadeMargin ?? 0);
 
-  // P3: flat-Earth scale factors — computed once per candidate, not per eval point
-  const mPerLat = 110574;
-  const mPerLon = 111320 * Math.cos(tx.lat * Math.PI / 180);
+  const fsplBase = fsplBaseDb(tx.freq);
+  const profileBuffers = ensureProfileBuffers(opts.profileMaxSamples ?? 256);
 
-  // P4: hoist frequency-constant part of FSPL
-  const fsplBase = 20 * Math.log10(tx.freq * 1e6) - 147.55;
-
-  let newCovered = 0, total = 0;
+  let newCovered = 0;
   const signals = new Float32Array(evalPoints.length);
   signals.fill(-200);
 
   for (let idx = 0; idx < evalPoints.length; idx++) {
     if (covered[idx]) continue;
     const pt   = evalPoints[idx];
-    // P3: flat-Earth distance
-    const dLat = (pt.latitude  - tx.lat) * mPerLat;
-    const dLon = (pt.longitude - tx.lon) * mPerLon;
-    const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+    const dist = flatDistanceM(tx.lat, tx.lon, pt.latitude, pt.longitude);
     if (dist > radiusKm * 1000) continue;
-    total++;
-
-    const sig = computeSignal(tx, txElev, pt, evalElevs[idx], dist, fsplBase, evalElevs, opts);
+    const sig = computeSignal(tx, txElev, pt, evalElevs[idx], dist, fsplBase, evalElevs, opts, profileBuffers);
     signals[idx] = sig;
     if (sig >= threshold) newCovered++;
   }
 
-  return { score: total === 0 ? 0 : newCovered / total, signals };
+  return { score: evalPoints.length === 0 ? 0 : newCovered / evalPoints.length, signals };
 }
 
 /**
- * P7: mark covered cells using pre-computed signal array from the winning scoring pass.
+ * Mark covered cells using the pre-computed signal array from the winning pass.
  */
 function markCovered(signals, evalPoints, covered, opts) {
   const threshold = opts.rxSens + (opts.fadeMargin ?? 0);
@@ -163,26 +179,21 @@ function markCovered(signals, evalPoints, covered, opts) {
   }
 }
 
-function computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts) {
-  const { rxHeight, useLos, useFresnel, gridRes, latMin, latMax, lonMin, lonMax } = opts;
-
-  // P4: fsplBase already hoisted by caller
-  let rxPower = tx.power + (tx.gain ?? 0) - (20 * Math.log10(Math.max(1, dist)) + fsplBase);
-
-  if (useLos && dist > 50) {
-    // P1: fill module-level pre-allocated profile buffer
-    for (let s = 0; s < PROFILE_SAMPLES; s++) {
-      const t = s / (PROFILE_SAMPLES - 1);
-      _profile[s] = bilinearElev(
-        tx.lat + (pt.latitude  - tx.lat) * t,
-        tx.lon + (pt.longitude - tx.lon) * t,
-        gridElevs, gridRes, latMin, latMax, lonMin, lonMax
-      );
-    }
-    const los = checkLoS(txElev, rxElev, _profile, tx.height, rxHeight, dist, tx.freq, useFresnel);
-    rxPower -= los.diffractionLossDb;
-    if (!los.los && los.diffractionLossDb > 60) rxPower = Math.min(rxPower, opts.rxSens - 10);
-  }
-
-  return rxPower;
+function computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts, profileBuffers) {
+  return computeSignalToPoint({
+    tx, txElev, rxLat: pt.latitude, rxLon: pt.longitude, rxElev,
+    distM: dist, fsplBase, elevGrid: gridElevs, elevRes: opts.gridRes,
+    bounds: { latMin: opts.latMin, latMax: opts.latMax, lonMin: opts.lonMin, lonMax: opts.lonMax },
+    rxHeight: opts.rxHeight,
+    effectiveSens: opts.rxSens + (opts.fadeMargin ?? 0),
+    useLos: opts.useLos,
+    useFresnel: opts.useFresnel,
+    foliage: opts.foliage,
+    foliageLossPerM: opts.foliageLossPerM,
+    buildings: opts.buildings,
+    buildingLossPerM: opts.buildingLossPerM,
+    profileTargetSpacingM: opts.profileTargetSpacingM,
+    profileMaxSamples: opts.profileMaxSamples,
+    profileBuffers,
+  }).rxPower;
 }
