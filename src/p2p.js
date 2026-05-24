@@ -14,6 +14,7 @@ let pointA = null;
 let pointB = null;
 let markers = [];
 let polyline = null;
+let _abortController = null;
 
 function resetState() {
   markers.forEach(m => map.removeLayer(m));
@@ -113,17 +114,25 @@ async function computeAndRenderLinkBudget() {
   if (!pointA || !pointB) return;
   setStatus('Fetching elevation and obstacle data...');
   setButtonBusy('btn-p2p-update', true, 'Calculating...');
+  document.getElementById('btn-cancel-p2p').disabled = false;
   document.getElementById('p2p-results').innerHTML = '';
+  _abortController = new AbortController();
 
   try {
-    const result = await calculateLinkBudget(pointA, pointB, getP2PSettings());
+    const result = await calculateLinkBudget(pointA, pointB, getP2PSettings(), { signal: _abortController.signal });
     console.info(`[p2p] dist=${(result.distM / 1000).toFixed(2)} km FSPL=${result.pathLoss.toFixed(1)} dB diff=${result.diffractionLoss.toFixed(1)} dB foliage=${result.foliageLoss.toFixed(1)} dB bld=${result.buildingLoss.toFixed(1)} dB rxPower=${result.rxPower.toFixed(1)} dBm margin=${result.margin.toFixed(1)} dB`);
     _renderBudget(result);
   } catch (err) {
-    setStatus(`Link budget failed: ${err.message}`, true);
-    console.error('[p2p]', err);
+    if (err?.cancelled || err?.name === 'AbortError') {
+      setStatus('Link budget cancelled.', true);
+    } else {
+      setStatus(`Link budget failed: ${err.message}`, true);
+      console.error('[p2p]', err);
+    }
   } finally {
+    _abortController = null;
     setButtonBusy('btn-p2p-update', false);
+    document.getElementById('btn-cancel-p2p').disabled = true;
   }
 }
 
@@ -192,6 +201,7 @@ export function init() {
     await computeAndRenderLinkBudget();
   });
   document.getElementById('btn-p2p-clear').addEventListener('click', () => {
+    _abortController?.abort();
     resetState();
     clearResults();
     document.getElementById('p2p-pick-hint').classList.add('hidden');
@@ -199,6 +209,7 @@ export function init() {
     picking = false;
     map.getContainer().style.cursor = '';
   });
+  document.getElementById('btn-cancel-p2p').addEventListener('click', () => _abortController?.abort());
 
   initPathfinderUI();
 

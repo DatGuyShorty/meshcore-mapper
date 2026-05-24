@@ -5,9 +5,11 @@ import { escHtml, setActiveTab, setButtonBusy } from './ui.js';
 
 let _pathPolylines = [];
 let _pathMarkers = [];
+let _abortController = null;
 
 export function initPathfinderUI() {
   document.getElementById('btn-find-path').addEventListener('click', _runPathFinder);
+  document.getElementById('btn-cancel-path').addEventListener('click', () => _abortController?.abort());
   document.addEventListener('repeaters:changed', _refreshPathSelects);
   setTimeout(_refreshPathSelects, 0);
 
@@ -138,11 +140,16 @@ async function _runPathFinder() {
   document.getElementById('path-status').classList.remove('hidden');
   document.getElementById('path-results').innerHTML = '';
   setButtonBusy('btn-find-path', true, 'Computing...');
+  document.getElementById('btn-cancel-path').disabled = false;
+  _abortController = new AbortController();
   _clearPathLayers();
 
   try {
     const requiredRx = p2p.rxSens + (p2p.fadeMargin ?? 0);
-    const result = await findBestPath(state.repeaters, fromId, toId, requiredRx, p2p.rxGain, useFresnel, p2p);
+    const result = await findBestPath(state.repeaters, fromId, toId, requiredRx, p2p.rxGain, useFresnel, {
+      ...p2p,
+      signal: _abortController.signal,
+    });
     if (!result) {
       document.getElementById('path-status').textContent = 'No path found - nodes may be out of range or all links blocked.';
       document.getElementById('path-status').className = 'hint hint-error';
@@ -151,10 +158,17 @@ async function _runPathFinder() {
     _renderPath(result);
     console.info(`[pathfinder] ${result.numHops}-hop path, bottleneck=${result.bottleneck.toFixed(1)} dB`);
   } catch (err) {
-    document.getElementById('path-status').textContent = `Error: ${err.message}`;
-    document.getElementById('path-status').className = 'hint hint-error';
-    console.error('[pathfinder]', err);
+    if (err?.cancelled || err?.name === 'AbortError') {
+      document.getElementById('path-status').textContent = 'Path search cancelled.';
+      document.getElementById('path-status').className = 'hint hint-error';
+    } else {
+      document.getElementById('path-status').textContent = `Error: ${err.message}`;
+      document.getElementById('path-status').className = 'hint hint-error';
+      console.error('[pathfinder]', err);
+    }
   } finally {
+    _abortController = null;
     setButtonBusy('btn-find-path', false);
+    document.getElementById('btn-cancel-path').disabled = true;
   }
 }

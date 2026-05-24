@@ -4,6 +4,8 @@
  * Exports: fetchBuildings, buildingLossDb
  */
 import { earthBulgeM, segmentPolygonIntervals } from './propagation.js';
+import { fetchDatasetElevations } from './elevation.js';
+import { scheduledFetch } from './requestScheduler.js';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -12,8 +14,10 @@ const OVERPASS_MIRRORS = [
 
 // Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same tiles.
 const TILE_SIZE = 0.25;  // degrees
-const CACHE_V   = 'bv2:'; // bumped; key format is now tile-based
+const CACHE_V_OSM = 'bv2:';
+const CACHE_V_DERIVED = 'bv3:'; // building heights prefer DSM-DEM derivation
 const TILE_N    = 16;
+const BUILDING_TILE_CONCURRENCY = 3;
 
 function _abortError() {
   const err = new Error('Cancelled');
@@ -45,11 +49,11 @@ function _sleep(ms, signal) {
 
 function _snapB(v) { return Math.floor(v / TILE_SIZE) * TILE_SIZE; }
 
-function _tilesForBboxB(latMin, latMax, lonMin, lonMax) {
+function _tilesForBboxB(latMin, latMax, lonMin, lonMax, cacheVersion) {
   const tiles = [];
   for (let la = _snapB(latMin); la < latMax; la += TILE_SIZE) {
     for (let lo = _snapB(lonMin); lo < lonMax; lo += TILE_SIZE) {
-      tiles.push({ la, lo, key: `${CACHE_V}${la.toFixed(4)}:${lo.toFixed(4)}` });
+      tiles.push({ la, lo, key: `${cacheVersion}${la.toFixed(4)}:${lo.toFixed(4)}` });
     }
   }
   return tiles;
@@ -58,6 +62,49 @@ const DEFAULT_WALL_LOSS_DB_PER_M = 0.5; // ~0.5 dB/m at 868 MHz (ITU-R P.2040 re
 
 const _memCache     = new Map();
 const MEM_CACHE_MAX = 8;
+
+function _polygonCentroid(ring) {
+  if (!ring?.length) return null;
+  let lat = 0;
+  let lon = 0;
+  for (const [rla, rlo] of ring) {
+    lat += rla;
+    lon += rlo;
+  }
+  return { latitude: lat / ring.length, longitude: lon / ring.length };
+}
+
+async function _deriveBuildingHeightsFromDsmMinusDem(polygons, fallbackHeights, signal, datasetBatchConcurrency) {
+  if (!polygons.length) return fallbackHeights;
+
+  const centroids = new Array(polygons.length);
+  for (let i = 0; i < polygons.length; i++) {
+    centroids[i] = _polygonCentroid(polygons[i]) ?? { latitude: 0, longitude: 0 };
+  }
+
+  try {
+    const fetchOpts = { signal, batchConcurrency: datasetBatchConcurrency };
+    const [dem, dsm] = await Promise.all([
+      fetchDatasetElevations(centroids, 'srtm30m', null, fetchOpts),
+      fetchDatasetElevations(centroids, 'aster30m', null, fetchOpts),
+    ]);
+
+    const derived = fallbackHeights.slice();
+    let applied = 0;
+    for (let i = 0; i < derived.length; i++) {
+      const delta = dsm[i] - dem[i];
+      if (!Number.isFinite(delta) || delta <= 0) continue;
+      derived[i] = Math.max(2, Math.min(180, delta));
+      applied++;
+    }
+    console.info(`[buildings] DSM-DEM heights applied for ${applied}/${derived.length} buildings`);
+    return derived;
+  } catch (err) {
+    if (err?.cancelled || err?.name === 'AbortError') throw err;
+    console.warn('[buildings] DSM-DEM height derivation failed, using OSM heights:', err.message);
+    return fallbackHeights;
+  }
+}
 
 function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
   if (polygons.length === 0) return null;
@@ -113,7 +160,11 @@ function _buildingHeight(tags) {
  * Fetch one 0.25° tile of building footprints (mem-cache → SQLite → Overpass).
  * Tiles are shared across all repeaters — cached once, reused for every coverage run in the area.
  */
-async function _fetchBuildingsTile(la, lo, key, { signal = null } = {}) {
+async function _fetchBuildingsTile(la, lo, key, {
+  signal = null,
+  datasetBatchConcurrency = 2,
+  deriveObstacleHeights = false,
+} = {}) {
   _throwIfAborted(signal);
   if (_memCache.has(key)) {
     console.debug(`[buildings] mem-cache hit tile ${key}`);
@@ -144,7 +195,7 @@ async function _fetchBuildingsTile(la, lo, key, { signal = null } = {}) {
     signal?.addEventListener('abort', onAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), 60000);
     try {
-      res = await fetch(url, { headers: { 'Accept': '*/*' }, signal: controller.signal });
+      res = await scheduledFetch(url, { headers: { 'Accept': '*/*' }, signal: controller.signal });
       clearTimeout(timer);
     } catch (err) {
       clearTimeout(timer);
@@ -187,8 +238,16 @@ async function _fetchBuildingsTile(la, lo, key, { signal = null } = {}) {
     }
   }
 
+  const derivedHeights = deriveObstacleHeights
+    ? await _deriveBuildingHeightsFromDsmMinusDem(
+      polygons,
+      heights,
+      signal,
+      datasetBatchConcurrency
+    )
+    : heights;
   console.info(`[buildings] tile ${key}: ${polygons.length} building(s)`);
-  const tileData = { polygons, bboxes, heights };
+  const tileData = { polygons, bboxes, heights: derivedHeights };
   if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
   _memCache.set(key, tileData);
   await window.electronAPI.cacheBuildingsStore(key, tileData);
@@ -201,26 +260,53 @@ async function _fetchBuildingsTile(la, lo, key, { signal = null } = {}) {
  * @returns {Promise<{ polygons, bboxes, heights, tileIndex }>}
  */
 export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {}) {
-  const { signal = null } = options;
+  const {
+    signal = null,
+    onProgress = null,
+    tileConcurrency = BUILDING_TILE_CONCURRENCY,
+    datasetBatchConcurrency = 2,
+    deriveObstacleHeights = false,
+  } = options;
   _throwIfAborted(signal);
-  const tiles = _tilesForBboxB(latMin, latMax, lonMin, lonMax);
+  const cacheVersion = deriveObstacleHeights ? CACHE_V_DERIVED : CACHE_V_OSM;
+  const tiles = _tilesForBboxB(latMin, latMax, lonMin, lonMax, cacheVersion);
   const polygons = [], bboxes = [], heights = [];
+  let completed = 0;
+  let nextIdx = 0;
+  const workersLimit = Math.max(1, Math.min(12, Math.floor(tileConcurrency)));
 
-  for (const { la, lo, key } of tiles) {
-    _throwIfAborted(signal);
-    let td;
-    try { td = await _fetchBuildingsTile(la, lo, key, { signal }); }
-    catch (e) {
-      if (e?.cancelled || e?.name === 'AbortError') throw e;
-      console.warn(`[buildings] tile ${key} failed, skipping:`, e);
-      continue;
+  onProgress?.({ source: 'buildings', completed, total: tiles.length });
+
+  const workers = Math.min(workersLimit, tiles.length || 1);
+  const runWorker = async () => {
+    for (;;) {
+      _throwIfAborted(signal);
+      const idx = nextIdx++;
+      if (idx >= tiles.length) return;
+      const { la, lo, key } = tiles[idx];
+
+      let td;
+      try { td = await _fetchBuildingsTile(la, lo, key, { signal, datasetBatchConcurrency, deriveObstacleHeights }); }
+      catch (e) {
+        if (e?.cancelled || e?.name === 'AbortError') throw e;
+        console.warn(`[buildings] tile ${key} failed, skipping:`, e);
+        td = null;
+      }
+
+      if (td) {
+        for (let i = 0; i < td.polygons.length; i++) {
+          polygons.push(td.polygons[i]);
+          bboxes.push(td.bboxes[i]);
+          heights.push(td.heights[i]);
+        }
+      }
+
+      completed++;
+      onProgress?.({ source: 'buildings', completed, total: tiles.length });
     }
-    for (let i = 0; i < td.polygons.length; i++) {
-      polygons.push(td.polygons[i]);
-      bboxes.push(td.bboxes[i]);
-      heights.push(td.heights[i]);
-    }
-  }
+  };
+
+  await Promise.all(Array.from({ length: workers }, () => runWorker()));
 
   console.info(`[buildings] merged ${polygons.length} building(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);

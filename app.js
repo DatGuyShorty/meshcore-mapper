@@ -11,8 +11,8 @@ import { init as initDevConsole  } from './src/devConsole.js';
 import { init as initPresets     } from './src/presets.js';
 import { init as initP2P         } from './src/p2p.js';
 
-initRepeaters();
 initConfig();
+initRepeaters();
 initCoverage();
 initMapLayers();
 initOptimizer();

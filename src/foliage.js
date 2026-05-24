@@ -4,6 +4,8 @@
  * Exports: fetchFoliage, foliageLossDb
  */
 import { earthBulgeM, segmentPolygonIntervals } from './propagation.js';
+import { fetchDatasetElevations } from './elevation.js';
+import { scheduledFetch } from './requestScheduler.js';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -13,7 +15,9 @@ const OVERPASS_MIRRORS = [
 // Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same data.
 // Old 'v3:' per-repeater exact-bbox keys become unreachable (stale but harmless).
 const TILE_SIZE = 0.25;  // degrees — 0.25° ≈ 27 km lat; a 15 km radius spans ≤ 4 tiles
-const CACHE_V   = 'fv4:'; // bumped; key format is now tile-based
+const CACHE_V_OSM = 'fv4:';
+const CACHE_V_DERIVED = 'fv5:'; // canopy heights prefer DSM-DEM derivation
+const FOLIAGE_TILE_CONCURRENCY = 3;
 
 function _abortError() {
   const err = new Error('Cancelled');
@@ -46,11 +50,11 @@ function _sleep(ms, signal) {
 function _snap(v) { return Math.floor(v / TILE_SIZE) * TILE_SIZE; }
 
 /** Return 0.25° tile descriptors covering the given bbox. */
-function _tilesForBbox(latMin, latMax, lonMin, lonMax) {
+function _tilesForBbox(latMin, latMax, lonMin, lonMax, cacheVersion) {
   const tiles = [];
   for (let la = _snap(latMin); la < latMax; la += TILE_SIZE) {
     for (let lo = _snap(lonMin); lo < lonMax; lo += TILE_SIZE) {
-      tiles.push({ la, lo, key: `${CACHE_V}${la.toFixed(4)}:${lo.toFixed(4)}` });
+      tiles.push({ la, lo, key: `${cacheVersion}${la.toFixed(4)}:${lo.toFixed(4)}` });
     }
   }
   return tiles;
@@ -76,6 +80,49 @@ const CANOPY_HEIGHTS = {
 // B3: multi-entry in-memory cache (LRU-capped at 8 entries)
 const _memCache    = new Map();
 const MEM_CACHE_MAX = 8;
+
+function _polygonCentroid(ring) {
+  if (!ring?.length) return null;
+  let lat = 0;
+  let lon = 0;
+  for (const [rla, rlo] of ring) {
+    lat += rla;
+    lon += rlo;
+  }
+  return { latitude: lat / ring.length, longitude: lon / ring.length };
+}
+
+async function _deriveCanopyFromDsmMinusDem(polygons, fallbackHeights, signal, datasetBatchConcurrency) {
+  if (!polygons.length) return fallbackHeights;
+
+  const centroids = new Array(polygons.length);
+  for (let i = 0; i < polygons.length; i++) {
+    centroids[i] = _polygonCentroid(polygons[i]) ?? { latitude: 0, longitude: 0 };
+  }
+
+  try {
+    const fetchOpts = { signal, batchConcurrency: datasetBatchConcurrency };
+    const [dem, dsm] = await Promise.all([
+      fetchDatasetElevations(centroids, 'srtm30m', null, fetchOpts),
+      fetchDatasetElevations(centroids, 'aster30m', null, fetchOpts),
+    ]);
+
+    const derived = fallbackHeights.slice();
+    let applied = 0;
+    for (let i = 0; i < derived.length; i++) {
+      const delta = dsm[i] - dem[i];
+      if (!Number.isFinite(delta) || delta <= 0) continue;
+      derived[i] = Math.max(0.5, Math.min(60, delta));
+      applied++;
+    }
+    console.info(`[foliage] DSM-DEM canopy applied for ${applied}/${derived.length} polygons`);
+    return derived;
+  } catch (err) {
+    if (err?.cancelled || err?.name === 'AbortError') throw err;
+    console.warn('[foliage] DSM-DEM canopy derivation failed, using defaults:', err.message);
+    return fallbackHeights;
+  }
+}
 
 /**
  * P2: Build a simple tile-grid spatial index for fast polygon lookup.
@@ -103,7 +150,11 @@ function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
  * Fetch one 0.25° tile of foliage polygons (mem-cache → SQLite → Overpass).
  * Tiles are shared across all repeaters — cached once, reused for every coverage run in the area.
  */
-async function _fetchFoliageTile(la, lo, key, { signal = null } = {}) {
+async function _fetchFoliageTile(la, lo, key, {
+  signal = null,
+  datasetBatchConcurrency = 2,
+  deriveObstacleHeights = false,
+} = {}) {
   _throwIfAborted(signal);
   if (_memCache.has(key)) {
     console.debug(`[foliage] mem-cache hit tile ${key}`);
@@ -142,7 +193,7 @@ async function _fetchFoliageTile(la, lo, key, { signal = null } = {}) {
     signal?.addEventListener('abort', onAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), 60000);
     try {
-      res = await fetch(url, { headers: { 'Accept': '*/*' }, signal: controller.signal });
+      res = await scheduledFetch(url, { headers: { 'Accept': '*/*' }, signal: controller.signal });
       clearTimeout(timer);
     } catch (err) {
       clearTimeout(timer);
@@ -192,8 +243,16 @@ async function _fetchFoliageTile(la, lo, key, { signal = null } = {}) {
     }
   }
 
+  const derivedCanopyHeights = deriveObstacleHeights
+    ? await _deriveCanopyFromDsmMinusDem(
+      polygons,
+      canopyHeights,
+      signal,
+      datasetBatchConcurrency
+    )
+    : canopyHeights;
   console.info(`[foliage] tile ${key}: ${polygons.length} polygon(s)`);
-  const tileData = { polygons, bboxes, factors, canopyHeights };
+  const tileData = { polygons, bboxes, factors, canopyHeights: derivedCanopyHeights };
   if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
   _memCache.set(key, tileData);
   await window.electronAPI.cacheFoliageStore(key, tileData);
@@ -206,27 +265,54 @@ async function _fetchFoliageTile(la, lo, key, { signal = null } = {}) {
  * @returns {Promise<{ polygons, bboxes, factors, canopyHeights, tileIndex }>}
  */
 export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {}) {
-  const { signal = null } = options;
+  const {
+    signal = null,
+    onProgress = null,
+    tileConcurrency = FOLIAGE_TILE_CONCURRENCY,
+    datasetBatchConcurrency = 2,
+    deriveObstacleHeights = false,
+  } = options;
   _throwIfAborted(signal);
-  const tiles = _tilesForBbox(latMin, latMax, lonMin, lonMax);
+  const cacheVersion = deriveObstacleHeights ? CACHE_V_DERIVED : CACHE_V_OSM;
+  const tiles = _tilesForBbox(latMin, latMax, lonMin, lonMax, cacheVersion);
   const polygons = [], bboxes = [], factors = [], canopyHeights = [];
+  let completed = 0;
+  let nextIdx = 0;
+  const workersLimit = Math.max(1, Math.min(12, Math.floor(tileConcurrency)));
 
-  for (const { la, lo, key } of tiles) {
-    _throwIfAborted(signal);
-    let td;
-    try { td = await _fetchFoliageTile(la, lo, key, { signal }); }
-    catch (e) {
-      if (e?.cancelled || e?.name === 'AbortError') throw e;
-      console.warn(`[foliage] tile ${key} failed, skipping:`, e);
-      continue;
+  onProgress?.({ source: 'foliage', completed, total: tiles.length });
+
+  const workers = Math.min(workersLimit, tiles.length || 1);
+  const runWorker = async () => {
+    for (;;) {
+      _throwIfAborted(signal);
+      const idx = nextIdx++;
+      if (idx >= tiles.length) return;
+      const { la, lo, key } = tiles[idx];
+
+      let td;
+      try { td = await _fetchFoliageTile(la, lo, key, { signal, datasetBatchConcurrency, deriveObstacleHeights }); }
+      catch (e) {
+        if (e?.cancelled || e?.name === 'AbortError') throw e;
+        console.warn(`[foliage] tile ${key} failed, skipping:`, e);
+        td = null;
+      }
+
+      if (td) {
+        for (let i = 0; i < td.polygons.length; i++) {
+          polygons.push(td.polygons[i]);
+          bboxes.push(td.bboxes[i]);
+          factors.push(td.factors[i]);
+          canopyHeights.push(td.canopyHeights[i]);
+        }
+      }
+
+      completed++;
+      onProgress?.({ source: 'foliage', completed, total: tiles.length });
     }
-    for (let i = 0; i < td.polygons.length; i++) {
-      polygons.push(td.polygons[i]);
-      bboxes.push(td.bboxes[i]);
-      factors.push(td.factors[i]);
-      canopyHeights.push(td.canopyHeights[i]);
-    }
-  }
+  };
+
+  await Promise.all(Array.from({ length: workers }, () => runWorker()));
 
   console.info(`[foliage] merged ${polygons.length} polygon(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);

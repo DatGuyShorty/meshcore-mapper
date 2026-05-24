@@ -34,18 +34,26 @@ onmessage = function ({ data }) {
   const selectedCandidates = new Uint8Array(candidates.length);
 
   for (let round = 0; round < nRepeaters; round++) {
-    let bestScore = -1, bestIdx = -1, bestSignals = null;
+    let bestScore = -1, bestIdx = -1;
+    const scratchSignals = new Float32Array(evalPoints.length);
+    const bestSignals = new Float32Array(evalPoints.length);
+    let hasBestSignals = false;
 
     for (let ci = 0; ci < candidates.length; ci++) {
       if (selectedCandidates[ci]) continue;
       const cand = candidates[ci];
       const tx   = { lat: cand.latitude, lon: cand.longitude, height, power, freq, gain };
 
-      const { score, signals } = _scoreCoverageIncremental(
-        tx, candidateElevs[ci], evalPoints, evalElevs, covered, scoreOpts
+      const score = _scoreCoverageIncremental(
+        tx, candidateElevs[ci], evalPoints, evalElevs, covered, scoreOpts, scratchSignals
       );
 
-      if (score > bestScore) { bestScore = score; bestIdx = ci; bestSignals = signals; }
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = ci;
+        bestSignals.set(scratchSignals);
+        hasBestSignals = true;
+      }
 
       if (ci % 16 === 0) {
         const pct = 20 + 75 * ((round + ci / candidates.length) / nRepeaters);
@@ -54,7 +62,7 @@ onmessage = function ({ data }) {
       }
     }
 
-    if (bestIdx === -1 || bestScore <= 0 || !bestSignals) break;
+    if (bestIdx === -1 || bestScore <= 0 || !hasBestSignals) break;
     selectedCandidates[bestIdx] = 1;
     _markCovered(bestSignals, covered, scoreOpts);
 
@@ -70,13 +78,12 @@ onmessage = function ({ data }) {
   postMessage({ type: 'done', results: placed });
 };
 
-function _scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, opts) {
+function _scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, opts, signals) {
   const threshold = opts.rxSens + opts.fadeMargin;
   const fsplBase  = fsplBaseDb(tx.freq);
   const profileBuffers = ensureProfileBuffers(opts.profileMaxSamples ?? 256);
 
   let newCovered = 0;
-  const signals = new Float32Array(evalPoints.length);
   signals.fill(-200);
 
   for (let idx = 0; idx < evalPoints.length; idx++) {
@@ -89,7 +96,7 @@ function _scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, o
     if (sig >= threshold) newCovered++;
   }
 
-  return { score: evalPoints.length === 0 ? 0 : newCovered / evalPoints.length, signals };
+  return evalPoints.length === 0 ? 0 : newCovered / evalPoints.length;
 }
 
 function _markCovered(signals, covered, opts) {

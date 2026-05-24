@@ -2,14 +2,18 @@
  * config.js - Save/load project configuration to JSON, persist settings in localStorage.
  * Exports: init
  */
-import { state } from './map.js';
+import { map, state } from './map.js';
 import { addRepeater, removeRepeater } from './repeaters.js';
 import { PERSISTED_SETTING_IDS } from './settings.js';
-import { confirmAction, setButtonBusy, setStatus } from './ui.js';
+import { fetchElevationsFromTiles } from './elevation.js';
+import { fetchFoliage } from './foliage.js';
+import { fetchBuildings } from './buildings.js';
+import { confirmAction, hideProgress, setButtonBusy, setCancelHandler, setProgress, setStatus, yieldToUI } from './ui.js';
 
 const SETTINGS_IDS = PERSISTED_SETTING_IDS;
 const STORAGE_KEY = 'meshcoreMapper_settings';
 const LEGACY_KEY = 'loraMapper_settings';
+let _cacheWarmAbort = null;
 
 function gatherSettings() {
   const s = {};
@@ -103,10 +107,86 @@ async function refreshCacheStats() {
   try {
     const s = await window.electronAPI.cacheGetStats();
     document.getElementById('cache-stats').textContent =
-      `Cache: ${s.elevations.toLocaleString()} elevations, ${s.foliage} foliage, ${s.buildings ?? 0} buildings, ${s.sizeKb} KB`;
+      `Cache: ${s.elevations.toLocaleString()} elevations, ${s.demTiles ?? 0} DEM tiles, ${s.foliage} foliage, ${s.buildings ?? 0} buildings, ${s.sizeKb} KB`;
   } catch {
     document.getElementById('cache-stats').textContent = 'Cache: unavailable';
   }
+}
+
+async function warmViewportCache() {
+  if (_cacheWarmAbort) return;
+  _cacheWarmAbort = new AbortController();
+  setCancelHandler(cancelCacheWarm);
+  setButtonBusy('btn-warm-cache', true, 'Warming...');
+  document.getElementById('btn-cancel-cache-warm').disabled = false;
+
+  try {
+    const bounds = map.getBounds();
+    const latMin = bounds.getSouth(), latMax = bounds.getNorth();
+    const lonMin = bounds.getWest(), lonMax = bounds.getEast();
+    const points = _viewportGridPoints(latMin, latMax, lonMin, lonMax, 64);
+    setProgress(5, 'Warming terrain cache...');
+    await fetchElevationsFromTiles(points, null, {
+      signal: _cacheWarmAbort.signal,
+      demTileConcurrency: 6,
+      onProgress: ({ completed, total }) => {
+        const pct = total ? 5 + 65 * completed / total : 70;
+        setProgress(pct, `Warming terrain tiles ${completed}/${total}`);
+      },
+    });
+
+    setProgress(75, 'Warming obstacle cache...');
+    const deriveObstacleHeights = document.getElementById('obstacle-height-mode')?.value === 'dsm-dem';
+    await Promise.all([
+      fetchFoliage(latMin, latMax, lonMin, lonMax, {
+        signal: _cacheWarmAbort.signal,
+        deriveObstacleHeights,
+      }).catch(e => {
+        if (e?.cancelled || e?.name === 'AbortError') throw e;
+        console.warn('[cache] foliage warm failed:', e.message);
+      }),
+      fetchBuildings(latMin, latMax, lonMin, lonMax, {
+        signal: _cacheWarmAbort.signal,
+        deriveObstacleHeights,
+      }).catch(e => {
+        if (e?.cancelled || e?.name === 'AbortError') throw e;
+        console.warn('[cache] buildings warm failed:', e.message);
+      }),
+    ]);
+
+    setProgress(100, 'Cache warmed.');
+    await yieldToUI();
+    setStatus('Viewport cache warmed.');
+    await refreshCacheStats();
+  } catch (e) {
+    if (e?.cancelled || e?.name === 'AbortError') setStatus('Cache warm cancelled.');
+    else setStatus(`Cache warm failed: ${e.message}`);
+  } finally {
+    hideProgress();
+    _cacheWarmAbort = null;
+    setCancelHandler(null);
+    setButtonBusy('btn-warm-cache', false);
+    document.getElementById('btn-cancel-cache-warm').disabled = true;
+  }
+}
+
+function cancelCacheWarm() {
+  _cacheWarmAbort?.abort();
+}
+
+function _viewportGridPoints(latMin, latMax, lonMin, lonMax, res) {
+  const points = [];
+  for (let r = 0; r < res; r++) {
+    const rf = res > 1 ? r / (res - 1) : 0;
+    for (let c = 0; c < res; c++) {
+      const cf = res > 1 ? c / (res - 1) : 0;
+      points.push({
+        latitude: latMax - rf * (latMax - latMin),
+        longitude: lonMin + cf * (lonMax - lonMin),
+      });
+    }
+  }
+  return points;
 }
 
 async function runConfirmedAction(btnId, message, action, doneMsg) {
@@ -150,6 +230,13 @@ export function init() {
     'Elevation cache cleared.'
   ));
 
+  document.getElementById('btn-purge-dem-tiles').addEventListener('click', () => runConfirmedAction(
+    'btn-purge-dem-tiles',
+    'Clear cached DEM raster tiles?',
+    () => window.electronAPI.cachePurgeDemTiles(),
+    'DEM tile cache cleared.'
+  ));
+
   document.getElementById('btn-purge-foliage').addEventListener('click', () => runConfirmedAction(
     'btn-purge-foliage',
     'Clear cached foliage polygons?',
@@ -176,6 +263,7 @@ export function init() {
     'Clear the entire local database, including elevations, foliage, buildings, and stored WebSocket nodes?',
     async () => {
       await window.electronAPI.cachePurgeElevations();
+      await window.electronAPI.cachePurgeDemTiles();
       await window.electronAPI.cachePurgeFoliage();
       await window.electronAPI.cachePurgeBuildings();
       await window.electronAPI.wsRepeatersClear();
@@ -185,4 +273,6 @@ export function init() {
   ));
 
   refreshCacheStats();
+  document.getElementById('btn-warm-cache').addEventListener('click', warmViewportCache);
+  document.getElementById('btn-cancel-cache-warm').addEventListener('click', cancelCacheWarm);
 }

@@ -9,6 +9,20 @@ npm install
 npm start
 ```
 
+Windows bootstrap entry point:
+
+```
+.\start-app.cmd
+```
+
+That launcher will:
+- install npm dependencies if `node_modules` is missing
+- create a local Python virtual environment in `.venv`
+- install `requirements-cuda.txt` into that venv when needed
+- set `MESHCORE_PYTHON` so the Electron app uses the repo-local interpreter for the CUDA helper
+
+You can run the same flow from npm with `npm run app`, or provision only the dependencies with `npm run setup`.
+
 Requires internet access for the elevation API (open-elevation.com + opentopodata.org fallback).
 
 ---

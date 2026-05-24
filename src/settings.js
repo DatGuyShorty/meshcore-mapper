@@ -1,15 +1,21 @@
 import { DEFAULT_PROFILE_MAX_SAMPLES, DEFAULT_PROFILE_TARGET_SPACING_M } from './signalModel.js';
 
 export const COVERAGE_SETTING_IDS = [
+  'scenario-profile', 'compute-backend', 'obstacle-height-mode',
   'rx-height', 'rx-sensitivity', 'fade-margin', 'analysis-radius', 'grid-res',
   'use-los', 'use-fresnel', 'use-foliage', 'foliage-loss-per-m',
   'use-buildings', 'building-loss-per-m',
+  'compute-worker-count',
+  'dataset-batch-concurrency',
+  'dem-tile-concurrency', 'foliage-tile-concurrency', 'building-tile-concurrency',
+  'coverage-opacity',
 ];
 
 export const PLANNING_SETTING_IDS = [
   'opt-n-repeaters', 'opt-height', 'opt-candidate-res',
   'p2p-tx-height', 'p2p-rx-height', 'p2p-tx-power', 'p2p-tx-gain',
   'p2p-rx-gain', 'p2p-freq', 'p2p-rx-sens',
+  'path-use-fresnel',
 ];
 
 export const MAP_LAYER_SETTING_IDS = [
@@ -41,22 +47,36 @@ function checked(id) {
   return Boolean(document.getElementById(id)?.checked);
 }
 
+function intClamped(id, fallback, min, max) {
+  const value = intNum(id, fallback);
+  return Math.max(min, Math.min(max, value));
+}
+
 export function getCoverageSettings() {
-  const gridRes = intNum('grid-res', 128);
+  const qualityMult = num('grid-res', 1);
   return {
     rxHeight: num('rx-height', 1.5),
     rxSens: num('rx-sensitivity', -137),
     fadeMargin: num('fade-margin', 0),
     radiusKm: num('analysis-radius', 15),
-    gridRes,
+    qualityMult,
+    gridRes: qualityMult, // kept for downstream compatibility; actual px computed in coverage.js
+    scenarioProfile: document.getElementById('scenario-profile')?.value || 'balanced',
+    computeBackend: document.getElementById('compute-backend')?.value || 'auto',
+    deriveObstacleHeights: document.getElementById('obstacle-height-mode')?.value === 'dsm-dem',
     useLos: checked('use-los'),
     useFresnel: checked('use-fresnel'),
     useFoliage: checked('use-foliage'),
     foliageLossPerM: num('foliage-loss-per-m', 0.3),
     useBuildings: checked('use-buildings'),
     buildingLossPerM: num('building-loss-per-m', 0.5),
-    profileTargetSpacingM: gridRes >= 384 ? 20 : gridRes >= 256 ? 35 : gridRes >= 128 ? DEFAULT_PROFILE_TARGET_SPACING_M : 90,
-    profileMaxSamples: gridRes >= 384 ? 1280 : gridRes >= 256 ? 768 : DEFAULT_PROFILE_MAX_SAMPLES,
+    computeWorkerCount: intClamped('compute-worker-count', 0, 0, 8),
+    datasetBatchConcurrency: intClamped('dataset-batch-concurrency', 2, 1, 4),
+    demTileConcurrency: intClamped('dem-tile-concurrency', 6, 1, 16),
+    foliageTileConcurrency: intClamped('foliage-tile-concurrency', 3, 1, 12),
+    buildingTileConcurrency: intClamped('building-tile-concurrency', 3, 1, 12),
+    profileTargetSpacingM: DEFAULT_PROFILE_TARGET_SPACING_M,
+    profileMaxSamples: DEFAULT_PROFILE_MAX_SAMPLES,
   };
 }
 
@@ -74,6 +94,7 @@ export function getP2PSettings() {
     foliageLossPerM: num('foliage-loss-per-m', 0.3),
     useBuildings: checked('use-buildings'),
     buildingLossPerM: num('building-loss-per-m', 0.5),
+    deriveObstacleHeights: document.getElementById('obstacle-height-mode')?.value === 'dsm-dem',
     profileTargetSpacingM: 30,
     profileMaxSamples: 1024,
   };
@@ -98,6 +119,7 @@ export function getOptimizerSettings() {
       foliageLossPerM: num('foliage-loss-per-m', 0.3),
       useBuildings: checked('use-buildings'),
       buildingLossPerM: num('building-loss-per-m', 0.5),
+      deriveObstacleHeights: document.getElementById('obstacle-height-mode')?.value === 'dsm-dem',
       candidateRes: intNum('opt-candidate-res', 20),
       evalRes: 48,
       profileTargetSpacingM: 100,

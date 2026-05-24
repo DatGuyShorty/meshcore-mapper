@@ -5,10 +5,10 @@
 import { map } from './map.js';
 import {
   setProgress, hideProgress, setStatus, yieldToUI,
-  setActiveTab, setButtonBusy, setInlineStatus,
+  setActiveTab, setButtonBusy, setInlineStatus, setCancelHandler,
 } from './ui.js';
 import { addRepeater, cancelPlacing } from './repeaters.js';
-import { buildGrid } from './optimizer.js';
+import { buildGrid, optimizerNeedsTerrain } from './optimizer.js';
 import { fetchElevations } from './elevation.js';
 import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
@@ -18,6 +18,7 @@ import { getOptimizerSettings } from './settings.js';
 let drawing     = false;
 let corner1     = null;
 let areaRect    = null;
+let _abortController = null;
 const resultMarkers = [];
 
 function clearResults() {
@@ -154,7 +155,10 @@ export function init() {
 
     clearResults();
     setButtonBusy('btn-optimize', true, 'Scoring...');
+    document.getElementById('btn-cancel-optimize').disabled = false;
     setInlineStatus('opt-status', 'Scoring candidate locations...', 'info');
+    _abortController = new AbortController();
+    setCancelHandler(() => _abortController?.abort());
 
     try {
       setProgress(2, 'Building evaluation grid...');
@@ -163,7 +167,9 @@ export function init() {
 
       setProgress(5, `Fetching elevation for ${evalPoints.length + candidates.length} points...`);
       const allPoints = [...evalPoints, ...candidates];
-      const allElevs  = opts.useLos ? await fetchElevations(allPoints) : allPoints.map(() => 0);
+      const allElevs  = optimizerNeedsTerrain(opts)
+        ? await fetchElevations(allPoints, null, { signal: _abortController.signal })
+        : allPoints.map(() => 0);
       const evalElevs      = allElevs.slice(0, evalPoints.length);
       const candidateElevs = allElevs.slice(evalPoints.length);
 
@@ -171,12 +177,26 @@ export function init() {
         setProgress(12, 'Fetching obstacle layers...');
         const [foliage, buildings] = await Promise.all([
           opts.useFoliage
-            ? fetchFoliage(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax)
-                .catch(e => { console.warn('[optimizer] foliage fetch failed, skipping:', e); return null; })
+            ? fetchFoliage(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax, {
+                signal: _abortController.signal,
+                deriveObstacleHeights: opts.deriveObstacleHeights,
+              })
+                .catch(e => {
+                  if (e?.cancelled || e?.name === 'AbortError') throw e;
+                  console.warn('[optimizer] foliage fetch failed, skipping:', e);
+                  return null;
+                })
             : Promise.resolve(null),
           opts.useBuildings
-            ? fetchBuildings(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax)
-                .catch(e => { console.warn('[optimizer] buildings fetch failed, skipping:', e); return null; })
+            ? fetchBuildings(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax, {
+                signal: _abortController.signal,
+                deriveObstacleHeights: opts.deriveObstacleHeights,
+              })
+                .catch(e => {
+                  if (e?.cancelled || e?.name === 'AbortError') throw e;
+                  console.warn('[optimizer] buildings fetch failed, skipping:', e);
+                  return null;
+                })
             : Promise.resolve(null),
         ]);
         opts.foliage = foliage;
@@ -189,7 +209,8 @@ export function init() {
         { evalPoints, evalElevs, candidates, candidateElevs, nRepeaters, txParams,
           opts: { ...opts, latMin: bounds.latMin, latMax: bounds.latMax,
                            lonMin: bounds.lonMin, lonMax: bounds.lonMax } },
-        (pct, msg) => setProgress(pct, msg)
+        (pct, msg) => setProgress(pct, msg),
+        _abortController.signal
       );
 
       setProgress(100, 'Optimization complete.');
@@ -200,30 +221,50 @@ export function init() {
       setInlineStatus('opt-status', `Found ${results.length} best location${results.length !== 1 ? 's' : ''}.`, 'success');
     } catch (err) {
       hideProgress();
-      setStatus(`Optimizer error: ${err.message}`);
-      setInlineStatus('opt-status', `Optimizer error: ${err.message}`, 'error');
-      console.error(err);
+      if (err?.cancelled || err?.name === 'AbortError') {
+        setStatus('Optimizer cancelled.');
+        setInlineStatus('opt-status', 'Optimizer cancelled.', 'warning');
+      } else {
+        setStatus(`Optimizer error: ${err.message}`);
+        setInlineStatus('opt-status', `Optimizer error: ${err.message}`, 'error');
+        console.error(err);
+      }
     } finally {
+      _abortController = null;
+      setCancelHandler(null);
       setButtonBusy('btn-optimize', false);
+      document.getElementById('btn-cancel-optimize').disabled = true;
     }
   });
+
+  document.getElementById('btn-cancel-optimize').addEventListener('click', () => _abortController?.abort());
 }
 
-function _runOptimizerWorker(data, onProgress) {
+function _runOptimizerWorker(data, onProgress, signal) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(
       new URL('./optimizerWorker.js', import.meta.url),
       { type: 'module' }
     );
+    const abort = () => {
+      worker.terminate();
+      const err = new Error('Cancelled');
+      err.name = 'AbortError';
+      err.cancelled = true;
+      reject(err);
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     worker.onmessage = ({ data: msg }) => {
       if (msg.type === 'progress') {
         onProgress(msg.pct, msg.msg);
       } else if (msg.type === 'done') {
+        signal?.removeEventListener('abort', abort);
         worker.terminate();
         resolve(msg.results);
       }
     };
     worker.onerror = (err) => {
+      signal?.removeEventListener('abort', abort);
       worker.terminate();
       reject(new Error(`Optimizer worker error: ${err.message}`));
     };

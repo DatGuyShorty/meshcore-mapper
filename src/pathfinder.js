@@ -112,6 +112,7 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
  * } | null>}  null = no path found
  */
 export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresnel, scenario = {}) {
+  const signal = scenario.signal ?? null;
   const n = nodes.length;
   if (n < 2) return null;
 
@@ -123,7 +124,9 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
 
   // ── 1. Fetch ground elevations for all nodes (one point each) ──
   const nodeElevs = await fetchElevations(
-    nodes.map(nd => ({ latitude: nd.lat, longitude: nd.lon }))
+    nodes.map(nd => ({ latitude: nd.lat, longitude: nd.lon })),
+    null,
+    { signal }
   );
 
   // ── 2. Build edge list + batch all profile points ──
@@ -143,7 +146,7 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
 
   let profileElevs = [];
   if (allProfilePts.length > 0) {
-    profileElevs = await fetchElevations(allProfilePts);
+    profileElevs = await fetchElevations(allProfilePts, null, { signal });
   }
 
   // ── 3. Build directed margin matrix ──
@@ -154,12 +157,26 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
     const bbox = _nodesBbox(nodes);
     [foliage, buildings] = await Promise.all([
       scenario.useFoliage
-        ? fetchFoliage(bbox.latMin, bbox.latMax, bbox.lonMin, bbox.lonMax)
-            .catch(e => { console.warn('[pathfinder] foliage fetch failed, skipping:', e); return null; })
+        ? fetchFoliage(bbox.latMin, bbox.latMax, bbox.lonMin, bbox.lonMax, {
+            signal,
+            deriveObstacleHeights: scenario.deriveObstacleHeights,
+          })
+            .catch(e => {
+              if (e?.cancelled || e?.name === 'AbortError') throw e;
+              console.warn('[pathfinder] foliage fetch failed, skipping:', e);
+              return null;
+            })
         : Promise.resolve(null),
       scenario.useBuildings
-        ? fetchBuildings(bbox.latMin, bbox.latMax, bbox.lonMin, bbox.lonMax)
-            .catch(e => { console.warn('[pathfinder] buildings fetch failed, skipping:', e); return null; })
+        ? fetchBuildings(bbox.latMin, bbox.latMax, bbox.lonMin, bbox.lonMax, {
+            signal,
+            deriveObstacleHeights: scenario.deriveObstacleHeights,
+          })
+            .catch(e => {
+              if (e?.cancelled || e?.name === 'AbortError') throw e;
+              console.warn('[pathfinder] buildings fetch failed, skipping:', e);
+              return null;
+            })
         : Promise.resolve(null),
     ]);
   }

@@ -1,7 +1,16 @@
+const MAX_WORKERS = 8;
+
 export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgress = null } = {}) {
   const gridRes = payload.gridRes;
+  const totalPixels = gridRes * gridRes;
+  if (!Number.isFinite(totalPixels) || totalPixels <= 0) {
+    throw new Error(`Invalid grid resolution: ${gridRes}`);
+  }
+  if (totalPixels > 256_000_000) {
+    throw new Error(`Grid too large (${gridRes}x${gridRes}) for CPU workers. Use GPU mode or reduce quality.`);
+  }
   const requestedWorkers = workerCount || navigator.hardwareConcurrency || 2;
-  const count = Math.max(1, Math.min(4, requestedWorkers, gridRes));
+  const count = Math.max(1, Math.min(MAX_WORKERS, requestedWorkers, gridRes));
   const rowsPerWorker = Math.ceil(gridRes / count);
   const workers = new Set();
   const bandProgress = new Map();
@@ -11,7 +20,10 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
     workerComputeMs: 0,
     insidePoints: 0,
     totalPoints: gridRes * gridRes,
+    sharedGridBuffer: false,
   };
+  const sharedGridElevsBuffer = _sharedGridBuffer(payload.gridElevs);
+  if (sharedGridElevsBuffer) stats.sharedGridBuffer = true;
 
   let settled = false;
   let completed = 0;
@@ -61,13 +73,13 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
         reject(new Error(`Coverage worker error: ${err.message}`));
       };
 
-      const gridElevsBuffer = payload.gridElevs.buffer.slice(0);
+      const gridElevsBuffer = sharedGridElevsBuffer ?? _copyGridBuffer(payload.gridElevs);
       worker.postMessage({
         ...payload,
         gridElevs: gridElevsBuffer,
         rowStart,
         rowEnd,
-      }, [gridElevsBuffer]);
+      }, sharedGridElevsBuffer ? [] : [gridElevsBuffer]);
     }
   });
 
@@ -83,6 +95,25 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
       rejectRun?.(err);
     },
   };
+}
+
+function _sharedGridBuffer(gridElevs) {
+  if (typeof SharedArrayBuffer === 'undefined') return null;
+  try {
+    const source = gridElevs instanceof Float32Array ? gridElevs : new Float32Array(gridElevs);
+    const shared = new SharedArrayBuffer(source.byteLength);
+    new Float32Array(shared).set(source);
+    return shared;
+  } catch {
+    return null;
+  }
+}
+
+function _copyGridBuffer(gridElevs) {
+  if (gridElevs instanceof Float32Array) {
+    return gridElevs.buffer.slice(gridElevs.byteOffset, gridElevs.byteOffset + gridElevs.byteLength);
+  }
+  return gridElevs.buffer.slice(0);
 }
 
 function _weightedProgress(progressByRowStart, gridRes, rowsPerWorker) {

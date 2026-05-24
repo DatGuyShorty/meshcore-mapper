@@ -4,7 +4,7 @@ import { fetchBuildings, buildingLossDb } from './buildings.js';
 import { checkLoS, fspl, haversine, profileSampleCount } from './propagation.js';
 import { drawTerrainProfile, sampleObstacleHeights } from './terrainProfileView.js';
 
-export async function calculateLinkBudget(pointA, pointB, settings) {
+export async function calculateLinkBudget(pointA, pointB, settings, { signal = null } = {}) {
   const distM = haversine(pointA.lat, pointA.lng, pointB.lat, pointB.lng);
   const sampleCount = profileSampleCount(distM, settings.profileTargetSpacingM, 32, settings.profileMaxSamples);
   const profilePoints = [];
@@ -22,13 +22,27 @@ export async function calculateLinkBudget(pointA, pointB, settings) {
   const lonMin = Math.min(pointA.lng, pointB.lng) - PAD;
   const lonMax = Math.max(pointA.lng, pointB.lng) + PAD;
 
-  const elevs = await fetchElevations(profilePoints);
+  const elevs = await fetchElevations(profilePoints, null, { signal });
   const [foliage, buildings] = await Promise.all([
     settings.useFoliage
-      ? fetchFoliage(latMin, latMax, lonMin, lonMax).catch(e => { console.warn('[p2p] foliage fetch failed:', e.message); return null; })
+      ? fetchFoliage(latMin, latMax, lonMin, lonMax, {
+        signal,
+        deriveObstacleHeights: settings.deriveObstacleHeights,
+      }).catch(e => {
+        if (e?.cancelled || e?.name === 'AbortError') throw e;
+        console.warn('[p2p] foliage fetch failed:', e.message);
+        return null;
+      })
       : Promise.resolve(null),
     settings.useBuildings
-      ? fetchBuildings(latMin, latMax, lonMin, lonMax).catch(e => { console.warn('[p2p] buildings fetch failed:', e.message); return null; })
+      ? fetchBuildings(latMin, latMax, lonMin, lonMax, {
+        signal,
+        deriveObstacleHeights: settings.deriveObstacleHeights,
+      }).catch(e => {
+        if (e?.cancelled || e?.name === 'AbortError') throw e;
+        console.warn('[p2p] buildings fetch failed:', e.message);
+        return null;
+      })
       : Promise.resolve(null),
   ]);
 

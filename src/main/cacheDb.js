@@ -62,6 +62,15 @@ async function createCacheDb(app) {
       elev REAL NOT NULL,
       PRIMARY KEY (lat, lon)
     );
+    CREATE TABLE IF NOT EXISTS dem_tiles (
+      source    TEXT NOT NULL,
+      z         INTEGER NOT NULL,
+      x         INTEGER NOT NULL,
+      y         INTEGER NOT NULL,
+      data      BLOB NOT NULL,
+      cached_at INTEGER NOT NULL,
+      PRIMARY KEY (source, z, x, y)
+    );
     CREATE TABLE IF NOT EXISTS foliage_cache (
       bbox_key  TEXT PRIMARY KEY,
       data      TEXT NOT NULL,

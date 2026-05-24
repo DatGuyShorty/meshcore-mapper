@@ -1,5 +1,7 @@
 const fs = require('fs');
+const path = require('path');
 const yaml = require('js-yaml');
+const { registerCudaCoverageHandlers } = require('./cudaCoverage');
 
 function registerIpcHandlers({ ipcMain, dialog, cache, presetsPath }) {
   ipcMain.handle('save-file', async (_event, jsonStr) => {
@@ -45,6 +47,7 @@ function registerIpcHandlers({ ipcMain, dialog, cache, presetsPath }) {
 
   registerCacheHandlers(ipcMain, cache);
   registerWsHandlers(ipcMain, cache);
+  registerCudaCoverageHandlers(ipcMain, path.dirname(presetsPath));
 }
 
 function registerCacheHandlers(ipcMain, cache) {
@@ -122,6 +125,38 @@ function registerCacheHandlers(ipcMain, cache) {
     }
   });
 
+  ipcMain.handle('cache-dem-tile-get', (_e, { source, z, x, y }) => {
+    const db = cache.db;
+    if (!db || !source) return null;
+    let stmt;
+    try {
+      stmt = db.prepare('SELECT data FROM dem_tiles WHERE source = ? AND z = ? AND x = ? AND y = ?');
+      stmt.bind([source, z, x, y]);
+      if (!stmt.step()) return null;
+      const row = stmt.getAsObject();
+      return row.data ?? null;
+    } catch (err) {
+      console.error('[cache] dem-tile-get error:', err.message);
+      return null;
+    } finally {
+      if (stmt) stmt.free();
+    }
+  });
+
+  ipcMain.handle('cache-dem-tile-store', (_e, { source, z, x, y, data }) => {
+    const db = cache.db;
+    if (!db || !source || !data) return;
+    try {
+      db.run(
+        'INSERT OR REPLACE INTO dem_tiles (source, z, x, y, data, cached_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [source, z, x, y, data, Date.now()]
+      );
+      cache.scheduleSave();
+    } catch (err) {
+      console.error('[cache] dem-tile-store error:', err.message);
+    }
+  });
+
   ipcMain.handle('cache-foliage-lookup', (_e, key) => {
     const db = cache.db;
     if (!db) return null;
@@ -187,21 +222,29 @@ function registerCacheHandlers(ipcMain, cache) {
 
   ipcMain.handle('cache-get-stats', () => {
     const db = cache.db;
-    if (!db) return { elevations: 0, foliage: 0, buildings: 0, sizeKb: 0 };
+    if (!db) return { elevations: 0, demTiles: 0, foliage: 0, buildings: 0, sizeKb: 0 };
     try {
       const elevCount = db.exec('SELECT COUNT(*) FROM elevations')[0]?.values[0][0] ?? 0;
+      const demTileCount = db.exec('SELECT COUNT(*) FROM dem_tiles')[0]?.values[0][0] ?? 0;
       const folCount = db.exec('SELECT COUNT(*) FROM foliage_cache')[0]?.values[0][0] ?? 0;
       const bldgCount = db.exec('SELECT COUNT(*) FROM buildings_cache')[0]?.values[0][0] ?? 0;
       const pageSize = db.exec('PRAGMA page_size')[0]?.values[0][0] ?? 4096;
       const pageCount = db.exec('PRAGMA page_count')[0]?.values[0][0] ?? 0;
-      return { elevations: elevCount, foliage: folCount, buildings: bldgCount, sizeKb: Math.round(pageSize * pageCount / 1024) };
+      return {
+        elevations: elevCount,
+        demTiles: demTileCount,
+        foliage: folCount,
+        buildings: bldgCount,
+        sizeKb: Math.round(pageSize * pageCount / 1024),
+      };
     } catch (err) {
       console.error('[cache] get-stats error:', err.message);
-      return { elevations: 0, foliage: 0, buildings: 0, sizeKb: 0 };
+      return { elevations: 0, demTiles: 0, foliage: 0, buildings: 0, sizeKb: 0 };
     }
   });
 
   ipcMain.handle('cache-purge-elevations', () => _deleteAndSave(cache, 'DELETE FROM elevations', '[cache] purge-elevations error:'));
+  ipcMain.handle('cache-purge-dem-tiles', () => _deleteAndSave(cache, 'DELETE FROM dem_tiles', '[cache] purge-dem-tiles error:'));
   ipcMain.handle('cache-purge-foliage', () => _deleteAndSave(cache, 'DELETE FROM foliage_cache', '[cache] purge-foliage error:'));
   ipcMain.handle('cache-purge-buildings', () => _deleteAndSave(cache, 'DELETE FROM buildings_cache', '[cache] purge-buildings error:'));
   ipcMain.handle('cache-vacuum', () => _deleteAndSave(cache, 'VACUUM', '[cache] vacuum error:'));

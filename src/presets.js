@@ -57,6 +57,13 @@ function populateSelect(id, items, mapper) {
   });
 }
 
+function setValueAndNotify(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = value;
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 export async function init() {
   let p = null;
   try {
@@ -79,20 +86,20 @@ export async function init() {
   // ── Event listeners ──────────────────────────────────────────
   document.getElementById('radio-preset').addEventListener('change', e => {
     const h = presets.hardware.find(x => x.id === e.target.value);
-    if (h) document.getElementById('repeater-power').value = h.tx_power;
+    if (h) setValueAndNotify('repeater-power', h.tx_power);
   });
 
   document.getElementById('modem-preset').addEventListener('change', e => {
     const m = presets.radio_modes.find(x => x.id === e.target.value);
     if (m) {
-      document.getElementById('rx-sensitivity').value = m.sensitivity;
-      if (m.freq !== undefined) document.getElementById('repeater-freq').value = m.freq;
+      setValueAndNotify('rx-sensitivity', m.sensitivity);
+      if (m.freq !== undefined) setValueAndNotify('repeater-freq', m.freq);
     }
   });
 
   document.getElementById('antenna-preset').addEventListener('change', e => {
     const a = presets.antenna.find(x => x.id === e.target.value);
-    if (a) document.getElementById('repeater-gain').value = a.gain_dbi;
+    if (a) setValueAndNotify('repeater-gain', a.gain_dbi);
   });
 }
 

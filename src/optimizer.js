@@ -13,6 +13,10 @@ import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
+export function optimizerNeedsTerrain(opts = {}) {
+  return Boolean(opts.useLos || opts.useFoliage || opts.useBuildings);
+}
+
 /**
  * Find the best N repeater locations within a bounding box.
  *
@@ -44,7 +48,7 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
   // ── Fetch elevations for eval grid + all candidates in one round-trip ──
   progress(5, `Fetching elevation for ${evalPoints.length + candidates.length} points…`);
   const allPoints = [...evalPoints, ...candidates];
-  const allElevs  = useLos ? await fetchElevations(allPoints) : allPoints.map(() => 0);
+  const allElevs  = optimizerNeedsTerrain(opts) ? await fetchElevations(allPoints) : allPoints.map(() => 0);
   console.info(`[optimizer] elevation fetched — ${evalPoints.length} eval pts, ${candidates.length} candidates`);
 
   const evalElevs      = allElevs.slice(0, evalPoints.length);
@@ -89,18 +93,25 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
   for (let round = 0; round < nRepeaters; round++) {
     let bestScore   = -1;
     let bestIdx     = -1;
-    let bestSignals = null; // Cache the winning candidate's signal array.
+    const scratchSignals = new Float32Array(evalPoints.length);
+    const bestSignals = new Float32Array(evalPoints.length);
+    let hasBestSignals = false;
 
     for (let ci = 0; ci < candidates.length; ci++) {
       if (selectedCandidates[ci]) continue;
       const cand = candidates[ci];
       const tx   = { lat: cand.latitude, lon: cand.longitude, height, power, freq, gain };
 
-      const { score, signals } = scoreCoverageIncremental(
-        tx, candidateElevs[ci], evalPoints, evalElevs, covered, scoreOpts
+      const score = scoreCoverageIncremental(
+        tx, candidateElevs[ci], evalPoints, evalElevs, covered, scoreOpts, scratchSignals
       );
 
-      if (score > bestScore) { bestScore = score; bestIdx = ci; bestSignals = signals; }
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = ci;
+        bestSignals.set(scratchSignals);
+        hasBestSignals = true;
+      }
 
       if (ci % 16 === 0) {
         const pct = 20 + 75 * ((round + ci / candidates.length) / nRepeaters);
@@ -109,9 +120,9 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
     }
 
     // Use cached signals from the winning pass; avoid a second signal sweep.
-    if (bestIdx === -1 || bestScore <= 0 || !bestSignals) break;
+    if (bestIdx === -1 || bestScore <= 0 || !hasBestSignals) break;
     selectedCandidates[bestIdx] = 1;
-    markCovered(bestSignals, evalPoints, covered, scoreOpts);
+    markCovered(bestSignals, covered, scoreOpts);
 
     const best = candidates[bestIdx];
     placed.push({
@@ -145,7 +156,7 @@ export function buildGrid(latMin, latMax, lonMin, lonMax, res) {
 /**
  * Score marginal new coverage and return the per-point signal array for the winner.
  */
-function scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, opts) {
+function scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, opts, signals) {
   const { rxSens, radiusKm } = opts;
   const threshold = rxSens + (opts.fadeMargin ?? 0);
 
@@ -153,7 +164,6 @@ function scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, op
   const profileBuffers = ensureProfileBuffers(opts.profileMaxSamples ?? 256);
 
   let newCovered = 0;
-  const signals = new Float32Array(evalPoints.length);
   signals.fill(-200);
 
   for (let idx = 0; idx < evalPoints.length; idx++) {
@@ -166,15 +176,15 @@ function scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, op
     if (sig >= threshold) newCovered++;
   }
 
-  return { score: evalPoints.length === 0 ? 0 : newCovered / evalPoints.length, signals };
+  return evalPoints.length === 0 ? 0 : newCovered / evalPoints.length;
 }
 
 /**
  * Mark covered cells using the pre-computed signal array from the winning pass.
  */
-function markCovered(signals, evalPoints, covered, opts) {
+function markCovered(signals, covered, opts) {
   const threshold = opts.rxSens + (opts.fadeMargin ?? 0);
-  for (let idx = 0; idx < evalPoints.length; idx++) {
+  for (let idx = 0; idx < signals.length; idx++) {
     if (!covered[idx] && signals[idx] >= threshold) covered[idx] = 1;
   }
 }

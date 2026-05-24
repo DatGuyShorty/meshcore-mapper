@@ -4,13 +4,23 @@
   "description": "LoRa Signal Propagation Mapper",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "app": "powershell -ExecutionPolicy Bypass -File ./start-app.ps1",
+    "setup": "powershell -ExecutionPolicy Bypass -File ./start-app.ps1 -NoLaunch",
+    "start": "electron .",
+    "syntax": "node scripts/check-syntax.mjs",
+    "lint": "eslint .",
+    "test": "vitest run tests/unit",
+    "smoke": "playwright test tests/smoke",
+    "check": "npm run syntax && npm run lint && npm run test && npm audit --omit=dev && npm run smoke"
   },
   "dependencies": {
     "js-yaml": "^4.1.1",
     "sql.js": "^1.10.3"
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "@playwright/test": "^1.60.0",
+    "electron": "^31.0.0",
+    "eslint": "^10.4.0",
+    "vitest": "^4.1.7"
   }
 }

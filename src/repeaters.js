@@ -91,7 +91,7 @@ function _hideCtxMenu() {
 function _saveWsToDb() {
   const rows = state.repeaters
     .filter(r => r.fromWs)
-    .map(r => ({ name: r.name, lat: r.lat, lon: r.lon, short: r.short ?? null, lastSeen: r.lastSeen ?? null }));
+    .map(r => ({ name: r.name, lat: r.lat, lon: r.lon, short: r.short ?? null, lastSeen: r.lastSeen ?? null, wsKey: r.wsKey ?? null }));
   window.electronAPI.wsRepeatersSave(rows).catch(e => console.warn('[ws] DB save failed:', e));
 }
 
@@ -104,6 +104,62 @@ function _getWsDefaults() {
   };
 }
 
+function _wsKeyForRow(r) {
+  const rawKey = r?.wsKey ?? r?.short ?? r?.id ?? r?.name;
+  if (rawKey !== undefined && rawKey !== null && String(rawKey).trim()) {
+    return String(rawKey);
+  }
+  const lat = Number.isFinite(parseFloat(r?.lat)) ? parseFloat(r.lat).toFixed(5) : 'nan';
+  const lon = Number.isFinite(parseFloat(r?.lon)) ? parseFloat(r.lon).toFixed(5) : 'nan';
+  return `${lat}:${lon}`;
+}
+
+function _wsPopupLines(r, name) {
+  const short = r.short ?? null;
+  const lastSeen = r.last_seen ?? r.lastSeen ?? null;
+  return [
+    `<b>${escHtml(name)}</b>`,
+    short ? `ID: <code>${escHtml(short)}</code>` : null,
+    lastSeen ? `Last seen: ${escHtml(lastSeen)}` : null,
+  ].filter(Boolean).join('<br>');
+}
+
+function _applyWsRow(rep, r, defaults) {
+  const lat = parseFloat(r.lat);
+  const lon = parseFloat(r.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return { coverageChanged: false, displayChanged: false };
+  }
+  const name = String(r.name ?? 'Unknown');
+  const lastSeen = r.last_seen ?? r.lastSeen ?? null;
+  const short = r.short ?? null;
+  let coverageChanged = false;
+  let displayChanged = false;
+
+  if (rep.name !== name) { rep.name = name; displayChanged = true; }
+  if (rep.lat !== lat || rep.lon !== lon) {
+    rep.lat = lat;
+    rep.lon = lon;
+    rep.marker.setLatLng([lat, lon]);
+    coverageChanged = true;
+    displayChanged = true;
+  }
+  for (const [key, value] of Object.entries(defaults)) {
+    if (rep[key] !== value) {
+      rep[key] = value;
+      coverageChanged = true;
+      displayChanged = true;
+    }
+  }
+  if (rep.short !== short || rep.lastSeen !== lastSeen) displayChanged = true;
+  rep.fromWs = true;
+  rep.short = short;
+  rep.lastSeen = lastSeen;
+  rep.wsKey = _wsKeyForRow(r);
+  rep.marker.setPopupContent(_wsPopupLines(r, name));
+  return { coverageChanged, displayChanged };
+}
+
 async function _loadWsFromDb() {
   try {
     const rows = await window.electronAPI.wsRepeatersLoad();
@@ -111,20 +167,18 @@ async function _loadWsFromDb() {
     const savedUndo = _lastRemoved;
     for (const r of rows) {
       const d    = _getWsDefaults();
-      const rep    = addRepeater(r.name, r.lat, r.lon, d.height, d.power, d.freq, d.gain);
+      const rep    = addRepeater(r.name, r.lat, r.lon, d.height, d.power, d.freq, d.gain, { render: false, notify: false });
       rep.fromWs   = true;
       rep.short    = r.short    ?? null;
       rep.lastSeen = r.lastSeen ?? null;
+      rep.wsKey    = _wsKeyForRow(r);
       _wsRepeaterIds.add(rep.id);
-      const popupLines = [
-        `<b>${escHtml(r.name)}</b>`,
-        r.short    ? `ID: <code>${escHtml(r.short)}</code>`  : null,
-        r.lastSeen ? `Last seen: ${escHtml(r.lastSeen)}`     : null,
-      ].filter(Boolean).join('<br>');
-      rep.marker.setPopupContent(popupLines);
+      rep.marker.setPopupContent(_wsPopupLines(r, r.name));
     }
     _lastRemoved = savedUndo;
+    renderRepeaterList();
     _syncUndoBtn();
+    document.dispatchEvent(new CustomEvent('repeaters:changed'));
     console.info(`[ws] restored ${rows.length} repeater(s) from DB`);
   } catch (e) { console.warn('[ws] DB load failed:', e); }
 }
@@ -149,31 +203,61 @@ function _syncWsRepeaters(data) {
     : null;
   if (!list) { console.warn('[ws] unexpected message shape, expected array'); return; }
 
-  // Remove old WS repeaters without clobbering manual undo state
-  const savedUndo = _lastRemoved;
-  for (const id of [..._wsRepeaterIds]) removeRepeater(id);
-  _lastRemoved = savedUndo;
-  _syncUndoBtn();
-  _wsRepeaterIds.clear();
-
+  const incoming = [];
+  const incomingKeys = new Set();
   for (const r of list) {
-    // Payload shape from Node-RED: { name, lat, lon, short, prefix, last_seen }
     const lat = parseFloat(r.lat);
     const lon = parseFloat(r.lon);
-    if (isNaN(lat) || isNaN(lon)) { console.warn('[ws] skipping entry with no coords:', r); continue; }
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      console.warn('[ws] skipping entry with no coords:', r);
+      continue;
+    }
+    const key = _wsKeyForRow(r);
+    if (incomingKeys.has(key)) continue;
+    incomingKeys.add(key);
+    incoming.push(r);
+  }
+
+  let coverageChanged = false;
+  let displayChanged = false;
+
+  // Remove stale WS repeaters without clobbering manual undo state.
+  const savedUndo = _lastRemoved;
+  for (const id of [..._wsRepeaterIds]) {
+    const rep = state.repeaters.find(x => x.id === id);
+    if (rep && !incomingKeys.has(rep.wsKey)) {
+      removeRepeater(id, { rememberUndo: false, render: false, clearCoverage: false, notify: false });
+      _wsRepeaterIds.delete(id);
+      coverageChanged = true;
+      displayChanged = true;
+    }
+  }
+  _lastRemoved = savedUndo;
+  _syncUndoBtn();
+
+  for (const r of incoming) {
+    const key = _wsKeyForRow(r);
+    const existing = state.repeaters.find(x => x.fromWs && x.wsKey === key);
+    const defaults = _getWsDefaults();
+    if (existing) {
+      const result = _applyWsRow(existing, r, defaults);
+      coverageChanged = result.coverageChanged || coverageChanged;
+      displayChanged = result.displayChanged || displayChanged;
+      continue;
+    }
+
     const name = String(r.name ?? 'Unknown');
-    const d    = _getWsDefaults();
-    const rep      = addRepeater(name, lat, lon, d.height, d.power, d.freq, d.gain);
-    rep.fromWs     = true;
-    rep.short      = r.short    ?? null;
-    rep.lastSeen   = r.last_seen ?? null;
+    const rep = addRepeater(name, parseFloat(r.lat), parseFloat(r.lon), defaults.height, defaults.power, defaults.freq, defaults.gain, { render: false, notify: false });
+    _applyWsRow(rep, r, defaults);
     _wsRepeaterIds.add(rep.id);
-    const popupLines = [
-      `<b>${escHtml(name)}</b>`,
-      r.short     ? `ID: <code>${escHtml(r.short)}</code>` : null,
-      r.last_seen ? `Last seen: ${escHtml(r.last_seen)}`   : null,
-    ].filter(Boolean).join('<br>');
-    rep.marker.setPopupContent(popupLines);
+    coverageChanged = true;
+    displayChanged = true;
+  }
+
+  if (coverageChanged) clearCoverageLayers();
+  if (coverageChanged || displayChanged) {
+    renderRepeaterList();
+    document.dispatchEvent(new CustomEvent('repeaters:changed'));
   }
   console.info(`[ws] synced ${_wsRepeaterIds.size} repeater(s)`);
   _saveWsToDb();
@@ -203,12 +287,21 @@ export function disconnectLiveFeed() {
   _ws.onclose = null; // suppress status side-effect during manual disconnect
   _ws.close();
   _ws = null;
-  // Remove WS markers from map but keep IDs so the next reconnect’s sync can still find and clear them
+  // Remove WS markers from the map without clobbering manual undo state.
   const savedUndo = _lastRemoved;
-  for (const id of [..._wsRepeaterIds]) removeRepeater(id);
+  let removed = false;
+  for (const id of [..._wsRepeaterIds]) {
+    removeRepeater(id, { rememberUndo: false, render: false, clearCoverage: false, notify: false });
+    removed = true;
+  }
   _lastRemoved = savedUndo;
   _syncUndoBtn();
   _wsRepeaterIds.clear();
+  if (removed) {
+    clearCoverageLayers();
+    renderRepeaterList();
+    document.dispatchEvent(new CustomEvent('repeaters:changed'));
+  }
   _setWsStatus('disconnected');
   setStatus('Live feed disconnected.');
 }
@@ -229,7 +322,7 @@ function makeMarkerIcon(color) {
   return L.divIcon({ html: svg, iconSize: [28, 36], iconAnchor: [14, 36], popupAnchor: [0, -36], className: '' });
 }
 
-export function addRepeater(name, lat, lon, height, power, freq, gain = 2) {
+export function addRepeater(name, lat, lon, height, power, freq, gain = 2, options = {}) {
   name = String(name ?? `Repeater ${state.nextId}`);
   const color = PALETTE[state.repeaters.length % PALETTE.length];
   const id = state.nextId++;
@@ -260,22 +353,25 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2) {
 
   const repeater = { id, name, lat, lon, height, power, freq, gain, marker, color, visible: true };
   state.repeaters.push(repeater);
-  renderRepeaterList();
-  document.dispatchEvent(new CustomEvent('repeaters:changed'));
+  if (options.render !== false) renderRepeaterList();
+  if (options.notify !== false) document.dispatchEvent(new CustomEvent('repeaters:changed'));
   return repeater;
 }
 
-export function removeRepeater(id) {
+export function removeRepeater(id, options = {}) {
   const idx = state.repeaters.findIndex(r => r.id === id);
   if (idx === -1) return;
   const r = state.repeaters[idx];
-  _lastRemoved = { name: r.name, lat: r.lat, lon: r.lon, height: r.height, power: r.power, freq: r.freq, gain: r.gain };
+  if (options.rememberUndo !== false) {
+    _lastRemoved = { name: r.name, lat: r.lat, lon: r.lon, height: r.height, power: r.power, freq: r.freq, gain: r.gain };
+  }
   r.marker.remove();
   state.repeaters.splice(idx, 1);
-  clearCoverageLayers();
-  renderRepeaterList();
+  if (r.fromWs) _wsRepeaterIds.delete(id);
+  if (options.clearCoverage !== false) clearCoverageLayers();
+  if (options.render !== false) renderRepeaterList();
   _syncUndoBtn();
-  document.dispatchEvent(new CustomEvent('repeaters:changed'));
+  if (options.notify !== false) document.dispatchEvent(new CustomEvent('repeaters:changed'));
 }
 
 // F5: restore the last individually-deleted repeater
@@ -335,10 +431,10 @@ function toggleVisibility(id) {
   } else {
     r.marker.remove();
   }
-  const covLayer = state.coverageLayers.find(l => l._repeaterId === id);
-  if (covLayer) {
-    if (r.visible) covLayer.addTo(map); else covLayer.remove();
-  }
+  const covLayers = state.coverageLayers.filter(l => l._repeaterId === id);
+  covLayers.forEach(l => {
+    if (r.visible) l.addTo(map); else l.remove();
+  });
   renderRepeaterList();
 }
 
@@ -485,10 +581,12 @@ export function init() {
   document.getElementById('btn-clear-nodes').addEventListener('click', () => {
     if (!confirmAction('Clear all nodes and coverage overlays?')) return;
     clearEditMode();
-    [...state.repeaters].forEach(r => removeRepeater(r.id));
+    [...state.repeaters].forEach(r => removeRepeater(r.id, { render: false, clearCoverage: false, notify: false }));
     clearCoverageLayers();
     _lastRemoved = null;
     _syncUndoBtn();
+    renderRepeaterList();
+    document.dispatchEvent(new CustomEvent('repeaters:changed'));
     setStatus('All nodes cleared.');
   });
 }

@@ -154,6 +154,7 @@
           </div>
           <div class="action-row">
             <button id="btn-refresh-layers" class="btn-secondary full-width">Refresh Layers</button>
+            <button id="btn-cancel-layers" class="btn-secondary" disabled>Cancel</button>
           </div>
           <div class="status-line" id="layer-status"></div>
         </details>
@@ -185,16 +186,24 @@
 
           <div class="panel-section">
             <p class="section-heading">Area and quality</p>
+            <label>Scenario
+              <select id="scenario-profile">
+                <option value="quick">Quick Scan</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="urban">Urban Accurate</option>
+                <option value="offline">Offline/Cached</option>
+              </select>
+            </label>
             <div class="field-grid">
               <label>Radius (km)
                 <input type="number" id="analysis-radius" value="15" min="1" max="100" />
               </label>
               <label>Simulation Quality
                 <select id="grid-res">
-                  <option value="64">Fast</option>
-                  <option value="128" selected>Balanced</option>
-                  <option value="256">High Detail</option>
-                  <option value="384">Maximum</option>
+                  <option value="0.5">Fast (0.5x)</option>
+                  <option value="1" selected>Balanced (1.0x)</option>
+                  <option value="2">High Detail (2.0x)</option>
+                  <option value="3">Maximum (3.0x)</option>
                 </select>
               </label>
             </div>
@@ -231,6 +240,42 @@
             </div>
           </div>
 
+          <div class="panel-section">
+            <p class="section-heading">Fetch performance</p>
+            <label>Compute Backend
+              <select id="compute-backend">
+                <option value="auto" selected>Auto</option>
+                <option value="cuda">Python CUDA</option>
+                <option value="webgpu">WebGPU</option>
+                <option value="cpu">CPU Workers</option>
+              </select>
+            </label>
+            <label>Obstacle Heights
+              <select id="obstacle-height-mode">
+                <option value="osm" selected>OSM defaults</option>
+                <option value="dsm-dem">DSM-DEM derived</option>
+              </select>
+            </label>
+            <div id="backend-status" class="status-line">Detecting compute backends...</div>
+            <div class="field-grid">
+              <label>Calculation Workers
+                <input type="number" id="compute-worker-count" value="0" min="0" max="8" step="1" title="0 = Auto" />
+              </label>
+              <label>DSM-DEM Workers
+                <input type="number" id="dataset-batch-concurrency" value="2" min="1" max="4" step="1" />
+              </label>
+              <label>DEM Tile Workers
+                <input type="number" id="dem-tile-concurrency" value="6" min="1" max="16" step="1" />
+              </label>
+              <label>Foliage Tile Workers
+                <input type="number" id="foliage-tile-concurrency" value="3" min="1" max="12" step="1" />
+              </label>
+              <label>Building Tile Workers
+                <input type="number" id="building-tile-concurrency" value="3" min="1" max="12" step="1" />
+              </label>
+            </div>
+          </div>
+
           <div class="action-row">
             <button id="btn-compute" class="btn-primary">Compute Coverage</button>
             <button id="btn-clear-coverage" class="btn-secondary">Clear</button>
@@ -255,9 +300,9 @@
             </div>
             <label>Candidate Grid
               <select id="opt-candidate-res">
-                <option value="12">Fast</option>
-                <option value="20" selected>Balanced</option>
-                <option value="32">High Detail</option>
+                <option value="12">Fast (12 x 12)</option>
+                <option value="20" selected>Balanced (20 x 20)</option>
+                <option value="32">High Detail (32 x 32)</option>
               </select>
             </label>
           </div>
@@ -266,7 +311,10 @@
             <button id="btn-clear-area" class="btn-secondary">Clear Area</button>
           </div>
           <div id="draw-hint" class="hint hidden">Click two opposite corners of the search area on the map.</div>
-          <button id="btn-optimize" class="btn-primary full-width" disabled>Find Best Locations</button>
+          <div class="action-row">
+            <button id="btn-optimize" class="btn-primary full-width" disabled>Find Best Locations</button>
+            <button id="btn-cancel-optimize" class="btn-secondary" disabled>Cancel</button>
+          </div>
           <div id="opt-status" class="status-line">Draw a search area to enable the optimizer.</div>
           <ul id="opt-results"></ul>
         </details>
@@ -279,6 +327,7 @@
               <button id="btn-p2p-pick" class="btn-secondary">Pick A to B</button>
               <button id="btn-p2p-clear" class="btn-secondary">Clear</button>
               <button id="btn-p2p-update" class="btn-primary">Recalculate</button>
+              <button id="btn-cancel-p2p" class="btn-secondary" disabled>Cancel</button>
             </div>
             <div id="p2p-pick-hint" class="hint hidden">Click point A (transmitter) on the map.</div>
           </div>
@@ -333,7 +382,10 @@
               Fresnel clearance flag
             </label>
           </div>
-          <button id="btn-find-path" class="btn-primary full-width">Find Best Path</button>
+          <div class="action-row">
+            <button id="btn-find-path" class="btn-primary full-width">Find Best Path</button>
+            <button id="btn-cancel-path" class="btn-secondary" disabled>Cancel</button>
+          </div>
           <div id="path-status" class="hint hidden"></div>
           <div id="path-results"></div>
         </details>
@@ -352,9 +404,14 @@
         <details class="panel workflow-panel" open>
           <summary>Cache and Stored Data</summary>
           <div class="status-line" id="cache-stats">Cache: loading</div>
+          <div class="action-row compact">
+            <button id="btn-warm-cache" class="btn-secondary">Warm Viewport</button>
+            <button id="btn-cancel-cache-warm" class="btn-secondary" disabled>Cancel</button>
+          </div>
           <p class="section-heading">Clear cache</p>
           <div class="action-row compact">
             <button id="btn-purge-elevations" class="btn-secondary">Elevations</button>
+            <button id="btn-purge-dem-tiles" class="btn-secondary">DEM Tiles</button>
             <button id="btn-purge-foliage" class="btn-secondary">Foliage</button>
             <button id="btn-purge-buildings" class="btn-secondary">Buildings</button>
           </div>
