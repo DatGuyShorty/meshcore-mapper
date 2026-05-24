@@ -61,7 +61,7 @@ export async function calculateLinkBudget(pointA, pointB, settings, { signal = n
   const foliageLoss = foliage
     ? foliageLossDb(profileLats, profileLons, elevs, settings.txHeight, settings.rxHeight,
         foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
-        foliage.tileIndex, distM, settings.foliageLossPerM)
+        foliage.tileIndex, distM, settings.foliageLossPerM, settings.freqMHz)
     : 0;
   const buildingLoss = buildings
     ? buildingLossDb(profileLats, profileLons, elevs, settings.txHeight, settings.rxHeight,

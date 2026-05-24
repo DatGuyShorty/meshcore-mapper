@@ -319,6 +319,14 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
   return { polygons, bboxes, factors, canopyHeights, tileIndex };
 }
 
+export function weissbergerFoliageLossDb(freqMHz, depthM) {
+  if (!Number.isFinite(depthM) || depthM <= 0) return 0;
+  const fGHz = Math.max(0.1, (Number(freqMHz) || 868) / 1000);
+  const d = Math.min(400, Math.max(0, depthM));
+  if (d <= 14) return 0.45 * (fGHz ** 0.284) * d;
+  return 1.33 * (fGHz ** 0.284) * (d ** 0.588);
+}
+
 function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCount) {
   const latLo = Math.min(lat1, lat2), latHi = Math.max(lat1, lat2);
   const lonLo = Math.min(lon1, lon2), lonHi = Math.max(lon1, lon2);
@@ -363,14 +371,15 @@ function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCo
  * @param {number}  lossPerMeterDb
  * @returns {number} total foliage loss in dB
  */
-export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH, polygons, bboxes, canopyHeights, factors, tileIndex, totalDistM, lossPerMeterDb = 0.3) {
+export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH, polygons, bboxes, canopyHeights, factors, tileIndex, totalDistM, lossPerMeterDb = 0.3, freqMHz = 868) {
   if (!polygons || polygons.length === 0) return 0;
   const n = profileLats.length;
   const segLen = totalDistM / (n - 1);
+  const lossPerM = Math.max(0, Number(lossPerMeterDb) || 0);
   // Compute absolute elevation (AMSL) of TX and RX antenna tips
   const txAbsElev = (profileElevs?.[0]     ?? 0) + txAntH;
   const rxAbsElev = (profileElevs?.[n - 1] ?? 0) + rxAntH;
-  let loss = 0;
+  let linearLoss = 0;
   for (let si = 0; si < n - 1; si++) {
     const lat1 = profileLats[si], lon1 = profileLons[si];
     const lat2 = profileLats[si + 1], lon2 = profileLons[si + 1];
@@ -384,11 +393,12 @@ export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rx
         const terrainElev = (profileElevs?.[si] ?? 0) + ((profileElevs?.[si + 1] ?? 0) - (profileElevs?.[si] ?? 0)) * f;
         const canopyTop = terrainElev + earthBulgeM(t, totalDistM) + (canopyHeights?.[i] ?? 10);
         if (rayAbsElev <= canopyTop) {
-          loss += segLen * (b - a) * lossPerMeterDb * (factors?.[i] ?? 1.0);
+          linearLoss += segLen * (b - a) * lossPerM * (factors?.[i] ?? 1.0);
         }
       }
     }
   }
-  return loss;
+  if (linearLoss <= 0 || lossPerM <= 0) return linearLoss;
+  const equivalentDepthM = linearLoss / lossPerM;
+  return Math.min(linearLoss, weissbergerFoliageLossDb(freqMHz, equivalentDepthM));
 }
-

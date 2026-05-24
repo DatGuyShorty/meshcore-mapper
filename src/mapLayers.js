@@ -16,6 +16,9 @@ let _loading = false;
 let _refreshTimer = null;
 let _abortController = null;
 
+const DEFAULT_FOLIAGE_OPACITY = 0.18;
+const DEFAULT_BUILDING_OPACITY = 0.45;
+
 let _polyRenderer = null;
 function _getRenderer() {
   if (!_polyRenderer) _polyRenderer = L.canvas({ padding: 0.1 });
@@ -24,6 +27,54 @@ function _getRenderer() {
 
 function _setStatus(msg, kind = 'info') {
   setInlineStatus('layer-status', msg, kind);
+}
+
+function _opacityFromSlider(id, fallback) {
+  const value = parseFloat(document.getElementById(id)?.value);
+  const pct = Number.isFinite(value) ? value : fallback * 100;
+  return Math.max(0, Math.min(1, pct / 100));
+}
+
+function _outlineOpacity(fillOpacity, boost) {
+  if (fillOpacity <= 0) return 0;
+  return Math.min(1, fillOpacity + boost);
+}
+
+function _foliageStyle() {
+  const fillOpacity = _opacityFromSlider('foliage-opacity', DEFAULT_FOLIAGE_OPACITY);
+  return {
+    color: '#22c55e',
+    weight: 1,
+    opacity: _outlineOpacity(fillOpacity, 0.42),
+    fill: true,
+    fillColor: '#22c55e',
+    fillOpacity,
+    interactive: false,
+  };
+}
+
+function _buildingStyle(fillColor) {
+  const fillOpacity = _opacityFromSlider('building-opacity', DEFAULT_BUILDING_OPACITY);
+  return {
+    color: '#6b7280',
+    weight: 0.8,
+    opacity: _outlineOpacity(fillOpacity, 0.25),
+    fill: true,
+    fillColor,
+    fillOpacity,
+    interactive: false,
+  };
+}
+
+function _applyFoliageOpacity() {
+  const style = _foliageStyle();
+  state.foliageLayers.forEach(layer => layer.setStyle(style));
+}
+
+function _applyBuildingOpacity() {
+  const fillOpacity = _opacityFromSlider('building-opacity', DEFAULT_BUILDING_OPACITY);
+  const opacity = _outlineOpacity(fillOpacity, 0.25);
+  state.buildingLayers.forEach(layer => layer.setStyle({ opacity, fillOpacity }));
 }
 
 async function _loadFoliage(signal) {
@@ -36,8 +87,7 @@ async function _loadFoliage(signal) {
     const poly = data.polygons[i];
     const layer = L.polygon(poly, {
       renderer: _getRenderer(),
-      color: '#22c55e', weight: 1, opacity: 0.6,
-      fill: true, fillColor: '#22c55e', fillOpacity: 0.18, interactive: false,
+      ..._foliageStyle(),
     }).addTo(map);
     state.foliageLayers.push(layer);
     if (i % 200 === 0) await yieldToUI();
@@ -58,8 +108,7 @@ async function _loadBuildings(signal) {
     const fill = t < 0.33 ? '#9ca3af' : t < 0.66 ? '#c4a875' : '#a0856e';
     const layer = L.polygon(poly, {
       renderer: _getRenderer(),
-      color: '#6b7280', weight: 0.8, opacity: 0.7,
-      fill: true, fillColor: fill, fillOpacity: 0.45, interactive: false,
+      ..._buildingStyle(fill),
     }).addTo(map);
     state.buildingLayers.push(layer);
     if (bi % 200 === 0) await yieldToUI();
@@ -125,6 +174,8 @@ export function init() {
   const foliageEl = document.getElementById('layer-foliage');
   const buildingsEl = document.getElementById('layer-buildings');
   const autoRefreshEl = document.getElementById('layer-auto-refresh');
+  const foliageOpacityEl = document.getElementById('foliage-opacity');
+  const buildingOpacityEl = document.getElementById('building-opacity');
 
   _foliageEnabled = foliageEl.checked;
   _buildingsEnabled = buildingsEl.checked;
@@ -145,6 +196,9 @@ export function init() {
   autoRefreshEl.addEventListener('change', (e) => {
     _autoRefresh = e.target.checked;
   });
+
+  foliageOpacityEl.addEventListener('input', _applyFoliageOpacity);
+  buildingOpacityEl.addEventListener('input', _applyBuildingOpacity);
 
   document.getElementById('btn-refresh-layers').addEventListener('click', _refresh);
   document.getElementById('btn-cancel-layers').addEventListener('click', () => _abortController?.abort());

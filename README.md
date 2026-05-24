@@ -45,7 +45,7 @@ Requires internet access for the elevation API (open-elevation.com + opentopodat
 - **Terrain LoS** — 32-sample terrain profiles with knife-edge diffraction (ITU-R P.526-15)
 - **Earth curvature correction** — standard atmosphere k = 4/3 effective Earth radius applied to each terrain sample; ~14 m correction at 15 km range
 - **Fresnel zone clearance** — optional first-zone obstruction penalty
-- **Foliage attenuation** — signal loss through OSM forest/wood/scrub/orchard polygons; configurable dB/m; height-aware (ray vs canopy top); 16×16 tile-grid index
+- **Foliage attenuation** — signal loss through OSM forest/wood/scrub/orchard polygons; configurable dB/m with a vegetation-model cap for long forest paths; height-aware (ray vs canopy top); 16×16 tile-grid index
 - **Building attenuation** — building footprints from Overpass API; height-coded fill on map; loss applied in Web Worker (dB/m through each building)
 - **Tile-based caching** — foliage and buildings cached on a shared 0.25° grid; nearby repeaters reuse the same tiles; 30-day SQLite TTL per tile
 - **Canvas renderer** — all foliage and building polygons rendered with a single shared `L.canvas()` instead of per-polygon SVG nodes; much faster with many buildings
@@ -99,7 +99,7 @@ Common sensitivity values for the SX1262 chip:
 | Preset | SF | BW (kHz) | Sensitivity (dBm) | TX Power |
 |---|---|---|---|---|
 | Long Slow (max range) | SF12 | 125 | −137 | 20–22 dBm |
-| Long Fast (MeshCore default) | SF11 | 250 | −133 | 20–22 dBm |
+| Long Fast (legacy MeshCore default) | SF11 | 250 | −133 | 20–22 dBm |
 | Medium Slow | SF10 | 125 | −132 | 20–22 dBm |
 | Medium Fast | SF9 | 250 | −129 | 20–22 dBm |
 | Short Slow | SF8 | 125 | −126 | 20–22 dBm |
@@ -109,6 +109,7 @@ Common sensitivity values for the SX1262 chip:
 - Set *Receiver Sensitivity* to match your modem preset.
 - Set *System / Fade Margin* to **10 dB** minimum (15 dB for critical links).
 - Set *Antenna Gain* to the dBi of the actual antenna — typically 2 dBi for a rubber duck, 3–5 dBi for a fibreglass omni, 6–12 dBi for a high-gain omni or Yagi.
+- MeshCore firmware's documented legacy default is 869.525 MHz / BW250 / SF11 / CR5; many active regions now use narrower 62.5 kHz presets, so use the regional preset that matches your mesh.
 
 **Regulatory note:** EU 868 MHz is typically limited to 25 mW EIRP (14 dBm) or 500 mW (27 dBm) at 1% duty cycle. US 915 MHz allows up to 30 dBm EIRP. The TX Power field is raw TX output; effective EIRP = TX Power + Antenna Gain − cable losses.
 
@@ -179,7 +180,7 @@ presets.yaml         Hardware and modem presets (extend freely, no code changes 
 | Effective EIRP | `TX Power (dBm) + Antenna Gain (dBi)` applied per repeater |
 | Terrain blockage | Fresnel-Kirchhoff ν; single dominant knife-edge (ITU-R P.526-15 approximation) |
 | Earth curvature | Effective Earth radius Re = 6371 × 4/3 km (standard atmospheric refraction); applied as `d1·d2 / (2·Re)` bulge at each terrain sample |
-| Foliage loss | Configurable dB/m × traversal depth through OSM vegetation polygons (default 0.3 dB/m; scrub/orchard use 0.5× multiplier); ray vs canopy-top height check |
+| Foliage loss | Configurable dB/m × traversal depth through OSM vegetation polygons, capped by a Weissberger-style vegetation attenuation curve for long forest paths (default dense-gradient cap 0.3 dB/m; scrub/orchard use partial multipliers); ray vs canopy-top height check |
 | Coverage threshold | `Receiver Sensitivity + System Fade Margin` |
 | Elevation data | SRTM 30 m via [open-elevation.com](https://open-elevation.com); [opentopodata.org](https://api.opentopodata.org) as fallback; adaptive grid ~150 m/cell; SQLite bbox cache (WAL) |
 

@@ -2,7 +2,13 @@
  * coverage.js - Coverage analysis and heatmap rendering.
  * Exports: init
  */
-import { map, state, clearCoverageLayers } from './map.js';
+import { state, clearCoverageLayers } from './map.js';
+import {
+  addCoverageOverlayTile,
+  getMapViewportMetrics,
+  onMapViewportChanged,
+  setCoverageLayerOpacity,
+} from './mapAdapter.js';
 import {
   setProgress, hideProgress, setStatus, yieldToUI, setCancelHandler,
   setButtonBusy, setInlineStatus,
@@ -11,6 +17,12 @@ import { fetchElevations, fetchElevationsFromTiles } from './elevation.js';
 import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
 import { getCoverageSettings } from './settings.js';
+import {
+  buildElevationGridPoints,
+  coverageBbox,
+  elevationGridShape,
+  unionBbox,
+} from './coverageGrid.js';
 import {
   cancelCoverageCompute,
   computeCoverage,
@@ -70,8 +82,7 @@ export async function runCoverageAnalysis(onlyId = null) {
   // Derive gridRes from the actual map zoom level so coverage pixels match screen pixels.
   // qualityMult: Fast=0.5×, Balanced=1×, High Detail=2×, Maximum=3×.
   // m/pixel at current zoom: 156543.034 * cos(lat) / 2^zoom (Web Mercator standard).
-  const _mapZoom = map.getZoom();
-  const _mapLat = map.getCenter().lat;
+  const { zoom: _mapZoom, centerLat: _mapLat } = getMapViewportMetrics();
   const _mapMPerPx = 156543.034 * Math.cos(_mapLat * Math.PI / 180) / Math.pow(2, _mapZoom);
   const _diameterM = radiusKm * 2000;
   // No fixed pixel ceiling — let radius × zoom drive the resolution.
@@ -95,8 +106,8 @@ export async function runCoverageAnalysis(onlyId = null) {
   clearCoverageLayers();
   setProgress(2, 'Initialising grid...');
 
-  const repBboxes = active.map(rep => _coverageBbox(rep, radiusKm));
-  const unionBBox = _unionBbox(repBboxes);
+  const repBboxes = active.map(rep => coverageBbox(rep, radiusKm));
+  const unionBBox = unionBbox(repBboxes);
 
   try {
     const obstacleFetchStart = performance.now();
@@ -129,10 +140,10 @@ export async function runCoverageAnalysis(onlyId = null) {
       const { latMin, latMax, lonMin, lonMax } = bbox;
 
       setProgress(basePct, `${rep.name}: preparing terrain grid...`);
-      const { elevTargetM, ELEV_RES } = _elevationGridShape(gridRes, radiusKm);
+      const { elevTargetM, ELEV_RES } = elevationGridShape(gridRes, radiusKm);
       console.debug(`[coverage] ${rep.name}: ELEV_RES=${ELEV_RES} (${(radiusKm * 2000 / ELEV_RES).toFixed(0)} m/cell), grid=${gridRes}x${gridRes}, target=${elevTargetM} m`);
 
-      const elevGridPoints = _buildElevationGridPoints({ latMin, latMax, lonMin, lonMax, ELEV_RES });
+      const elevGridPoints = buildElevationGridPoints({ latMin, latMax, lonMin, lonMax, ELEV_RES });
       let txElev = 0;
       let gridElevsF32 = new Float32Array(ELEV_RES * ELEV_RES);
 
@@ -178,7 +189,7 @@ export async function runCoverageAnalysis(onlyId = null) {
       _throwIfCancelled();
       setProgress(basePct + slicePct * 0.5, `${rep.name}: computing signal levels...`);
       const computeStart = performance.now();
-      const gpuPayload = {
+      const computePayload = {
         gridElevs: gridElevsF32, gridRes, ELEV_RES,
         rep: { lat: rep.lat, lon: rep.lon, height: rep.height, power: rep.power, freq: rep.freq, gain: rep.gain ?? 0 },
         txElev, latMin, latMax, lonMin, lonMax,
@@ -188,23 +199,38 @@ export async function runCoverageAnalysis(onlyId = null) {
         useBuildings, buildingLossPerM,
         buildings: buildingsPayload,
       };
-      const { rgba, stats, backend } = await computeCoverage(gpuPayload, {
+      const { rgba, stats, backend } = await computeCoverage(computePayload, {
         backendPreference: computeBackend,
         workerCount: computeWorkerCount,
         signal: _abortController.signal,
-        onProgress: backendPct => {
+        onProgress: backendProgress => {
+          const backendPct = typeof backendProgress === 'number'
+            ? backendProgress
+            : (backendProgress?.pct ?? 0);
+          const stage = typeof backendProgress === 'object' && backendProgress?.stage
+            ? ` (${_humanizeStage(backendProgress.stage)})`
+            : '';
           const etaMs = _etaMs(computeStart, backendPct);
           setProgress(
             basePct + slicePct * (0.5 + 0.5 * backendPct),
-            `${rep.name}: computing... ${Math.round(backendPct * 100)}%${etaMs !== null ? ` (ETA ${_fmtDuration(etaMs)})` : ''}`
+            `${rep.name}: computing... ${Math.round(backendPct * 100)}%${stage}${etaMs !== null ? ` (ETA ${_fmtDuration(etaMs)})` : ''}`
           );
         },
       });
+      const safeStats = stats ?? {};
       metrics.backendsUsed.add(backend);
-      metrics.workerCount = Math.max(metrics.workerCount, stats.workerCount ?? 0);
+      metrics.workerCount = Math.max(metrics.workerCount, safeStats.workerCount ?? 0);
       metrics.computeMs += performance.now() - computeStart;
-      metrics.workerComputeMs += stats.workerComputeMs ?? 0;
-      metrics.insidePoints += stats.insidePoints ?? 0;
+      metrics.workerComputeMs += safeStats.workerComputeMs ?? 0;
+      metrics.insidePoints += safeStats.insidePoints ?? 0;
+
+      const expectedRgbaBytes = gridRes * gridRes * 4;
+      if (!(rgba instanceof Uint8ClampedArray) || rgba.length !== expectedRgbaBytes) {
+        throw new Error(
+          `Coverage backend ${backend || 'unknown'} returned invalid RGBA buffer `
+          + `(expected ${expectedRgbaBytes} bytes, got ${rgba?.length ?? 'undefined'}).`
+        );
+      }
 
       _throwIfCancelled();
       const renderStart = performance.now();
@@ -273,26 +299,6 @@ function _makeMetrics(repeaters, gridRes, radiusKm) {
       demTileMisses: 0,
       demTilePoints: 0,
     },
-  };
-}
-
-function _coverageBbox(rep, radiusKm) {
-  const degPerKmLat = 1 / 110.574;
-  const degPerKmLon = 1 / (111.320 * Math.cos(rep.lat * Math.PI / 180));
-  return {
-    latMin: rep.lat - radiusKm * degPerKmLat,
-    latMax: rep.lat + radiusKm * degPerKmLat,
-    lonMin: rep.lon - radiusKm * degPerKmLon,
-    lonMax: rep.lon + radiusKm * degPerKmLon,
-  };
-}
-
-function _unionBbox(bboxes) {
-  return {
-    latMin: Math.min(...bboxes.map(b => b.latMin)),
-    latMax: Math.max(...bboxes.map(b => b.latMax)),
-    lonMin: Math.min(...bboxes.map(b => b.lonMin)),
-    lonMax: Math.max(...bboxes.map(b => b.lonMax)),
   };
 }
 
@@ -383,33 +389,10 @@ async function _fetchObstaclePayloads({
   };
 }
 
-function _elevationGridShape(gridRes, radiusKm) {
-  const elevTargetM = gridRes >= 384 ? 50 : gridRes >= 256 ? 75 : gridRes >= 128 ? 120 : 180;
-  const maxRes = gridRes >= 384 ? 512 : gridRes >= 256 ? 384 : 256;
-  return {
-    elevTargetM,
-    ELEV_RES: Math.min(Math.ceil(radiusKm * 2000 / elevTargetM), maxRes),
-  };
-}
-
-function _buildElevationGridPoints({ latMin, latMax, lonMin, lonMax, ELEV_RES }) {
-  const points = new Array(ELEV_RES * ELEV_RES);
-  let i = 0;
-  for (let r = 0; r < ELEV_RES; r++) {
-    const rowFrac = ELEV_RES > 1 ? r / (ELEV_RES - 1) : 0;
-    const latitude = latMax - rowFrac * (latMax - latMin);
-    for (let c = 0; c < ELEV_RES; c++) {
-      const colFrac = ELEV_RES > 1 ? c / (ELEV_RES - 1) : 0;
-      points[i++] = {
-        latitude,
-        longitude: lonMin + colFrac * (lonMax - lonMin),
-      };
-    }
-  }
-  return points;
-}
-
 async function _renderCoverageOverlay({ rgba, gridRes, latMin, latMax, lonMin, lonMax, repId }) {
+  if (!(rgba instanceof Uint8ClampedArray)) {
+    throw new Error('Coverage renderer expected an RGBA Uint8ClampedArray.');
+  }
   let nonZeroAlpha = 0;
   for (let i = 3; i < rgba.length; i += 4) {
     if (rgba[i] > 0) nonZeroAlpha++;
@@ -453,14 +436,12 @@ async function _renderCoverageOverlay({ rgba, gridRes, latMin, latMax, lonMin, l
       const left = lonMin + (col0 / colDen) * lonSpan;
       const right = lonMin + ((col0 + tileW - 1) / colDen) * lonSpan;
 
-      const overlay = L.imageOverlay(
+      addCoverageOverlayTile({
         blobUrl,
-        [[bottom, left], [top, right]],
-        { opacity, interactive: false }
-      ).addTo(map);
-      overlay._repeaterId = repId;
-      overlay._blobUrl = blobUrl;
-      state.coverageLayers.push(overlay);
+        bounds: [[bottom, left], [top, right]],
+        opacity,
+        repId,
+      });
       tileCount++;
     }
   }
@@ -495,7 +476,6 @@ function _backendLabel(metrics) {
   if (!backends.length) return `${metrics.workerCount} CPU worker${metrics.workerCount !== 1 ? 's' : ''}`;
   return backends.map(b => {
     if (b === 'cuda') return 'Python CUDA';
-    if (b === 'webgpu') return 'WebGPU';
     return `${metrics.workerCount} CPU worker${metrics.workerCount !== 1 ? 's' : ''}`;
   }).join(', ');
 }
@@ -525,13 +505,17 @@ function _fmtDuration(ms) {
   return `${min}m ${rem}s`;
 }
 
+function _humanizeStage(stage) {
+  if (!stage) return 'compute';
+  return String(stage).replace(/[-_]/g, ' ');
+}
+
 function updateQualityNote() {
   const qualityMult = parseFloat(document.getElementById('grid-res')?.value);
   const radiusKm = parseFloat(document.getElementById('analysis-radius')?.value) || 15;
   const q = Number.isFinite(qualityMult) ? qualityMult : 1;
-  const center = map.getCenter();
-  const zoom = map.getZoom();
-  const mPerPx = 156543.034 * Math.cos(center.lat * Math.PI / 180) / Math.pow(2, zoom);
+  const { centerLat, zoom } = getMapViewportMetrics();
+  const mPerPx = 156543.034 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, zoom);
   const diameterM = radiusKm * 2000;
   const maxByDensity = Math.floor(diameterM / 2);
   const rawGridRes = Math.max(16, Math.min(maxByDensity, Math.round(q * diameterM / mPerPx)));
@@ -593,7 +577,7 @@ export function init() {
     document.getElementById(id)?.addEventListener('change', updateQualityNote);
     document.getElementById(id)?.addEventListener('input', updateQualityNote);
   });
-  map.on('zoomend moveend', updateQualityNote);
+  onMapViewportChanged(updateQualityNote);
   ['rx-sensitivity', 'fade-margin'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', updateLegendLabels);
     document.getElementById(id)?.addEventListener('input', updateLegendLabels);
@@ -603,7 +587,7 @@ export function init() {
 
   document.getElementById('coverage-opacity').addEventListener('input', e => {
     const opacity = parseFloat(e.target.value) / 100;
-    state.coverageLayers.forEach(l => l.setOpacity(opacity));
+    setCoverageLayerOpacity(opacity);
   });
 
   const foliageToggle = document.getElementById('use-foliage');

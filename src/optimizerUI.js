@@ -9,6 +9,7 @@ import {
 } from './ui.js';
 import { addRepeater, cancelPlacing } from './repeaters.js';
 import { buildGrid, optimizerNeedsTerrain } from './optimizer.js';
+import { runOptimizerBackend } from './optimizerBackend.js';
 import { fetchElevations } from './elevation.js';
 import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
@@ -205,20 +206,35 @@ export function init() {
 
       setProgress(20, 'Scoring candidate locations...');
 
-      const results = await _runOptimizerWorker(
-        { evalPoints, evalElevs, candidates, candidateElevs, nRepeaters, txParams,
-          opts: { ...opts, latMin: bounds.latMin, latMax: bounds.latMax,
-                           lonMin: bounds.lonMin, lonMax: bounds.lonMax } },
-        (pct, msg) => setProgress(pct, msg),
-        _abortController.signal
-      );
+      const backendPreference = document.getElementById('compute-backend')?.value || 'auto';
+      const optimizerData = {
+        evalPoints,
+        evalElevs,
+        candidates,
+        candidateElevs,
+        nRepeaters,
+        txParams,
+        opts: {
+          ...opts,
+          latMin: bounds.latMin,
+          latMax: bounds.latMax,
+          lonMin: bounds.lonMin,
+          lonMax: bounds.lonMax,
+        },
+      };
+      const { results, backend } = await runOptimizerBackend(optimizerData, {
+        backendPreference,
+        onProgress: (pct, msg) => setProgress(pct, msg),
+        signal: _abortController.signal,
+      });
 
       setProgress(100, 'Optimization complete.');
       await yieldToUI();
       hideProgress();
       renderResults(results, txParams);
-      setStatus(`Optimizer found ${results.length} best location(s).`);
-      setInlineStatus('opt-status', `Found ${results.length} best location${results.length !== 1 ? 's' : ''}.`, 'success');
+      const backendLabel = backend === 'cuda' ? 'Python CUDA' : 'CPU worker';
+      setStatus(`Optimizer found ${results.length} best location(s) via ${backendLabel}.`);
+      setInlineStatus('opt-status', `Found ${results.length} best location${results.length !== 1 ? 's' : ''} via ${backendLabel}.`, 'success');
     } catch (err) {
       hideProgress();
       if (err?.cancelled || err?.name === 'AbortError') {
@@ -238,36 +254,4 @@ export function init() {
   });
 
   document.getElementById('btn-cancel-optimize').addEventListener('click', () => _abortController?.abort());
-}
-
-function _runOptimizerWorker(data, onProgress, signal) {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(
-      new URL('./optimizerWorker.js', import.meta.url),
-      { type: 'module' }
-    );
-    const abort = () => {
-      worker.terminate();
-      const err = new Error('Cancelled');
-      err.name = 'AbortError';
-      err.cancelled = true;
-      reject(err);
-    };
-    signal?.addEventListener('abort', abort, { once: true });
-    worker.onmessage = ({ data: msg }) => {
-      if (msg.type === 'progress') {
-        onProgress(msg.pct, msg.msg);
-      } else if (msg.type === 'done') {
-        signal?.removeEventListener('abort', abort);
-        worker.terminate();
-        resolve(msg.results);
-      }
-    };
-    worker.onerror = (err) => {
-      signal?.removeEventListener('abort', abort);
-      worker.terminate();
-      reject(new Error(`Optimizer worker error: ${err.message}`));
-    };
-    worker.postMessage(data);
-  });
 }

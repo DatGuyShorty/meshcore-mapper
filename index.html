@@ -90,7 +90,7 @@
                 <input type="number" id="repeater-gain" value="2" min="-3" max="30" step="0.5" />
               </label>
               <label>Frequency (MHz)
-                <input type="number" id="repeater-freq" value="868" min="433" max="915" />
+                <input type="number" id="repeater-freq" value="869.525" min="433" max="915" step="0.001" />
               </label>
             </div>
           </div>
@@ -140,11 +140,17 @@
                 <input type="checkbox" id="layer-foliage" />
                 Forest and vegetation
               </label>
+              <label class="opacity-row">Vegetation opacity
+                <input type="range" id="foliage-opacity" min="0" max="80" value="18" step="5" />
+              </label>
             </div>
             <div class="option-group">
               <label class="checkbox-label">
                 <input type="checkbox" id="layer-buildings" />
                 Building footprints
+              </label>
+              <label class="opacity-row">Building opacity
+                <input type="range" id="building-opacity" min="0" max="90" value="45" step="5" />
               </label>
             </div>
             <label class="checkbox-label">
@@ -176,7 +182,7 @@
                 <input type="number" id="rx-height" value="1.5" min="0.5" max="100" step="0.5" />
               </label>
               <label>RX Sensitivity (dBm)
-                <input type="number" id="rx-sensitivity" value="-137" min="-150" max="-80" />
+                <input type="number" id="rx-sensitivity" value="-133" min="-150" max="-80" />
               </label>
             </div>
             <label>Required Margin (dB)
@@ -226,7 +232,7 @@
                 Foliage attenuation
               </label>
               <label>Forest Loss (dB/m)
-                <input type="number" id="foliage-loss-per-m" value="0.3" min="0.05" max="2" step="0.05" />
+                <input type="number" id="foliage-loss-per-m" value="0.3" min="0.01" max="2" step="0.01" title="Dense-vegetation linear loss, capped by the vegetation attenuation model for long forest paths." />
               </label>
             </div>
             <div class="option-group">
@@ -246,7 +252,6 @@
               <select id="compute-backend">
                 <option value="auto" selected>Auto</option>
                 <option value="cuda">Python CUDA</option>
-                <option value="webgpu">WebGPU</option>
                 <option value="cpu">CPU Workers</option>
               </select>
             </label>
@@ -354,11 +359,11 @@
                 <input type="number" id="p2p-rx-gain" value="2" min="-3" max="30" step="0.5" />
               </label>
               <label>Freq (MHz)
-                <input type="number" id="p2p-freq" value="868" min="433" max="915" />
+                <input type="number" id="p2p-freq" value="869.525" min="433" max="915" step="0.001" />
               </label>
             </div>
             <label>RX Sensitivity (dBm)
-              <input type="number" id="p2p-rx-sens" value="-137" min="-150" max="-80" />
+              <input type="number" id="p2p-rx-sens" value="-133" min="-150" max="-80" />
             </label>
           </div>
           <div id="p2p-status" class="hint hidden"></div>
@@ -427,7 +432,7 @@
           <div class="field-grid">
             <label>Height (m)<input type="number" id="ws-default-height" value="10" min="0" step="1"></label>
             <label>Power (dBm)<input type="number" id="ws-default-power" value="20" min="0" max="30" step="1"></label>
-            <label>Freq (MHz)<input type="number" id="ws-default-freq" value="868" min="1" step="1"></label>
+            <label>Freq (MHz)<input type="number" id="ws-default-freq" value="869.525" min="1" step="0.001"></label>
             <label>Gain (dBi)<input type="number" id="ws-default-gain" value="2" min="0" step="0.5"></label>
           </div>
         </details>

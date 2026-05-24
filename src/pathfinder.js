@@ -80,7 +80,7 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
         profileLats, profileLons, profile, txNode.height, rxNode.height,
         scenario.foliage.polygons, scenario.foliage.bboxes,
         scenario.foliage.canopyHeights, scenario.foliage.factors,
-        scenario.foliage.tileIndex, distM, scenario.foliageLossPerM
+        scenario.foliage.tileIndex, distM, scenario.foliageLossPerM, txNode.freq
       )
     : 0;
   const buildingLoss = scenario.buildings

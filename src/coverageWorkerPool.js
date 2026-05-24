@@ -7,11 +7,10 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
     throw new Error(`Invalid grid resolution: ${gridRes}`);
   }
   if (totalPixels > 256_000_000) {
-    throw new Error(`Grid too large (${gridRes}x${gridRes}) for CPU workers. Use GPU mode or reduce quality.`);
+    throw new Error(`Grid too large (${gridRes}x${gridRes}) for CPU workers. Use Python CUDA or reduce quality.`);
   }
-  const requestedWorkers = workerCount || navigator.hardwareConcurrency || 2;
-  const count = Math.max(1, Math.min(MAX_WORKERS, requestedWorkers, gridRes));
-  const rowsPerWorker = Math.ceil(gridRes / count);
+  const bands = buildCoverageWorkerBands(gridRes, workerCount);
+  const count = bands.length;
   const workers = new Set();
   const bandProgress = new Map();
   const rgba = new Uint8ClampedArray(gridRes * gridRes * 4);
@@ -32,11 +31,7 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
   const promise = new Promise((resolve, reject) => {
     rejectRun = reject;
 
-    for (let wi = 0; wi < count; wi++) {
-      const rowStart = wi * rowsPerWorker;
-      const rowEnd = Math.min(gridRes, rowStart + rowsPerWorker);
-      if (rowStart >= rowEnd) continue;
-
+    for (const { rowStart, rowEnd } of bands) {
       const worker = new Worker(new URL('./coverageWorker.js', import.meta.url), { type: 'module' });
       workers.add(worker);
       bandProgress.set(rowStart, 0);
@@ -45,7 +40,7 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
         if (settled) return;
         if (msg.type === 'progress') {
           bandProgress.set(msg.rowStart, msg.pct);
-          if (onProgress) onProgress(_weightedProgress(bandProgress, gridRes, rowsPerWorker));
+          if (onProgress) onProgress(_weightedProgress(bandProgress, bands, gridRes));
           return;
         }
 
@@ -58,7 +53,7 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
           stats.workerComputeMs += msg.stats?.computeMs ?? 0;
           stats.insidePoints += msg.stats?.insidePoints ?? 0;
           completed++;
-          if (onProgress) onProgress(_weightedProgress(bandProgress, gridRes, rowsPerWorker));
+          if (onProgress) onProgress(_weightedProgress(bandProgress, bands, gridRes));
           if (completed === count) {
             settled = true;
             resolve({ rgba, stats });
@@ -97,6 +92,22 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
   };
 }
 
+export function buildCoverageWorkerBands(gridRes, workerCount = 0, hardwareConcurrency = null) {
+  const hardware = hardwareConcurrency ?? (
+    typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 2
+  );
+  const requestedWorkers = workerCount || hardware || 2;
+  const targetCount = Math.max(1, Math.min(MAX_WORKERS, requestedWorkers, gridRes));
+  const rowsPerWorker = Math.ceil(gridRes / targetCount);
+  const bands = [];
+  for (let wi = 0; wi < targetCount; wi++) {
+    const rowStart = wi * rowsPerWorker;
+    const rowEnd = Math.min(gridRes, rowStart + rowsPerWorker);
+    if (rowStart < rowEnd) bands.push({ rowStart, rowEnd });
+  }
+  return bands;
+}
+
 function _sharedGridBuffer(gridElevs) {
   if (typeof SharedArrayBuffer === 'undefined') return null;
   try {
@@ -116,10 +127,10 @@ function _copyGridBuffer(gridElevs) {
   return gridElevs.buffer.slice(0);
 }
 
-function _weightedProgress(progressByRowStart, gridRes, rowsPerWorker) {
+function _weightedProgress(progressByRowStart, bands, gridRes) {
   let doneRows = 0;
-  for (const [rowStart, pct] of progressByRowStart) {
-    const rowEnd = Math.min(gridRes, rowStart + rowsPerWorker);
+  for (const { rowStart, rowEnd } of bands) {
+    const pct = progressByRowStart.get(rowStart) ?? 0;
     doneRows += (rowEnd - rowStart) * pct;
   }
   return Math.max(0, Math.min(1, doneRows / gridRes));

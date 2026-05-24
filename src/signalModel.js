@@ -87,7 +87,7 @@ export function computeSignalToPoint({
       rxPower -= foliageLossDb(
         profileLats, profileLons, profile, tx.height, rxHeight,
         foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
-        foliage.tileIndex, dist, foliageLossPerM
+        foliage.tileIndex, dist, foliageLossPerM, tx.freq
       );
     }
 

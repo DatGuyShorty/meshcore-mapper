@@ -23,6 +23,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cudaCoverageProbe:     ()        => ipcRenderer.invoke('cuda-coverage-probe'),
   cudaCoverageCompute:   (payload) => ipcRenderer.invoke('cuda-coverage-compute', payload),
   cudaCoverageCancel:    ()        => ipcRenderer.invoke('cuda-coverage-cancel'),
+  cudaOptimizerCompute:  (payload) => ipcRenderer.invoke('cuda-optimizer-compute', payload),
+  cudaOptimizerCancel:   ()        => ipcRenderer.invoke('cuda-optimizer-cancel'),
+  onCudaCoverageProgress: (handler) => {
+    if (typeof handler !== 'function') return;
+    ipcRenderer.on('cuda-coverage-progress', handler);
+  },
+  offCudaCoverageProgress: (handler) => {
+    if (typeof handler !== 'function') return;
+    ipcRenderer.off('cuda-coverage-progress', handler);
+  },
+  onCudaOptimizerProgress: (handler) => {
+    if (typeof handler !== 'function') return;
+    ipcRenderer.on('cuda-optimizer-progress', handler);
+  },
+  offCudaOptimizerProgress: (handler) => {
+    if (typeof handler !== 'function') return;
+    ipcRenderer.off('cuda-optimizer-progress', handler);
+  },
   saveScreenshot:        ()        => ipcRenderer.invoke('save-screenshot'),
   wsRepeatersLoad:  ()     => ipcRenderer.invoke('ws-repeaters-load'),
   wsRepeatersSave:  (rows) => ipcRenderer.invoke('ws-repeaters-save', rows),

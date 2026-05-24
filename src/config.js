@@ -5,6 +5,7 @@
 import { map, state } from './map.js';
 import { addRepeater, removeRepeater } from './repeaters.js';
 import { PERSISTED_SETTING_IDS } from './settings.js';
+import { bindPersistedSettingChanges } from './settingsPersistence.js';
 import { fetchElevationsFromTiles } from './elevation.js';
 import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
@@ -207,9 +208,7 @@ export function init() {
   restoreSettings();
   document.getElementById('btn-save-config').addEventListener('click', saveConfig);
   document.getElementById('btn-load-config').addEventListener('click', loadConfig);
-  for (const id of SETTINGS_IDS) {
-    document.getElementById(id).addEventListener('change', persistSettings);
-  }
+  bindPersistedSettingChanges(SETTINGS_IDS, persistSettings);
 
   document.getElementById('btn-save-screenshot').addEventListener('click', async () => {
     setButtonBusy('btn-save-screenshot', true, 'Saving...');

@@ -99,7 +99,7 @@ function _getWsDefaults() {
   return {
     height: parseFloat(document.getElementById('ws-default-height')?.value) || 10,
     power:  parseFloat(document.getElementById('ws-default-power')?.value)  || 20,
-    freq:   parseFloat(document.getElementById('ws-default-freq')?.value)   || 868,
+    freq:   parseFloat(document.getElementById('ws-default-freq')?.value)   || 869.525,
     gain:   parseFloat(document.getElementById('ws-default-gain')?.value)   || 2,
   };
 }
@@ -511,7 +511,7 @@ export function init() {
     const lon    = parseFloat(document.getElementById('repeater-lon').value);
     const height = parseFloat(document.getElementById('repeater-height').value) || 10;
     const power  = parseFloat(document.getElementById('repeater-power').value) || 20;
-    const freq   = parseFloat(document.getElementById('repeater-freq').value) || 868;
+    const freq   = parseFloat(document.getElementById('repeater-freq').value) || 869.525;
     const gain   = parseFloat(document.getElementById('repeater-gain').value) || 2;
 
     if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
@@ -561,7 +561,7 @@ export function init() {
     const name   = document.getElementById('repeater-name').value.trim() || `Repeater ${state.nextId}`;
     const height = parseFloat(document.getElementById('repeater-height').value) || 10;
     const power  = parseFloat(document.getElementById('repeater-power').value) || 20;
-    const freq   = parseFloat(document.getElementById('repeater-freq').value) || 868;
+    const freq   = parseFloat(document.getElementById('repeater-freq').value) || 869.525;
     const gain   = parseFloat(document.getElementById('repeater-gain').value) || 2;
     addRepeater(name, e.latlng.lat, e.latlng.lng, height, power, freq, gain);
     cancelPlacing();

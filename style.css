@@ -453,6 +453,21 @@ button:active { opacity: 0.7; }
   cursor: pointer;
 }
 
+.opacity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #a0aab8;
+  font-size: 11px;
+}
+
+.opacity-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: #61dafb;
+  cursor: pointer;
+}
+
 /* ===== Map ===== */
 #map-container {
   flex: 1;
@@ -865,7 +880,8 @@ button:focus-visible {
 }
 
 .checkbox-label input[type="checkbox"],
-.legend-opacity-row input[type="range"] {
+.legend-opacity-row input[type="range"],
+.opacity-row input[type="range"] {
   accent-color: var(--accent-strong);
 }
 

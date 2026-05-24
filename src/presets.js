@@ -23,7 +23,8 @@ const DEFAULTS = {
     { id: 'muzi_r1_neo',  label: 'Muzi Works R1 Neo',      tx_power: 22 },
   ],
   radio_modes: [
-    { id: 'at_hu_sk_Narrow',  label: 'AT/HU/SK (Narrow) · SF8/BW62.5/CR5 ★', sensitivity: -132, freq: 869.618 },
+    { id: 'meshcore_legacy_default', label: 'MeshCore default · 869.525/SF11/BW250/CR5', sensitivity: -133, freq: 869.525 },
+    { id: 'at_hu_sk_narrow',  label: 'AT/HU/SK (Narrow) · SF8/BW62.5/CR5 ★', sensitivity: -132, freq: 869.618 },
     { id: 'eu868_narrow', label: 'EU868 Narrow · SF9/BW62.5/CR5 ★', sensitivity: -135, freq: 867.5 },
     { id: 'eu868_legacy', label: 'EU868 Legacy · SF11/BW250/CR5',   sensitivity: -133, freq: 867.5 },
     { id: 'us_narrow',    label: 'US/CA Narrow · SF7/BW62.5/CR5 ★', sensitivity: -126, freq: 910.525 },

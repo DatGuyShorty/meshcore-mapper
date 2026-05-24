@@ -19,7 +19,9 @@ export const PLANNING_SETTING_IDS = [
 ];
 
 export const MAP_LAYER_SETTING_IDS = [
-  'layer-foliage', 'layer-buildings', 'layer-auto-refresh',
+  'layer-foliage', 'foliage-opacity',
+  'layer-buildings', 'building-opacity',
+  'layer-auto-refresh',
 ];
 
 export const WS_SETTING_IDS = [
@@ -56,7 +58,7 @@ export function getCoverageSettings() {
   const qualityMult = num('grid-res', 1);
   return {
     rxHeight: num('rx-height', 1.5),
-    rxSens: num('rx-sensitivity', -137),
+    rxSens: num('rx-sensitivity', -133),
     fadeMargin: num('fade-margin', 0),
     radiusKm: num('analysis-radius', 15),
     qualityMult,
@@ -87,8 +89,8 @@ export function getP2PSettings() {
     txPower: num('p2p-tx-power', 20),
     txGain: num('p2p-tx-gain', 2),
     rxGain: num('p2p-rx-gain', 2),
-    freqMHz: num('p2p-freq', 868),
-    rxSens: num('p2p-rx-sens', -137),
+    freqMHz: num('p2p-freq', 869.525),
+    rxSens: num('p2p-rx-sens', -133),
     fadeMargin: num('fade-margin', 0),
     useFoliage: checked('use-foliage'),
     foliageLossPerM: num('foliage-loss-per-m', 0.3),
@@ -105,12 +107,12 @@ export function getOptimizerSettings() {
     txParams: {
       height: num('opt-height', 10),
       power: num('repeater-power', 20),
-      freq: num('repeater-freq', 868),
+      freq: num('repeater-freq', 869.525),
       gain: num('repeater-gain', 2),
     },
     opts: {
       rxHeight: num('rx-height', 1.5),
-      rxSens: num('rx-sensitivity', -137),
+      rxSens: num('rx-sensitivity', -133),
       fadeMargin: num('fade-margin', 0),
       radiusKm: num('analysis-radius', 15),
       useLos: checked('use-los'),
