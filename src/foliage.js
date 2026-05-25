@@ -11,34 +11,15 @@ const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
-const MIRROR_COOLDOWN_MS = {
-  status406: 10 * 60 * 1000,
-  status429: 2 * 60 * 1000,
-  status5xx: 60 * 1000,
-  network: 60 * 1000,
-};
-const _mirrorCooldownUntil = new Map();
 
 // Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same data.
 // Old 'v3:' per-repeater exact-bbox keys become unreachable (stale but harmless).
 const TILE_SIZE = 0.25;  // degrees — 0.25° ≈ 27 km lat; a 15 km radius spans ≤ 4 tiles
-const CACHE_V_OSM = 'fv4:';
-const CACHE_V_DERIVED = 'fv5:'; // canopy heights prefer DSM-DEM derivation
+const CACHE_V_OSM = 'fv6:';
+const CACHE_V_DERIVED = 'fv7:'; // canopy heights prefer DSM-DEM derivation
 const FOLIAGE_TILE_CONCURRENCY = 3;
-
-function _mirrorInCooldown(base) {
-  return (_mirrorCooldownUntil.get(base) ?? 0) > Date.now();
-}
-
-function _markMirrorCooldown(base, ms) {
-  _mirrorCooldownUntil.set(base, Date.now() + Math.max(1000, ms));
-}
-
-function _pickMirror(attempt) {
-  const available = OVERPASS_MIRRORS.filter(base => !_mirrorInCooldown(base));
-  const pool = available.length ? available : OVERPASS_MIRRORS;
-  return pool[attempt % pool.length];
-}
+const M_PER_LAT = 110574;
+const M_PER_LON = 111320;
 
 function _abortError() {
   const err = new Error('Cancelled');
@@ -88,14 +69,37 @@ const TILE_N = 16;
 const CANOPY_HEIGHTS = {
   forest:   20,   // landuse=forest — mature closed forest
   wood:     20,   // natural=wood
+  mangrove: 12,
   scrub:     2,   // natural=scrub — low shrubs
   orchard:   4,   // landuse=orchard
   heath:     0.5, // natural=heath — open heathland
+  tree_row: 12,
   vineyard:  2,   // landuse=vineyard — trellised vines
   wetland:   5,   // natural=wetland — reeds / mangrove
+  reedbed:   3,
+  swamp:     8,
   shrubbery: 2,   // landuse=shrubbery
   hedge:     2,   // barrier=hedge
   greenhouse_horticulture: 4, // landuse=greenhouse_horticulture
+  plant_nursery: 3,
+};
+
+const FOLIAGE_FACTORS = {
+  forest: 1,
+  wood: 1,
+  mangrove: 0.85,
+  scrub: 0.4,
+  shrubbery: 0.4,
+  heath: 0.25,
+  hedge: 0.45,
+  orchard: 0.55,
+  plant_nursery: 0.45,
+  tree_row: 0.55,
+  vineyard: 0.45,
+  wetland: 0.6,
+  reedbed: 0.45,
+  swamp: 0.75,
+  greenhouse_horticulture: 0.55,
 };
 
 // B3: multi-entry in-memory cache (LRU-capped at 8 entries)
@@ -107,6 +111,116 @@ function _isClosedRing(ring) {
   const first = ring[0];
   const last = ring[ring.length - 1];
   return !!first && !!last && first[0] === last[0] && first[1] === last[1];
+}
+
+function _lineCorridorRings(ring, widthM) {
+  if (!Array.isArray(ring) || ring.length < 2 || !Number.isFinite(widthM) || widthM <= 0) return [];
+  const half = widthM / 2;
+  const out = [];
+  for (let i = 0; i < ring.length - 1; i++) {
+    const [lat1, lon1] = ring[i];
+    const [lat2, lon2] = ring[i + 1];
+    const latMid = (lat1 + lat2) / 2;
+    const lonScale = Math.max(1e-6, M_PER_LON * Math.cos(latMid * Math.PI / 180));
+    const dx = (lon2 - lon1) * lonScale;
+    const dy = (lat2 - lat1) * M_PER_LAT;
+    const len = Math.hypot(dx, dy);
+    if (len <= 0) continue;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const dLat = (ny * half) / M_PER_LAT;
+    const dLon = (nx * half) / lonScale;
+    out.push([
+      [lat1 + dLat, lon1 + dLon],
+      [lat2 + dLat, lon2 + dLon],
+      [lat2 - dLat, lon2 - dLon],
+      [lat1 - dLat, lon1 - dLon],
+    ]);
+  }
+  return out;
+}
+
+function _parseOsmLengthMeters(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : null;
+  const raw = String(value).trim().toLowerCase().replace(',', '.');
+  if (!raw) return null;
+  const match = raw.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const numeric = parseFloat(match[0]);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  if (/\b(ft|feet|foot)\b/.test(raw)) return numeric * 0.3048;
+  return numeric;
+}
+
+function _tagValue(tags, name) {
+  return String(tags?.[name] ?? '').trim().toLowerCase();
+}
+
+export function classifyFoliageTags(tags = {}) {
+  const landuse = _tagValue(tags, 'landuse');
+  const natural = _tagValue(tags, 'natural');
+  const barrier = _tagValue(tags, 'barrier');
+  const wetland = _tagValue(tags, 'wetland');
+  let kind = null;
+  let linearWidthM = null;
+
+  if (landuse === 'forest') kind = 'forest';
+  else if (landuse === 'orchard') kind = 'orchard';
+  else if (landuse === 'vineyard') kind = 'vineyard';
+  else if (landuse === 'shrubbery') kind = 'shrubbery';
+  else if (landuse === 'greenhouse_horticulture') kind = 'greenhouse_horticulture';
+  else if (landuse === 'plant_nursery') kind = 'plant_nursery';
+  else if (natural === 'wood') kind = 'wood';
+  else if (natural === 'scrub' || natural === 'shrubbery') kind = 'scrub';
+  else if (natural === 'heath') kind = 'heath';
+  else if (natural === 'tree_row') {
+    kind = 'tree_row';
+    linearWidthM = 8;
+  } else if (natural === 'wetland') {
+    if (wetland === 'mangrove') kind = 'mangrove';
+    else if (wetland === 'reedbed') kind = 'reedbed';
+    else if (['swamp', 'marsh'].includes(wetland)) kind = 'swamp';
+    else kind = 'wetland';
+  } else if (natural === 'mangrove') kind = 'mangrove';
+  else if (barrier === 'hedge') {
+    kind = 'hedge';
+    linearWidthM = 2;
+  }
+
+  if (!kind) return null;
+  const explicitHeight = _parseOsmLengthMeters(tags.height || tags.est_height || tags['trees:height']);
+  const canopyHeight = explicitHeight !== null
+    ? Math.max(0.3, Math.min(80, explicitHeight))
+    : (CANOPY_HEIGHTS[kind] ?? 10);
+  return {
+    kind,
+    factor: FOLIAGE_FACTORS[kind] ?? 1,
+    canopyHeight,
+    linearWidthM,
+  };
+}
+
+export function buildFoliageOverpassQuery(bbox) {
+  const areaFilters = [
+    ['landuse', 'forest'],
+    ['landuse', 'orchard'],
+    ['landuse', 'vineyard'],
+    ['landuse', 'shrubbery'],
+    ['landuse', 'greenhouse_horticulture'],
+    ['landuse', 'plant_nursery'],
+    ['natural', 'wood'],
+    ['natural', 'scrub'],
+    ['natural', 'shrubbery'],
+    ['natural', 'heath'],
+    ['natural', 'wetland'],
+    ['natural', 'mangrove'],
+  ].flatMap(([k, v]) => [`way["${k}"="${v}"]${bbox};`, `relation["${k}"="${v}"]${bbox};`]).join('');
+  const linearFilters = [
+    `way["barrier"="hedge"]${bbox};`,
+    `way["natural"="tree_row"]${bbox};`,
+  ].join('');
+  return `[out:json][timeout:60];(${areaFilters}${linearFilters});out geom tags;`;
 }
 
 function _fallbackFeatureId(prefix, ring, bbox) {
@@ -225,21 +339,17 @@ async function _fetchFoliageTile(la, lo, key, {
   const tLatMax = (la + TILE_SIZE).toFixed(4);
   const tLonMax = (lo + TILE_SIZE).toFixed(4);
   const bbox = `(${la},${lo},${tLatMax},${tLonMax})`;
-  const filters = [
-    ['landuse', 'forest'], ['natural', 'wood'],
-    ['natural', 'scrub'],  ['landuse', 'orchard'],
-    ['natural', 'heath'],  ['landuse', 'vineyard'],
-    ['natural', 'wetland'], ['landuse', 'shrubbery'],
-    ['landuse', 'greenhouse_horticulture'],
-  ].flatMap(([k, v]) => [`way["${k}"="${v}"]${bbox};`, `relation["${k}"="${v}"]${bbox};`]).join('')
-  + `way["barrier"="hedge"]${bbox};`; // hedges as ways, not areas
-  const query = `[out:json][timeout:60];(${filters});out geom;`;
+  const query = buildFoliageOverpassQuery(bbox);
 
   let res = null, lastErr = null;
-  for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 3; attempt++) {
+  for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 2; attempt++) {
     _throwIfAborted(signal);
-    const base = _pickMirror(attempt);
+    const base = OVERPASS_MIRRORS[attempt % OVERPASS_MIRRORS.length];
     if (attempt > 0) await _sleep(2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length), signal);
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const timer = setTimeout(() => controller.abort(), 60000);
     try {
       res = await scheduledFetch(base, {
         method: 'POST',
@@ -248,40 +358,28 @@ async function _fetchFoliageTile(la, lo, key, {
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         },
         body: `data=${encodeURIComponent(query)}`,
-        signal,
-        timeoutMs: 60000,
+        signal: controller.signal,
       });
+      clearTimeout(timer);
     } catch (err) {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) throw _abortError();
-      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.network);
       lastErr = err;
       continue;
     }
-    if (res.status === 406) {
-      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status406);
-      res = null;
-      continue;
-    }
-    if (res.status === 429) {
-      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status429);
-      res = null;
-      continue;
-    }
-    if (res.status >= 500) {
-      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status5xx);
-      res = null;
-      continue;
-    }
+    signal?.removeEventListener('abort', onAbort);
+    if (res.status === 429 || res.status === 406 || res.status >= 500) { res = null; continue; }
     break;
   }
   if (!res) throw new Error(`Overpass API unreachable: ${lastErr?.message ?? 'all mirrors rejected'}`);
   if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
 
   const data = await res.json();
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [];
+  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [];
   const seenFeatureIds = new Set();
 
-  const addRing = (ring, factor, canopyH, featureId) => {
+  const addRing = (ring, classification, featureId) => {
     if (featureId && seenFeatureIds.has(featureId)) return;
     if (ring.length < 3) return;
     let la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity;
@@ -291,34 +389,34 @@ async function _fetchFoliageTile(la, lo, key, {
     }
     polygons.push(ring);
     bboxes.push({ latMin: la0, latMax: la1, lonMin: lo0, lonMax: lo1 });
-    factors.push(factor);
-    canopyHeights.push(canopyH);
+    factors.push(classification.factor);
+    canopyHeights.push(classification.canopyHeight);
     ids.push(featureId || _fallbackFeatureId('f', ring, bboxes[bboxes.length - 1]));
+    kinds.push(classification.kind);
     if (featureId) seenFeatureIds.add(featureId);
   };
 
   for (const el of data.elements) {
-    const tag = el.tags?.landuse || el.tags?.natural || el.tags?.barrier;
-    const isHedge = tag === 'hedge';
-    // Loss factor relative to dense forest (1.0). Low/sparse vegetation gets partial weight.
-    const factor = (['scrub', 'heath', 'shrubbery', 'hedge'].includes(tag)) ? 0.4
-                 : (['orchard', 'vineyard', 'greenhouse_horticulture'].includes(tag)) ? 0.55
-                 : (['wetland'].includes(tag)) ? 0.6
-                 : 1.0;
-    const canopyH  = CANOPY_HEIGHTS[tag] ?? 10;
+    const classification = classifyFoliageTags(el.tags);
+    if (!classification) continue;
     const baseFeatureId = `${el.type}:${el.id ?? 'na'}`;
     if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
       const ring = el.geometry.map(n => [n.lat, n.lon]);
-      if (isHedge && !_isClosedRing(ring) && String(el.tags?.area || '').toLowerCase() !== 'yes') continue;
-      addRing(ring, factor, canopyH, baseFeatureId);
+      if (classification.linearWidthM && !_isClosedRing(ring) && String(el.tags?.area || '').toLowerCase() !== 'yes') {
+        const corridors = _lineCorridorRings(ring, classification.linearWidthM);
+        for (let ci = 0; ci < corridors.length; ci++) {
+          addRing(corridors[ci], classification, `${baseFeatureId}:line:${ci}`);
+        }
+      } else {
+        addRing(ring, classification, baseFeatureId);
+      }
     } else if (el.type === 'relation' && el.members) {
       for (let mi = 0; mi < el.members.length; mi++) {
         const m = el.members[mi];
         if (m.type !== 'way' || m.role === 'inner' || !m.geometry || m.geometry.length < 3) continue;
         addRing(
           m.geometry.map(n => [n.lat, n.lon]),
-          factor,
-          canopyH,
+          classification,
           `${baseFeatureId}:outer:${m.ref ?? mi}`
         );
       }
@@ -335,7 +433,7 @@ async function _fetchFoliageTile(la, lo, key, {
     )
     : canopyHeights;
   console.info(`[foliage] tile ${key}: ${polygons.length} polygon(s)`);
-  const tileData = { polygons, bboxes, factors, canopyHeights: derivedCanopyHeights, ids };
+  const tileData = { polygons, bboxes, factors, canopyHeights: derivedCanopyHeights, ids, kinds };
   if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
   _memCache.set(key, tileData);
   await window.electronAPI.cacheFoliageStore(key, tileData);
@@ -359,7 +457,7 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
   _throwIfAborted(signal);
   const cacheVersion = deriveObstacleHeights ? CACHE_V_DERIVED : CACHE_V_OSM;
   const tiles = _tilesForBbox(latMin, latMax, lonMin, lonMax, cacheVersion);
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [];
+  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [];
   const seenMerged = new Set();
   let completed = 0;
   let nextIdx = 0;
@@ -397,11 +495,12 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
           const id = td.ids?.[i] || _fallbackFeatureId('f', poly, bb);
           if (seenMerged.has(id)) continue;
           seenMerged.add(id);
-          polygons.push(td.polygons[i]);
-          bboxes.push(td.bboxes[i]);
+          polygons.push(poly);
+          bboxes.push(bb);
           factors.push(td.factors[i]);
           canopyHeights.push(td.canopyHeights[i]);
           ids.push(id);
+          kinds.push(td.kinds?.[i] || 'vegetation');
         }
       }
 
@@ -414,7 +513,7 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
 
   console.info(`[foliage] merged ${polygons.length} polygon(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);
-  return { polygons, bboxes, factors, canopyHeights, ids, tileIndex };
+  return { polygons, bboxes, factors, canopyHeights, ids, kinds, tileIndex };
 }
 
 export function weissbergerFoliageLossDb(freqMHz, depthM) {

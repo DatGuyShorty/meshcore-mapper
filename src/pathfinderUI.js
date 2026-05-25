@@ -119,6 +119,12 @@ function _clearPathLayers() {
   _pathMarkers.forEach(m => map.removeLayer(m));
   _pathPolylines = [];
   _pathMarkers = [];
+  state.pathLinks = [];
+  _dispatchLinkChanged();
+}
+
+function _dispatchLinkChanged() {
+  document.dispatchEvent(new CustomEvent('p2p:changed'));
 }
 
 function _marginColor(margin) {
@@ -145,6 +151,7 @@ function _pathLineLabel(margin, distM, rxPower) {
 function _renderPath(result) {
   const { path, bottleneck, numHops, edgeDistances, edgeRxPowers = [] } = result;
   _clearPathLayers();
+  const pathLinks = [];
 
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1].node;
@@ -162,7 +169,19 @@ function _renderPath(result) {
       className: 'path-line-label',
     });
     _pathPolylines.push(line);
+    pathLinks.push({
+      id: `path-hop-${i}`,
+      kind: 'path',
+      pointA: { lat: a.lat, lon: a.lon },
+      pointB: { lat: b.lat, lon: b.lon },
+      margin,
+      rxPower: edgeRxPowers[i - 1] ?? null,
+      distM: edgeDistances[i - 1] ?? null,
+      color,
+    });
   }
+  state.pathLinks = pathLinks;
+  _dispatchLinkChanged();
 
   for (let i = 0; i < path.length; i++) {
     const { node } = path[i];

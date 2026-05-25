@@ -50,6 +50,10 @@ export function cancelCoverage() {
   cancelCoverageCompute();
 }
 
+function _dispatchCoverageChanged() {
+  document.dispatchEvent(new CustomEvent('coverage:changed'));
+}
+
 export async function runCoverageAnalysis(onlyId = null, options = null) {
   if (_isRunning) return;
   const active = onlyId !== null
@@ -332,6 +336,7 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
       };
       state.coverageResults.push(coverageResult);
       await _renderCoverageOverlay(coverageResult);
+      _dispatchCoverageChanged();
       metrics.renderMs += performance.now() - renderStart;
       step(`${rep.name}: overlay rendered`);
       console.debug(`[coverage] ${rep.name}: rendered ${gridRes}x${gridRes} signal overlay`);
@@ -630,6 +635,7 @@ export async function rerenderCoverageOverlays() {
     if (serial !== _rerenderSerial) return;
     await _renderCoverageOverlay(result);
   }
+  _dispatchCoverageChanged();
 }
 
 function updateQualityNote() {
@@ -804,6 +810,7 @@ export function init() {
   document.getElementById('coverage-opacity')?.addEventListener('input', e => {
     const opacity = parseFloat(e.target.value) / 100;
     setCoverageLayerOpacity(opacity);
+    _dispatchCoverageChanged();
   });
 
   const foliageToggle = document.getElementById('use-foliage');

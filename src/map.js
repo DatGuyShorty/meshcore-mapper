@@ -10,6 +10,8 @@ export const map = L.map('map', {
   zoomControl: true,
 });
 
+let _activeBaseLayerName = 'Streets (OSM)';
+
 const baseLayers = {
   'Streets (OSM)': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -27,6 +29,16 @@ const baseLayers = {
 
 baseLayers['Streets (OSM)'].addTo(map);
 L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
+map.on('baselayerchange', e => { _activeBaseLayerName = e.name || _activeBaseLayerName; });
+
+export function getActiveBaseLayerInfo() {
+  const layer = baseLayers[_activeBaseLayerName] || baseLayers['Streets (OSM)'];
+  return {
+    name: _activeBaseLayerName,
+    url: layer._url,
+    options: { ...layer.options },
+  };
+}
 
 // U7: on first launch, centre the map on the user's real location.
 // Subsequent launches restore the position saved in localStorage.
@@ -64,6 +76,8 @@ export const state = {
   repeaters: [],       // { id, name, lat, lon, height, power, freq, marker, color }
   coverageLayers: [],  // Leaflet ImageOverlay per repeater
   coverageResults: [], // point-inspection metadata per computed repeater coverage
+  p2pLinks: [],        // active ad-hoc point-to-point link overlays
+  pathLinks: [],       // best relay path hop overlays
   foliageLayers: [],   // Leaflet Polygon outlines for forest/wood areas
   buildingLayers: [],  // Leaflet Polygon outlines for building footprints
   nextId: 1,
@@ -82,6 +96,7 @@ export function clearCoverageOverlayTiles() {
 export function clearCoverageLayers() {
   clearCoverageOverlayTiles();
   state.coverageResults = [];
+  _dispatchDocumentEvent('coverage:changed');
 }
 
 /** Remove all foliage polygon outlines from the map. */
@@ -94,4 +109,8 @@ export function clearFoliageLayers() {
 export function clearBuildingLayers() {
   state.buildingLayers.forEach(l => map.removeLayer(l));
   state.buildingLayers = [];
+}
+
+function _dispatchDocumentEvent(name) {
+  if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent(name));
 }

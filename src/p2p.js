@@ -3,7 +3,7 @@
  * Link-budget math, terrain profile rendering, and pathfinder UI live in
  * dedicated modules.
  */
-import { map } from './map.js';
+import { map, state } from './map.js';
 import { calculateLinkBudget } from './linkBudget.js';
 import { initPathfinderUI } from './pathfinderUI.js';
 import { haversine } from './propagation.js';
@@ -22,6 +22,54 @@ let _recalcTimer = null;
 let _endpointARepeaterId = null;
 let _endpointBRepeaterId = null;
 
+function _dispatchP2PChanged() {
+  document.dispatchEvent(new CustomEvent('p2p:changed'));
+}
+
+function _pointToLatLon(point) {
+  if (!point) return null;
+  const lat = Number(point.lat);
+  const lon = Number(point.lng ?? point.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
+function _linkColorFromMargin(margin) {
+  if (!Number.isFinite(margin)) return '#facc15';
+  if (margin >= 10) return '#4ade80';
+  if (margin >= 0) return '#facc15';
+  return '#fc8181';
+}
+
+function _syncP2PLinkState(result = null) {
+  const a = _pointToLatLon(pointA);
+  const b = _pointToLatLon(pointB);
+  if (!a || !b) {
+    state.p2pLinks = [];
+    _dispatchP2PChanged();
+    return;
+  }
+
+  const margin = Number(result?.margin);
+  const rxPower = Number(result?.rxPower);
+  const distM = Number.isFinite(result?.distM)
+    ? result.distM
+    : haversine(a.lat, a.lon, b.lat, b.lon);
+  state.p2pLinks = [{
+    id: 'active-p2p',
+    kind: 'p2p',
+    pointA: a,
+    pointB: b,
+    endpointARepeaterId: _endpointARepeaterId,
+    endpointBRepeaterId: _endpointBRepeaterId,
+    margin: Number.isFinite(margin) ? margin : null,
+    rxPower: Number.isFinite(rxPower) ? rxPower : null,
+    distM,
+    color: _linkColorFromMargin(margin),
+  }];
+  _dispatchP2PChanged();
+}
+
 function resetState() {
   markers.forEach(m => map.removeLayer(m));
   markers = [];
@@ -32,6 +80,7 @@ function resetState() {
   _endpointARepeaterId = null;
   _endpointBRepeaterId = null;
   clearTimeout(_recalcTimer);
+  _syncP2PLinkState();
 }
 
 function makePin(latlng, label, color) {
@@ -45,6 +94,7 @@ function makePin(latlng, label, color) {
 function _syncPolylineGeometry() {
   if (!polyline || !pointA || !pointB) return;
   polyline.setLatLngs([pointA, pointB]);
+  _syncP2PLinkState();
 }
 
 function _scheduleRecalc(reason = 'Endpoint moved. Recalculating...') {
@@ -199,6 +249,7 @@ function _openProfileFullscreen(result) {
 
 function _renderBudget(result) {
   _updateP2PLineLabel(result.margin, result.rxPower, result.distM);
+  _syncP2PLinkState(result);
 
   const diffColor = result.diffractionLoss > 20 ? '#fc8181' : result.diffractionLoss > 6 ? '#facc15' : '';
   const vegColor = result.foliageLoss > 15 ? '#fc8181' : result.foliageLoss > 5 ? '#facc15' : '#4ade80';

@@ -38,19 +38,46 @@ export function colorizeSignalGrid(signalGrid, gridRes, {
 
   const out = new Uint8ClampedArray(expected * 4);
   const overlayMode = normalizeCoverageOverlayMode(mode);
-  const snrStops = _snrStops(requiredSnrWithMarginDb);
+  const snrStops = overlayMode === 'snr' ? _snrStops(requiredSnrWithMarginDb) : null;
   for (let i = 0; i < signal.length; i++) {
-    const base = i * 4;
-    const rxPower = signal[i];
-    if (overlayMode === 'rssi') {
-      _writeGradientPixel(out, base, rxPower, RSSI_GRADIENT);
-    } else if (overlayMode === 'snr') {
-      _writeGradientPixel(out, base, rxPower - noiseFloorDbm, snrStops);
-    } else {
-      writePixel(out, base, rxPower, effectiveSens);
-    }
+    _writeSignalOverlayPixelResolved(out, i * 4, signal[i], {
+      overlayMode,
+      effectiveSens,
+      noiseFloorDbm,
+      snrStops,
+    });
   }
   return out;
+}
+
+export function writeSignalOverlayPixel(buf, base, rxPower, {
+  mode = 'margin',
+  effectiveSens = -133,
+  noiseFloorDbm = -115.5,
+  requiredSnrWithMarginDb = -17.5,
+} = {}) {
+  const overlayMode = normalizeCoverageOverlayMode(mode);
+  _writeSignalOverlayPixelResolved(buf, base, rxPower, {
+    overlayMode,
+    effectiveSens,
+    noiseFloorDbm,
+    snrStops: overlayMode === 'snr' ? _snrStops(requiredSnrWithMarginDb) : null,
+  });
+}
+
+function _writeSignalOverlayPixelResolved(buf, base, rxPower, {
+  overlayMode,
+  effectiveSens,
+  noiseFloorDbm,
+  snrStops,
+}) {
+  if (overlayMode === 'rssi') {
+    _writeGradientPixel(buf, base, rxPower, RSSI_GRADIENT);
+  } else if (overlayMode === 'snr') {
+    _writeGradientPixel(buf, base, rxPower - noiseFloorDbm, snrStops);
+  } else {
+    writePixel(buf, base, rxPower, effectiveSens);
+  }
 }
 
 function _snrStops(requiredSnrWithMarginDb) {

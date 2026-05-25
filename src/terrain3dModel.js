@@ -43,6 +43,78 @@ export function projectLatLonToMeters(lat, lon, bounds) {
   };
 }
 
+export function latLonFromMeters(x, z, bounds) {
+  const { latMid, lonMid } = terrainMetrics(bounds);
+  const lonScale = M_PER_LON * Math.cos(latMid * Math.PI / 180);
+  return {
+    lat: latMid - z / M_PER_LAT,
+    lon: lonMid + x / Math.max(1e-6, lonScale),
+  };
+}
+
+export function boundsCenteredOn(center, referenceBounds) {
+  const latSpan = referenceBounds.latMax - referenceBounds.latMin;
+  const lonSpan = referenceBounds.lonMax - referenceBounds.lonMin;
+  const lat = Number(center?.lat);
+  const lon = Number(center?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { ...referenceBounds };
+  return {
+    latMin: lat - latSpan / 2,
+    latMax: lat + latSpan / 2,
+    lonMin: lon - lonSpan / 2,
+    lonMax: lon + lonSpan / 2,
+  };
+}
+
+export function boundsWithTileBuffer(bounds, radius = 1) {
+  const tileRadius = Math.max(0, Math.floor(radius));
+  const latSpan = bounds.latMax - bounds.latMin;
+  const lonSpan = bounds.lonMax - bounds.lonMin;
+  return {
+    latMin: bounds.latMin - latSpan * tileRadius,
+    latMax: bounds.latMax + latSpan * tileRadius,
+    lonMin: bounds.lonMin - lonSpan * tileRadius,
+    lonMax: bounds.lonMax + lonSpan * tileRadius,
+  };
+}
+
+export function boundsForTileGrid(bounds, columns = 1, rows = columns) {
+  const colCount = Math.max(1, Math.floor(columns));
+  const rowCount = Math.max(1, Math.floor(rows));
+  const latSpan = bounds.latMax - bounds.latMin;
+  const lonSpan = bounds.lonMax - bounds.lonMin;
+  const latMid = (bounds.latMin + bounds.latMax) / 2;
+  const lonMid = (bounds.lonMin + bounds.lonMax) / 2;
+  return {
+    latMin: latMid - (latSpan * rowCount) / 2,
+    latMax: latMid + (latSpan * rowCount) / 2,
+    lonMin: lonMid - (lonSpan * colCount) / 2,
+    lonMax: lonMid + (lonSpan * colCount) / 2,
+  };
+}
+
+export function isLatLonInsideBounds(lat, lon, bounds, padFraction = 0) {
+  const latPad = Math.abs(bounds.latMax - bounds.latMin) * Math.max(0, padFraction);
+  const lonPad = Math.abs(bounds.lonMax - bounds.lonMin) * Math.max(0, padFraction);
+  return lat >= bounds.latMin - latPad
+    && lat <= bounds.latMax + latPad
+    && lon >= bounds.lonMin - lonPad
+    && lon <= bounds.lonMax + lonPad;
+}
+
+export function nodeMarkerMetrics(widthM, depthM, antennaHeightM, verticalScale = 1) {
+  const terrainSize = Math.max(1, Number(widthM) || 1, Number(depthM) || 1);
+  const radius = Math.max(28, Math.min(160, terrainSize * 0.012));
+  const mastHeight = Math.max(radius * 1.8, Math.max(3, Number(antennaHeightM) || 10) * Math.max(1, verticalScale));
+  return {
+    radius,
+    mastHeight,
+    mastRadius: Math.max(3, radius * 0.12),
+    ringRadius: radius * 1.55,
+    ringTube: Math.max(2, radius * 0.075),
+  };
+}
+
 export function elevationStats(elevations) {
   let min = Infinity;
   let max = -Infinity;
@@ -88,7 +160,7 @@ export function buildTerrainMeshArrays({ bounds, elevations, res, verticalScale 
       colors[k++] = cb;
 
       uvs[u++] = cf;
-      uvs[u++] = rf;
+      uvs[u++] = 1 - rf;
     }
   }
 

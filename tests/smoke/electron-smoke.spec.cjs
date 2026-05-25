@@ -16,8 +16,32 @@ test('app starts and shows core workflow controls', async () => {
     await expect(page.locator('#compute-backend')).toBeVisible();
     await expect(page.locator('#compute-backend option')).toHaveText(['Auto (CUDA preferred)', 'Python CUDA preferred', 'CPU Workers']);
     await expect(page.locator('#backend-status')).toContainText(/CUDA|CPU|backend|unavailable/i, { timeout: 15000 });
+    await page.getByRole('tab', { name: 'Nodes' }).click();
+    await page.locator('#repeater-name').fill('Smoke 3D Node');
+    await page.locator('#repeater-lat').fill('48.28625');
+    await page.locator('#repeater-lon').fill('18.50540');
+    await page.locator('#btn-add-repeater').click();
+    await expect(page.locator('#repeater-list')).toContainText('Smoke 3D Node');
+    await page.evaluate(async () => {
+      const { map } = await import('./src/map.js');
+      map.setView([48.28625, 18.50540], 14, { animate: false });
+    });
     await page.locator('#btn-view-3d').click();
     await expect(page.locator('#map3d')).toHaveAttribute('data-ready', /preview|terrain/, { timeout: 10000 });
+    await expect(page.locator('#map3d')).toHaveAttribute('data-navigation', 'map-pan-tiling');
+    await expect(page.locator('#map3d')).toHaveAttribute('data-terrain-tiles', '16', { timeout: 15000 });
+    await expect(page.locator('#map3d')).toHaveAttribute('data-map-texture', /Streets \(OSM\)/, { timeout: 15000 });
+    await expect.poll(
+      () => page.locator('#map3d').getAttribute('data-map-texture-loaded').then(Number),
+      { timeout: 15000 }
+    ).toBeGreaterThan(0);
+    await expect.poll(
+      () => page.locator('#map3d').getAttribute('data-map-texture-total').then(Number),
+      { timeout: 15000 }
+    ).toBeGreaterThan(1);
+    await expect(page.locator('#map3d')).toHaveAttribute('data-nodes-count', /[1-9]\d*/, { timeout: 15000 });
+    await expect(page.locator('#map3d')).toHaveAttribute('data-coverage-count', /\d+/);
+    await expect(page.locator('#map3d')).toHaveAttribute('data-p2p-links-count', /\d+/);
     expect(await canvasHasVisiblePixels(page)).toBe(true);
     expect((await page.screenshot()).length).toBeGreaterThan(1000);
     await page.setViewportSize({ width: 430, height: 760 });

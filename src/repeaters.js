@@ -442,6 +442,7 @@ function toggleVisibility(id) {
     if (r.visible) l.addTo(map); else l.remove();
   });
   renderRepeaterList();
+  document.dispatchEvent(new CustomEvent('repeaters:changed'));
 }
 
 function renderRepeaterList() {
