@@ -80,6 +80,7 @@ export const state = {
   pathLinks: [],       // best relay path hop overlays
   foliageLayers: [],   // Leaflet Polygon outlines for forest/wood areas
   buildingLayers: [],  // Leaflet Polygon outlines for building footprints
+  barrierLayers: [],   // Leaflet Polygon outlines for walls/barriers/towers
   nextId: 1,
 };
 
@@ -109,6 +110,12 @@ export function clearFoliageLayers() {
 export function clearBuildingLayers() {
   state.buildingLayers.forEach(l => map.removeLayer(l));
   state.buildingLayers = [];
+}
+
+/** Remove all barrier/wall polygons from the map. */
+export function clearBarrierLayers() {
+  state.barrierLayers.forEach(l => map.removeLayer(l));
+  state.barrierLayers = [];
 }
 
 function _dispatchDocumentEvent(name) {

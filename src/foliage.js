@@ -15,8 +15,8 @@ const OVERPASS_MIRRORS = [
 // Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same data.
 // Old 'v3:' per-repeater exact-bbox keys become unreachable (stale but harmless).
 const TILE_SIZE = 0.25;  // degrees — 0.25° ≈ 27 km lat; a 15 km radius spans ≤ 4 tiles
-const CACHE_V_OSM = 'fv6:';
-const CACHE_V_DERIVED = 'fv7:'; // canopy heights prefer DSM-DEM derivation
+const CACHE_V_OSM = 'fv7:';
+const CACHE_V_DERIVED = 'fv8:'; // canopy heights prefer DSM-DEM derivation
 const FOLIAGE_TILE_CONCURRENCY = 3;
 const M_PER_LAT = 110574;
 const M_PER_LON = 111320;
@@ -70,6 +70,9 @@ const CANOPY_HEIGHTS = {
   forest:   20,   // landuse=forest — mature closed forest
   wood:     20,   // natural=wood
   mangrove: 12,
+  meadow:    0.5, // natural=meadow / landuse=meadow — open grassland
+  farmland:  0.5, // natural=farmland / landuse=farmland — agricultural fields
+  park:      2,   // leisure=park — city park or recreation area
   scrub:     2,   // natural=scrub — low shrubs
   orchard:   4,   // landuse=orchard
   heath:     0.5, // natural=heath — open heathland
@@ -100,6 +103,9 @@ const FOLIAGE_FACTORS = {
   reedbed: 0.45,
   swamp: 0.75,
   greenhouse_horticulture: 0.55,
+  meadow: 0.25,
+  farmland: 0.25,
+  park: 0.35,
 };
 
 // B3: multi-entry in-memory cache (LRU-capped at 8 entries)
@@ -140,6 +146,88 @@ function _lineCorridorRings(ring, widthM) {
   return out;
 }
 
+function _assembleRings(segments) {
+  if (!Array.isArray(segments) || segments.length === 0) return [];
+  const toKey = (pt) => `${pt[0].toFixed(8)},${pt[1].toFixed(8)}`;
+  const pending = [];
+  const rings = [];
+
+  for (const seg of segments) {
+    if (!Array.isArray(seg) || seg.length < 2) continue;
+    const copy = seg.slice();
+    if (toKey(copy[0]) === toKey(copy[copy.length - 1])) {
+      rings.push(copy);
+    } else {
+      pending.push(copy);
+    }
+  }
+
+  while (pending.length > 0) {
+    let ring = pending.shift();
+    let extended = true;
+
+    while (extended) {
+      extended = false;
+      const startKey = toKey(ring[0]);
+      const endKey = toKey(ring[ring.length - 1]);
+
+      for (let i = 0; i < pending.length; i++) {
+        const segment = pending[i];
+        const segStart = toKey(segment[0]);
+        const segEnd = toKey(segment[segment.length - 1]);
+
+        if (endKey === segStart) {
+          ring = ring.concat(segment.slice(1));
+          pending.splice(i, 1);
+          extended = true;
+          break;
+        }
+        if (endKey === segEnd) {
+          ring = ring.concat(segment.slice(0, -1).reverse());
+          pending.splice(i, 1);
+          extended = true;
+          break;
+        }
+        if (startKey === segEnd) {
+          ring = segment.slice(0, -1).concat(ring);
+          pending.splice(i, 1);
+          extended = true;
+          break;
+        }
+        if (startKey === segStart) {
+          ring = segment.slice(1).reverse().concat(ring);
+          pending.splice(i, 1);
+          extended = true;
+          break;
+        }
+      }
+    }
+
+    if (ring.length >= 3 && toKey(ring[0]) === toKey(ring[ring.length - 1])) {
+      ring = ring.slice();
+      ring[ring.length - 1] = ring[0];
+    }
+    rings.push(ring);
+  }
+  return rings;
+}
+
+function _pointCircleRing(lat, lon, diameterM, sides = 12) {
+  const radius = Math.max(0.5, diameterM / 2);
+  const latScale = 1 / M_PER_LAT;
+  const lonScale = 1 / Math.max(1e-6, M_PER_LON * Math.cos(lat * Math.PI / 180));
+  const ring = [];
+  for (let i = 0; i < sides; i++) {
+    const theta = (i / sides) * 2 * Math.PI;
+    ring.push([
+      lat + Math.sin(theta) * radius * latScale,
+      lon + Math.cos(theta) * radius * lonScale,
+    ]);
+  }
+  ring.push(ring[0]);
+  return ring;
+}
+
 function _parseOsmLengthMeters(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : null;
@@ -159,19 +247,28 @@ function _tagValue(tags, name) {
 
 export function classifyFoliageTags(tags = {}) {
   const landuse = _tagValue(tags, 'landuse');
+  const landcover = _tagValue(tags, 'landcover');
   const natural = _tagValue(tags, 'natural');
+  const leisure = _tagValue(tags, 'leisure');
   const barrier = _tagValue(tags, 'barrier');
   const wetland = _tagValue(tags, 'wetland');
   let kind = null;
   let linearWidthM = null;
 
-  if (landuse === 'forest') kind = 'forest';
+  if (landuse === 'forest' || landcover === 'forest' || landcover === 'trees' || landcover === 'wood' || landcover === 'tree_cover') kind = 'forest';
   else if (landuse === 'orchard') kind = 'orchard';
   else if (landuse === 'vineyard') kind = 'vineyard';
   else if (landuse === 'shrubbery') kind = 'shrubbery';
   else if (landuse === 'greenhouse_horticulture') kind = 'greenhouse_horticulture';
   else if (landuse === 'plant_nursery') kind = 'plant_nursery';
   else if (natural === 'wood') kind = 'wood';
+  else if (natural === 'forest') kind = 'forest';
+  else if (natural === 'tree') kind = 'forest';
+  else if (natural === 'park' || landuse === 'park' || leisure === 'park') kind = 'park';
+  else if (natural === 'farmland' || landuse === 'farmland') kind = 'farmland';
+  else if (natural === 'meadow' || landuse === 'meadow' || landcover === 'grass' || landuse === 'grass') kind = 'meadow';
+  else if (natural === 'grassland') kind = 'meadow';
+  else if (natural === 'plantation' || landuse === 'plantation') kind = 'forest';
   else if (natural === 'scrub' || natural === 'shrubbery') kind = 'scrub';
   else if (natural === 'heath') kind = 'heath';
   else if (natural === 'tree_row') {
@@ -209,18 +306,39 @@ export function buildFoliageOverpassQuery(bbox) {
     ['landuse', 'shrubbery'],
     ['landuse', 'greenhouse_horticulture'],
     ['landuse', 'plant_nursery'],
+    ['landuse', 'plantation'],
+    ['landuse', 'park'],
+    ['landuse', 'meadow'],
+    ['landuse', 'grass'],
+    ['landuse', 'farmland'],
+    ['landcover', 'forest'],
+    ['landcover', 'trees'],
+    ['landcover', 'wood'],
+    ['landcover', 'tree_cover'],
+    ['landcover', 'grass'],
+    ['leisure', 'park'],
     ['natural', 'wood'],
+    ['natural', 'forest'],
+    ['natural', 'tree'],
+    ['natural', 'park'],
+    ['natural', 'farmland'],
+    ['natural', 'plantation'],
+    ['natural', 'meadow'],
+    ['natural', 'grassland'],
     ['natural', 'scrub'],
     ['natural', 'shrubbery'],
     ['natural', 'heath'],
     ['natural', 'wetland'],
     ['natural', 'mangrove'],
   ].flatMap(([k, v]) => [`way["${k}"="${v}"]${bbox};`, `relation["${k}"="${v}"]${bbox};`]).join('');
+  const nodeFilters = [
+    `node["natural"="tree"]${bbox};`,
+  ].join('');
   const linearFilters = [
     `way["barrier"="hedge"]${bbox};`,
     `way["natural"="tree_row"]${bbox};`,
   ].join('');
-  return `[out:json][timeout:60];(${areaFilters}${linearFilters});out geom tags;`;
+  return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});out geom tags;`;
 }
 
 function _fallbackFeatureId(prefix, ring, bbox) {
@@ -378,6 +496,17 @@ async function _fetchFoliageTile(la, lo, key, {
   const data = await res.json();
   const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [];
   const seenFeatureIds = new Set();
+  const elementGeom = new Map();
+  for (const el of data.elements) {
+    if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2) {
+      elementGeom.set(`way:${el.id}`, el.geometry);
+    }
+  }
+  const memberGeometry = (member) => {
+    if (!member || typeof member.type !== 'string') return null;
+    if (Array.isArray(member.geometry) && member.geometry.length >= 2) return member.geometry;
+    return elementGeom.get(`${member.type}:${member.ref}`) ?? null;
+  };
 
   const addRing = (ring, classification, featureId) => {
     if (featureId && seenFeatureIds.has(featureId)) return;
@@ -411,15 +540,27 @@ async function _fetchFoliageTile(la, lo, key, {
         addRing(ring, classification, baseFeatureId);
       }
     } else if (el.type === 'relation' && el.members) {
-      for (let mi = 0; mi < el.members.length; mi++) {
-        const m = el.members[mi];
-        if (m.type !== 'way' || m.role === 'inner' || !m.geometry || m.geometry.length < 3) continue;
-        addRing(
-          m.geometry.map(n => [n.lat, n.lon]),
-          classification,
-          `${baseFeatureId}:outer:${m.ref ?? mi}`
-        );
+      if (Array.isArray(el.geometry) && el.geometry.length >= 3) {
+        addRing(el.geometry.map(n => [n.lat, n.lon]), classification, baseFeatureId);
+      } else {
+        const outerSegments = [];
+        for (const m of el.members) {
+          const role = String(m.role || 'outer').trim().toLowerCase();
+          if (role === 'inner') continue;
+          const geometry = memberGeometry(m);
+          if (!geometry || geometry.length < 2) continue;
+          outerSegments.push(geometry.map(n => [n.lat, n.lon]));
+        }
+        const outerRings = _assembleRings(outerSegments);
+        for (let ri = 0; ri < outerRings.length; ri++) {
+          const ring = outerRings[ri];
+          if (ring.length < 3) continue;
+          addRing(ring, classification, `${baseFeatureId}:outer:${ri}`);
+        }
       }
+    } else if (el.type === 'node' && Number.isFinite(el.lat) && Number.isFinite(el.lon)) {
+      const diameterM = classification.linearWidthM || 6;
+      addRing(_pointCircleRing(el.lat, el.lon, diameterM), classification, `${baseFeatureId}:node`);
     }
   }
 
@@ -440,11 +581,6 @@ async function _fetchFoliageTile(la, lo, key, {
   return tileData;
 }
 
-/**
- * Fetch forest/wood polygons within a bounding box.
- * Data is fetched and cached per 0.25° tile — nearby repeaters share the same tile data.
- * @returns {Promise<{ polygons, bboxes, factors, canopyHeights, tileIndex }>}
- */
 export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {}) {
   const {
     signal = null,

@@ -165,10 +165,31 @@
                 <input type="range" id="building-opacity" min="0" max="90" value="45" step="5" />
               </label>
             </div>
+            <div class="option-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="layer-barriers" checked />
+                Barriers and structures
+              </label>
+              <label class="opacity-row">Barrier opacity
+                <input type="range" id="barrier-opacity" min="0" max="90" value="35" step="5" />
+              </label>
+            </div>
             <label class="checkbox-label">
               <input type="checkbox" id="layer-auto-refresh" checked />
               Auto-refresh on pan or zoom
             </label>
+          </div>
+          <div class="panel-section">
+            <p class="section-heading">Foliage legend</p>
+            <div class="legend">
+              <div class="legend-row"><span class="swatch" style="background:#22c55e"></span>Forest</div>
+              <div class="legend-row"><span class="swatch" style="background:#bef264"></span>Farmland</div>
+              <div class="legend-row"><span class="swatch" style="background:#84cc16"></span>Meadow / Grassland</div>
+              <div class="legend-row"><span class="swatch" style="background:#22c55e"></span>Park</div>
+              <div class="legend-row"><span class="swatch" style="background:#15803d"></span>Scrub / Tree row</div>
+              <div class="legend-row"><span class="swatch" style="background:#0f766e"></span>Wetland / Mangrove</div>
+              <div class="legend-row"><span class="swatch" style="background:#86efac"></span>Hedge</div>
+            </div>
           </div>
           <div class="panel-section">
             <p class="section-heading">3D Terrain</p>

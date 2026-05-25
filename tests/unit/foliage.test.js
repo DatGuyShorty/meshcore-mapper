@@ -23,12 +23,67 @@ describe('foliage blocker extraction helpers', () => {
     expect(treeRow.linearWidthM).toBeGreaterThan(0);
   });
 
+  it('supports point-based tree nodes', () => {
+    const tree = classifyFoliageTags({ natural: 'tree' });
+
+    expect(tree).not.toBeNull();
+    expect(tree.kind).toBe('forest');
+    expect(tree.canopyHeight).toBeGreaterThan(0);
+  });
+
+  it('supports natural=forest areas', () => {
+    const forest = classifyFoliageTags({ natural: 'forest' });
+
+    expect(forest).not.toBeNull();
+    expect(forest.kind).toBe('forest');
+    expect(forest.canopyHeight).toBe(20);
+  });
+
+  it('supports meadow areas', () => {
+    const meadow = classifyFoliageTags({ natural: 'meadow' });
+
+    expect(meadow).not.toBeNull();
+    expect(meadow.kind).toBe('meadow');
+    expect(meadow.canopyHeight).toBe(0.5);
+  });
+
+  it('supports farmland areas', () => {
+    const farmland = classifyFoliageTags({ landuse: 'farmland' });
+
+    expect(farmland).not.toBeNull();
+    expect(farmland.kind).toBe('farmland');
+    expect(farmland.canopyHeight).toBe(0.5);
+  });
+
+  it('supports grassland areas', () => {
+    const grassland = classifyFoliageTags({ natural: 'grassland' });
+
+    expect(grassland).not.toBeNull();
+    expect(grassland.kind).toBe('meadow');
+    expect(grassland.canopyHeight).toBe(0.5);
+  });
+
+  it('supports park areas', () => {
+    const park = classifyFoliageTags({ leisure: 'park' });
+
+    expect(park).not.toBeNull();
+    expect(park.kind).toBe('park');
+    expect(park.canopyHeight).toBe(2);
+  });
+
+  it('supports landuse=grass areas', () => {
+    const grass = classifyFoliageTags({ landuse: 'grass' });
+
+    expect(grass).not.toBeNull();
+    expect(grass.kind).toBe('meadow');
+    expect(grass.canopyHeight).toBe(0.5);
+  });
+
   it('classifies narrow linear foliage blockers', () => {
     const hedge = classifyFoliageTags({ barrier: 'hedge' });
 
     expect(hedge.kind).toBe('hedge');
     expect(hedge.linearWidthM).toBeGreaterThan(0);
-    expect(classifyFoliageTags({ landuse: 'grass' })).toBeNull();
   });
 
   it('queries expanded vegetation feature classes', () => {
@@ -36,6 +91,18 @@ describe('foliage blocker extraction helpers', () => {
 
     expect(query).toContain('["landuse"="forest"]');
     expect(query).toContain('["landuse"="plant_nursery"]');
+    expect(query).toContain('["landuse"="plantation"]');
+    expect(query).toContain('["landuse"="meadow"]');
+    expect(query).toContain('["landuse"="farmland"]');
+    expect(query).toContain('["landuse"="park"]');
+    expect(query).toContain('["landuse"="grass"]');
+    expect(query).toContain('["landcover"="grass"]');
+    expect(query).toContain('["leisure"="park"]');
+    expect(query).toContain('["natural"="tree"]');
+    expect(query).toContain('["natural"="park"]');
+    expect(query).toContain('["natural"="farmland"]');
+    expect(query).toContain('["natural"="meadow"]');
+    expect(query).toContain('["natural"="grassland"]');
     expect(query).toContain('["natural"="tree_row"]');
     expect(query).toContain('["barrier"="hedge"]');
     expect(query).toContain('["natural"="mangrove"]');
