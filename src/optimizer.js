@@ -75,6 +75,7 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
   // shared opts for scoreCoverage
   const scoreOpts = {
     rxHeight, rxSens, fadeMargin, radiusKm, useLos, useFresnel,
+    diffractionModel: opts.diffractionModel,
     gridRes: evalRes,
     latMin, latMax, lonMin, lonMax,
     profileTargetSpacingM: opts.profileTargetSpacingM,
@@ -198,6 +199,7 @@ function computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts, 
     effectiveSens: opts.rxSens + (opts.fadeMargin ?? 0),
     useLos: opts.useLos,
     useFresnel: opts.useFresnel,
+    diffractionModel: opts.diffractionModel,
     foliage: opts.foliage,
     foliageLossPerM: opts.foliageLossPerM,
     buildings: opts.buildings,

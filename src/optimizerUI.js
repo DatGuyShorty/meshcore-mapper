@@ -111,6 +111,7 @@ export function init() {
 
   map.on('click', (e) => {
     if (!drawing) return;
+    if (e.originalEvent) e.originalEvent._meshcoreHandled = true;
     cancelPlacing();
 
     if (!corner1) {
@@ -153,6 +154,28 @@ export function init() {
     }
 
     const { txParams, opts, nRepeaters } = getOptimizerSettings();
+    const startTime = performance.now();
+    const step = (msg) => {
+      const elapsed = (performance.now() - startTime).toFixed(1);
+      console.info(`[optimizer] [${elapsed}ms] ${msg}`);
+    };
+    step('Settings: ' + JSON.stringify({
+      nRepeaters,
+      txHeight: txParams.height,
+      txPower: txParams.power,
+      txFreq: txParams.freq,
+      txGain: txParams.gain,
+      rxHeight: opts.rxHeight,
+      rxSens: opts.rxSens,
+      fadeMargin: opts.fadeMargin,
+      radiusKm: opts.radiusKm,
+      candidateRes: opts.candidateRes,
+      evalRes: opts.evalRes,
+      useLos: opts.useLos,
+      useFresnel: opts.useFresnel,
+      useFoliage: opts.useFoliage,
+      useBuildings: opts.useBuildings,
+    }));
 
     clearResults();
     setButtonBusy('btn-optimize', true, 'Scoring...');
@@ -162,10 +185,13 @@ export function init() {
     setCancelHandler(() => _abortController?.abort());
 
     try {
+      step('Building evaluation and candidate grids...');
       setProgress(2, 'Building evaluation grid...');
       const evalPoints = buildGrid(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax, opts.evalRes);
       const candidates = buildGrid(bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax, opts.candidateRes);
+      step(`Grid sizes: eval=${evalPoints.length}, candidates=${candidates.length}`);
 
+      step('Fetching elevation for optimizer points...');
       setProgress(5, `Fetching elevation for ${evalPoints.length + candidates.length} points...`);
       const allPoints = [...evalPoints, ...candidates];
       const allElevs  = optimizerNeedsTerrain(opts)
@@ -173,8 +199,10 @@ export function init() {
         : allPoints.map(() => 0);
       const evalElevs      = allElevs.slice(0, evalPoints.length);
       const candidateElevs = allElevs.slice(evalPoints.length);
+      step('Elevation fetch complete');
 
       if (opts.useFoliage || opts.useBuildings) {
+        step('Fetching obstacle layers...');
         setProgress(12, 'Fetching obstacle layers...');
         const [foliage, buildings] = await Promise.all([
           opts.useFoliage
@@ -202,8 +230,10 @@ export function init() {
         ]);
         opts.foliage = foliage;
         opts.buildings = buildings;
+        step(`Obstacle layers ready: foliage=${foliage ? 'yes' : 'no'}, buildings=${buildings ? 'yes' : 'no'}`);
       }
 
+      step('Running optimizer backend...');
       setProgress(20, 'Scoring candidate locations...');
 
       const backendPreference = document.getElementById('compute-backend')?.value || 'auto';
@@ -233,6 +263,7 @@ export function init() {
       hideProgress();
       renderResults(results, txParams);
       const backendLabel = backend === 'cuda' ? 'Python CUDA' : 'CPU worker';
+      step(`Optimization complete via ${backendLabel}, results=${results.length}, total=${(performance.now() - startTime).toFixed(1)}ms`);
       setStatus(`Optimizer found ${results.length} best location(s) via ${backendLabel}.`);
       setInlineStatus('opt-status', `Found ${results.length} best location${results.length !== 1 ? 's' : ''} via ${backendLabel}.`, 'success');
     } catch (err) {

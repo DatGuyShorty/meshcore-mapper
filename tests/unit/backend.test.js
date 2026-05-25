@@ -14,8 +14,8 @@ describe('coverage backend selection', () => {
     })).toEqual(['cpu']);
   });
 
-  it('uses only CUDA when explicitly requested', () => {
-    expect(resolveBackendOrder('cuda')).toEqual(['cuda']);
+  it('uses CUDA with CPU fallback when explicitly requested', () => {
+    expect(resolveBackendOrder('cuda')).toEqual(['cuda', 'cpu']);
   });
 
   it('treats unknown saved preferences as auto mode', () => {

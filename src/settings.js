@@ -1,4 +1,5 @@
 import { DEFAULT_PROFILE_MAX_SAMPLES, DEFAULT_PROFILE_TARGET_SPACING_M } from './signalModel.js';
+import { deriveRadioMetrics, selectedModemText } from './radioMetrics.js';
 
 export const COVERAGE_SETTING_IDS = [
   'scenario-profile', 'compute-backend', 'obstacle-height-mode',
@@ -8,13 +9,18 @@ export const COVERAGE_SETTING_IDS = [
   'compute-worker-count',
   'dataset-batch-concurrency',
   'dem-tile-concurrency', 'foliage-tile-concurrency', 'building-tile-concurrency',
-  'coverage-opacity',
+  'coverage-opacity', 'coverage-overlay-mode',
 ];
 
 export const PLANNING_SETTING_IDS = [
   'opt-n-repeaters', 'opt-height', 'opt-candidate-res',
   'p2p-tx-height', 'p2p-rx-height', 'p2p-tx-power', 'p2p-tx-gain',
   'p2p-rx-gain', 'p2p-freq', 'p2p-rx-sens',
+  'p2p-pattern', 'p2p-tx-azimuth', 'p2p-rx-azimuth',
+  'shadow-fading-sigma',
+  'p2p-shadow-stochastic', 'p2p-mc-trials',
+  'p2p-dir-sector-deg',
+  'path-hop-radius-km',
   'path-use-fresnel',
 ];
 
@@ -22,6 +28,7 @@ export const MAP_LAYER_SETTING_IDS = [
   'layer-foliage', 'foliage-opacity',
   'layer-buildings', 'building-opacity',
   'layer-auto-refresh',
+  'terrain3d-grid-res', 'terrain3d-vertical-scale',
 ];
 
 export const WS_SETTING_IDS = [
@@ -56,13 +63,23 @@ function intClamped(id, fallback, min, max) {
 
 export function getCoverageSettings() {
   const qualityMult = num('grid-res', 1);
+  const rxSens = num('rx-sensitivity', -133);
+  const fadeMargin = num('fade-margin', 0);
+  const radioMetrics = deriveRadioMetrics({
+    modemText: selectedModemText(),
+    rxSens,
+    fadeMargin,
+  });
   return {
     rxHeight: num('rx-height', 1.5),
-    rxSens: num('rx-sensitivity', -133),
-    fadeMargin: num('fade-margin', 0),
+    rxSens,
+    fadeMargin,
+    ...radioMetrics,
     radiusKm: num('analysis-radius', 15),
     qualityMult,
     gridRes: qualityMult, // kept for downstream compatibility; actual px computed in coverage.js
+    diffractionModel: 'deygout',
+    useDeygout: true,
     scenarioProfile: document.getElementById('scenario-profile')?.value || 'balanced',
     computeBackend: document.getElementById('compute-backend')?.value || 'auto',
     deriveObstacleHeights: document.getElementById('obstacle-height-mode')?.value === 'dsm-dem',
@@ -89,9 +106,17 @@ export function getP2PSettings() {
     txPower: num('p2p-tx-power', 20),
     txGain: num('p2p-tx-gain', 2),
     rxGain: num('p2p-rx-gain', 2),
+    antennaPattern: document.getElementById('p2p-pattern')?.value || 'omni',
+    txAzimuthDeg: num('p2p-tx-azimuth', 0),
+    rxAzimuthDeg: num('p2p-rx-azimuth', 180),
     freqMHz: num('p2p-freq', 869.525),
     rxSens: num('p2p-rx-sens', -133),
     fadeMargin: num('fade-margin', 0),
+    pathHopRadiusKm: num('path-hop-radius-km', 25),
+    shadowFadingSigmaDb: num('shadow-fading-sigma', 0),
+    shadowFadingStochastic: checked('p2p-shadow-stochastic'),
+    shadowFadingTrials: intClamped('p2p-mc-trials', 200, 16, 5000),
+    directionalSectorDeg: intClamped('p2p-dir-sector-deg', 10, 10, 180),
     useFoliage: checked('use-foliage'),
     foliageLossPerM: num('foliage-loss-per-m', 0.3),
     useBuildings: checked('use-buildings'),
@@ -114,6 +139,8 @@ export function getOptimizerSettings() {
       rxHeight: num('rx-height', 1.5),
       rxSens: num('rx-sensitivity', -133),
       fadeMargin: num('fade-margin', 0),
+      diffractionModel: 'deygout',
+      useDeygout: true,
       radiusKm: num('analysis-radius', 15),
       useLos: checked('use-los'),
       useFresnel: checked('use-fresnel'),

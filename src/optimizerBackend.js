@@ -2,7 +2,7 @@ let _cudaStatus = null;
 
 export function resolveOptimizerBackendOrder(preference, caps = {}) {
   const pref = preference || 'auto';
-  if (pref === 'cuda') return ['cuda'];
+  if (pref === 'cuda') return ['cuda', 'cpu'];
   if (pref === 'cpu') return ['cpu'];
   const order = [];
   if (caps.cuda?.available) order.push('cuda');
@@ -17,7 +17,6 @@ export async function runOptimizerBackend(data, {
 } = {}) {
   const caps = await _getOptimizerCaps(backendPreference);
   const order = resolveOptimizerBackendOrder(backendPreference, caps);
-  const explicitCuda = backendPreference === 'cuda';
   const errors = [];
 
   for (const backend of order) {
@@ -27,7 +26,6 @@ export async function runOptimizerBackend(data, {
         const result = await _runCudaOptimizer(data, { signal, onProgress });
         if (result?.unsupported) {
           const msg = result.message || 'unsupported optimizer payload';
-          if (explicitCuda) throw new Error(`CUDA optimizer selected, but unavailable: ${msg}`);
           errors.push(`Python CUDA optimizer: ${msg}`);
           continue;
         }

@@ -48,7 +48,7 @@ const SCENARIOS = {
     'use-foliage': true,
     'use-buildings': true,
     'obstacle-height-mode': 'osm',
-    'compute-backend': 'cpu',
+    'compute-backend': 'auto',
     'compute-worker-count': '0',
     'dataset-batch-concurrency': '1',
     'dem-tile-concurrency': '3',

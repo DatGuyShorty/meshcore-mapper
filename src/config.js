@@ -5,7 +5,11 @@
 import { map, state } from './map.js';
 import { addRepeater, removeRepeater } from './repeaters.js';
 import { PERSISTED_SETTING_IDS } from './settings.js';
-import { bindPersistedSettingChanges } from './settingsPersistence.js';
+import {
+  bindPersistedSettingChanges,
+  readPersistedSettingValue,
+  writePersistedSettingValue,
+} from './settingsPersistence.js';
 import { fetchElevationsFromTiles } from './elevation.js';
 import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
@@ -21,7 +25,7 @@ function gatherSettings() {
   for (const id of SETTINGS_IDS) {
     const el = document.getElementById(id);
     if (!el) continue;
-    s[id] = el.type === 'checkbox' ? el.checked : el.value;
+    s[id] = readPersistedSettingValue(el);
   }
   return s;
 }
@@ -30,10 +34,7 @@ function applySettings(s, { notify = false } = {}) {
   for (const id of SETTINGS_IDS) {
     if (!(id in s)) continue;
     const el = document.getElementById(id);
-    if (!el) continue;
-    if (el.type === 'checkbox') el.checked = s[id] === 'false' ? false : Boolean(s[id]);
-    else el.value = s[id];
-    if (notify) el.dispatchEvent(new Event('change', { bubbles: true }));
+    writePersistedSettingValue(el, s[id], { notify });
   }
 }
 

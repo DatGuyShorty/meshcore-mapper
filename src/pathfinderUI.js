@@ -1,15 +1,48 @@
 import { map, state } from './map.js';
 import { findBestPath } from './pathfinder.js';
 import { getP2PSettings } from './settings.js';
-import { escHtml, setActiveTab, setButtonBusy } from './ui.js';
+import {
+  escHtml, hideProgress, setActiveTab, setButtonBusy, setCancelHandler,
+  setProgress, yieldToUI,
+} from './ui.js';
 
 let _pathPolylines = [];
 let _pathMarkers = [];
 let _abortController = null;
+let _pickTarget = null;
+
+function _setPickMode(target) {
+  _pickTarget = target;
+  const hint = document.getElementById('path-pick-hint');
+  const status = document.getElementById('path-status');
+  if (hint) {
+    hint.textContent = target
+      ? `Click a repeater marker on the map to choose ${target === 'from' ? 'the FROM endpoint' : 'the TO endpoint'}.`
+      : 'Click a repeater marker on the map to choose the path endpoint.';
+    hint.classList.toggle('hidden', !target);
+  }
+  if (status && target) {
+    status.textContent = target === 'from'
+      ? 'Pick a FROM node on the map.'
+      : 'Pick a TO node on the map.';
+    status.className = 'hint';
+    status.classList.remove('hidden');
+  }
+}
 
 export function initPathfinderUI() {
   document.getElementById('btn-find-path').addEventListener('click', _runPathFinder);
   document.getElementById('btn-cancel-path').addEventListener('click', () => _abortController?.abort());
+  document.getElementById('btn-path-pick-from').addEventListener('click', () => {
+    setActiveTab('planning');
+    _refreshPathSelects();
+    _setPickMode('from');
+  });
+  document.getElementById('btn-path-pick-to').addEventListener('click', () => {
+    setActiveTab('planning');
+    _refreshPathSelects();
+    _setPickMode('to');
+  });
   document.addEventListener('repeaters:changed', _refreshPathSelects);
   setTimeout(_refreshPathSelects, 0);
 
@@ -21,7 +54,34 @@ export function initPathfinderUI() {
     _refreshPathSelects();
     const fromSel = document.getElementById('path-from');
     if (fromSel) fromSel.value = String(e.detail.id);
+    const toSel = document.getElementById('path-to');
+    if (fromSel && toSel) _ensureDifferentEndpoints(fromSel, toSel);
+    _setPickMode(null);
   });
+}
+
+export function handlePathNodePick(r) {
+  if (!_pickTarget) return false;
+  const fromSel = document.getElementById('path-from');
+  const toSel = document.getElementById('path-to');
+  if (!fromSel || !toSel) return false;
+
+  if (_pickTarget === 'from') {
+    fromSel.value = String(r.id);
+    _ensureDifferentEndpoints(fromSel, toSel);
+  } else {
+    toSel.value = String(r.id);
+    _ensureDifferentEndpoints(fromSel, toSel);
+  }
+
+  _setPickMode(null);
+  return true;
+}
+
+function _ensureDifferentEndpoints(fromSel, toSel) {
+  if (fromSel.value !== toSel.value || toSel.options.length <= 1) return;
+  const next = [...toSel.options].find(opt => opt.value !== fromSel.value);
+  if (next) toSel.value = next.value;
 }
 
 function _refreshPathSelects() {
@@ -38,10 +98,12 @@ function _refreshPathSelects() {
 
   if (nodes.length === 0) {
     fromSel.innerHTML = toSel.innerHTML = '<option value="">-- no nodes --</option>';
+    _setPickMode(null);
     return;
   }
 
-  for (const r of nodes) {
+  const sorted = [...nodes].sort((a, b) => a.name.localeCompare(b.name));
+  for (const r of sorted) {
     fromSel.appendChild(new Option(r.name, String(r.id)));
     toSel.appendChild(new Option(r.name, String(r.id)));
   }
@@ -49,9 +111,7 @@ function _refreshPathSelects() {
   if (savedFrom && [...fromSel.options].some(o => o.value === savedFrom)) fromSel.value = savedFrom;
   if (savedTo && [...toSel.options].some(o => o.value === savedTo)) toSel.value = savedTo;
 
-  if (nodes.length >= 2 && fromSel.value === toSel.value) {
-    toSel.value = nodes[nodes.length - 1].id;
-  }
+  _ensureDifferentEndpoints(fromSel, toSel);
 }
 
 function _clearPathLayers() {
@@ -69,17 +129,39 @@ function _marginColor(margin) {
   return '#f87171';
 }
 
+function _setPathStatus(msg, isError = false) {
+  const status = document.getElementById('path-status');
+  status.textContent = msg;
+  status.className = 'hint' + (isError ? ' hint-error' : '');
+  status.classList.remove('hidden');
+}
+
+function _pathLineLabel(margin, distM, rxPower) {
+  const sign = margin >= 0 ? '+' : '';
+  const rxText = Number.isFinite(rxPower) ? ` - ${rxPower.toFixed(1)} dBm` : '';
+  return `<b>${sign}${margin.toFixed(1)} dB</b><br>${(distM / 1000).toFixed(2)} km${rxText}`;
+}
+
 function _renderPath(result) {
-  const { path, bottleneck, numHops, edgeDistances } = result;
+  const { path, bottleneck, numHops, edgeDistances, edgeRxPowers = [] } = result;
   _clearPathLayers();
 
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1].node;
     const b = path[i].node;
-    const color = _marginColor(path[i].incomingMargin);
-    _pathPolylines.push(
-      L.polyline([[a.lat, a.lon], [b.lat, b.lon]], { color, weight: 3, opacity: 0.85 }).addTo(map)
-    );
+    const margin = path[i].incomingMargin;
+    const color = _marginColor(margin);
+    const line = L.polyline([[a.lat, a.lon], [b.lat, b.lon]], {
+      color,
+      weight: 4,
+      opacity: 0.9,
+    }).addTo(map);
+    line.bindTooltip(_pathLineLabel(margin, edgeDistances[i - 1], edgeRxPowers[i - 1]), {
+      permanent: true,
+      direction: 'center',
+      className: 'path-line-label',
+    });
+    _pathPolylines.push(line);
   }
 
   for (let i = 0; i < path.length; i++) {
@@ -116,58 +198,83 @@ function _renderPath(result) {
   html += '</tbody></table>';
 
   document.getElementById('path-results').innerHTML = html;
-  document.getElementById('path-status').textContent =
-    bottleneck >= 0 ? `Path found - bottleneck +${bottleneck.toFixed(1)} dB` : `Path found but link is marginal (${bottleneck.toFixed(1)} dB)`;
-  document.getElementById('path-status').className = 'hint';
-  document.getElementById('path-status').classList.remove('hidden');
+  _setPathStatus(bottleneck >= 0
+    ? `Path found - bottleneck +${bottleneck.toFixed(1)} dB`
+    : `Path found but link is marginal (${bottleneck.toFixed(1)} dB)`);
 }
 
 async function _runPathFinder() {
   const fromId = parseInt(document.getElementById('path-from').value);
   const toId = parseInt(document.getElementById('path-to').value);
   if (isNaN(fromId) || isNaN(toId) || fromId === toId) {
-    document.getElementById('path-status').textContent = 'Select two different nodes.';
-    document.getElementById('path-status').className = 'hint hint-error';
-    document.getElementById('path-status').classList.remove('hidden');
+    _setPathStatus('Select two different nodes.', true);
     return;
   }
 
   const p2p = getP2PSettings();
   const useFresnel = document.getElementById('path-use-fresnel').checked;
+  const startTime = performance.now();
+  const step = (msg) => {
+    const elapsed = (performance.now() - startTime).toFixed(1);
+    console.info(`[pathfinder] [${elapsed}ms] ${msg}`);
+  };
+  step('UI start: ' + JSON.stringify({
+    fromId,
+    toId,
+    rxSens: p2p.rxSens,
+    fadeMargin: p2p.fadeMargin,
+    requiredRx: p2p.rxSens + (p2p.fadeMargin ?? 0),
+    pathHopRadiusKm: p2p.pathHopRadiusKm,
+    rxGain: p2p.rxGain,
+    useFresnel,
+    useFoliage: p2p.useFoliage,
+    useBuildings: p2p.useBuildings,
+  }));
 
-  document.getElementById('path-status').textContent = 'Computing...';
-  document.getElementById('path-status').className = 'hint';
-  document.getElementById('path-status').classList.remove('hidden');
+  _setPathStatus('Computing relay path...');
   document.getElementById('path-results').innerHTML = '';
   setButtonBusy('btn-find-path', true, 'Computing...');
   document.getElementById('btn-cancel-path').disabled = false;
   _abortController = new AbortController();
+  setCancelHandler(() => _abortController?.abort());
+  setProgress(2, 'Preparing relay path search...');
   _clearPathLayers();
 
   try {
     const requiredRx = p2p.rxSens + (p2p.fadeMargin ?? 0);
+    _setPathStatus(`Radius-limited path search... (${p2p.pathHopRadiusKm} km hop radius)`);
     const result = await findBestPath(state.repeaters, fromId, toId, requiredRx, p2p.rxGain, useFresnel, {
       ...p2p,
       signal: _abortController.signal,
+      onLog: (line) => console.info(`[pathfinder] ${line}`),
+      onProgress: (pct, msg) => {
+        setProgress(pct, msg);
+        _setPathStatus(msg);
+      },
     });
     if (!result) {
-      document.getElementById('path-status').textContent = 'No path found - nodes may be out of range or all links blocked.';
-      document.getElementById('path-status').className = 'hint hint-error';
+      hideProgress();
+      step('No path found');
+      _setPathStatus('No path found - nodes may be out of range or all links blocked.', true);
       return;
     }
+    setProgress(100, 'Relay path ready.');
+    await yieldToUI();
+    hideProgress();
     _renderPath(result);
+    step(`Complete: hops=${result.numHops}, bottleneck=${result.bottleneck.toFixed(1)} dB, total=${(performance.now() - startTime).toFixed(1)}ms`);
     console.info(`[pathfinder] ${result.numHops}-hop path, bottleneck=${result.bottleneck.toFixed(1)} dB`);
   } catch (err) {
+    hideProgress();
     if (err?.cancelled || err?.name === 'AbortError') {
-      document.getElementById('path-status').textContent = 'Path search cancelled.';
-      document.getElementById('path-status').className = 'hint hint-error';
+      _setPathStatus('Path search cancelled.', true);
     } else {
-      document.getElementById('path-status').textContent = `Error: ${err.message}`;
-      document.getElementById('path-status').className = 'hint hint-error';
+      _setPathStatus(`Error: ${err.message}`, true);
       console.error('[pathfinder]', err);
     }
   } finally {
     _abortController = null;
+    setCancelHandler(null);
     setButtonBusy('btn-find-path', false);
     document.getElementById('btn-cancel-path').disabled = true;
   }

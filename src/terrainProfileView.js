@@ -83,8 +83,17 @@ export function drawTerrainProfile(elevs, txElev, rxElev, txHeight, rxHeight, di
 
   const vegTopPts = effective.map((e, i) => `${toX(i).toFixed(1)},${toY(e + (vegH?.[i] ?? 0)).toFixed(1)}`);
   const vegPoly = `M${vegTopPts.join(' L')} L${terrainRevPts.join(' L')} Z`;
-  const bldTopPts = effective.map((e, i) => `${toX(i).toFixed(1)},${toY(e + (bldH?.[i] ?? 0)).toFixed(1)}`);
-  const bldPoly = `M${bldTopPts.join(' L')} L${terrainRevPts.join(' L')} Z`;
+
+  // Buildings use a step path so isolated buildings render as flat-topped blocks,
+  // not triangular spikes caused by diagonal interpolation between zero-height samples.
+  const _bldStep = (() => {
+    let d = `M${toX(0).toFixed(1)},${toY(effective[0] + (bldH?.[0] ?? 0)).toFixed(1)}`;
+    for (let i = 1; i < n; i++) {
+      d += ` H${toX(i).toFixed(1)} V${toY(effective[i] + (bldH?.[i] ?? 0)).toFixed(1)}`;
+    }
+    return d;
+  })();
+  const bldPoly = `${_bldStep} L${terrainRevPts.join(' L')} Z`;
 
   const maxObstPts = maxObst.map((h, i) => `${toX(i).toFixed(1)},${toY(h).toFixed(1)}`);
   const maxObstPoly = `M${maxObstPts.join(' L')} L${toX(n - 1).toFixed(1)},${H} L${toX(0).toFixed(1)},${H} Z`;

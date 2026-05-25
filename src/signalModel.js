@@ -1,4 +1,4 @@
-import { bilinearElev, checkLoS, profileSampleCount } from './propagation.js';
+import { antennaPatternOffsetDb, bearingDeg, bilinearElev, checkLoS, profileSampleCount } from './propagation.js';
 import { foliageLossDb } from './foliage.js';
 import { buildingLossDb } from './buildings.js';
 
@@ -50,9 +50,12 @@ export function computeSignalToPoint({
   bounds,
   rxHeight,
   rxGain = 0,
+  rxPattern = 'omni',
+  rxAzimuthDeg = 0,
   effectiveSens = -127,
   useLos = true,
   useFresnel = false,
+  diffractionModel = 'knife-edge',
   foliage = null,
   foliageLossPerM = 0.3,
   buildings = null,
@@ -64,7 +67,13 @@ export function computeSignalToPoint({
 }) {
   const dist = distM ?? flatDistanceM(tx.lat, tx.lon, rxLat, rxLon);
   const base = fsplBase ?? fsplBaseDb(tx.freq);
-  let rxPower = tx.power + (tx.gain ?? 0) + rxGain - (20 * Math.log10(Math.max(1, dist)) + base);
+  const txToRxBearing = bearingDeg(tx.lat, tx.lon, rxLat, rxLon);
+  const rxToTxBearing = bearingDeg(rxLat, rxLon, tx.lat, tx.lon);
+  const txPatternOffset = antennaPatternOffsetDb(tx.pattern ?? 'omni', tx.azimuthDeg ?? 0, txToRxBearing);
+  const rxPatternOffset = antennaPatternOffsetDb(rxPattern, rxAzimuthDeg, rxToTxBearing);
+  const effectiveTxGain = (tx.gain ?? 0) + txPatternOffset;
+  const effectiveRxGain = rxGain + rxPatternOffset;
+  let rxPower = tx.power + effectiveTxGain + effectiveRxGain - (20 * Math.log10(Math.max(1, dist)) + base);
   let los = null;
 
   if ((useLos || foliage || buildings) && dist > 50) {
@@ -78,7 +87,7 @@ export function computeSignalToPoint({
     const rxGroundElev = rxElev ?? bilinearElev(rxLat, rxLon, elevGrid, elevRes, bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax);
 
     if (useLos) {
-      los = checkLoS(txElev, rxGroundElev, profile, tx.height, rxHeight, dist, tx.freq, useFresnel);
+      los = checkLoS(txElev, rxGroundElev, profile, tx.height, rxHeight, dist, tx.freq, useFresnel, diffractionModel);
       rxPower -= los.diffractionLossDb;
       if (!los.geometricLos && los.diffractionLossDb > 60) rxPower = Math.min(rxPower, effectiveSens - 10);
     }
@@ -100,5 +109,5 @@ export function computeSignalToPoint({
     }
   }
 
-  return { rxPower, distM: dist, los };
+  return { rxPower, distM: dist, los, txPatternOffset, rxPatternOffset, effectiveTxGain, effectiveRxGain };
 }

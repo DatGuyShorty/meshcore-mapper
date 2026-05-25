@@ -14,6 +14,7 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
   const workers = new Set();
   const bandProgress = new Map();
   const rgba = new Uint8ClampedArray(gridRes * gridRes * 4);
+  const signalGrid = new Float32Array(gridRes * gridRes);
   const stats = {
     workerCount: count,
     workerComputeMs: 0,
@@ -50,13 +51,15 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
           bandProgress.set(msg.rowStart, 1);
           const band = new Uint8ClampedArray(msg.rgbaBuffer);
           rgba.set(band, msg.rowStart * gridRes * 4);
+          const signalBand = new Float32Array(msg.signalBuffer);
+          signalGrid.set(signalBand, msg.rowStart * gridRes);
           stats.workerComputeMs += msg.stats?.computeMs ?? 0;
           stats.insidePoints += msg.stats?.insidePoints ?? 0;
           completed++;
           if (onProgress) onProgress(_weightedProgress(bandProgress, bands, gridRes));
           if (completed === count) {
             settled = true;
-            resolve({ rgba, stats });
+            resolve({ rgba, signalGrid, stats });
           }
         }
       };

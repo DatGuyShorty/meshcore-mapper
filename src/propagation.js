@@ -69,7 +69,89 @@ function _getFracs(n) {
   return _fracsCache.get(n);
 }
 
-export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, totalDistM, freqMHz, useFresnel) {
+function _knifeEdgeLossDb(v) {
+  if (v <= -0.78) return 0;
+  return Math.max(0, 6.9 + 20 * Math.log10(Math.sqrt((v - 0.1) ** 2 + 1) + v - 0.1));
+}
+
+function _deygoutSectionLoss(obstacleHeights, distsM, lambdaM, i0, i1, h0, h1) {
+  if (i1 - i0 < 2) return 0;
+
+  const sectionDist = distsM[i1] - distsM[i0];
+  if (sectionDist <= 0) return 0;
+
+  let maxV = -Infinity;
+  let maxIdx = -1;
+
+  for (let i = i0 + 1; i < i1; i++) {
+    const d1 = distsM[i] - distsM[i0];
+    const d2 = distsM[i1] - distsM[i];
+    if (d1 <= 0 || d2 <= 0) continue;
+    const lineH = h0 + (h1 - h0) * (d1 / sectionDist);
+    const h = obstacleHeights[i] - lineH;
+    const v = h * Math.sqrt(2 * sectionDist / (lambdaM * d1 * d2));
+    if (v > maxV) {
+      maxV = v;
+      maxIdx = i;
+    }
+  }
+
+  if (maxIdx < 0 || maxV <= -0.78) return 0;
+
+  const mainLoss = _knifeEdgeLossDb(maxV);
+  const peakH = obstacleHeights[maxIdx];
+  const leftLoss = _deygoutSectionLoss(obstacleHeights, distsM, lambdaM, i0, maxIdx, h0, peakH);
+  const rightLoss = _deygoutSectionLoss(obstacleHeights, distsM, lambdaM, maxIdx, i1, peakH, h1);
+  return mainLoss + leftLoss + rightLoss;
+}
+
+function _normalizeAzimuthDeg(deg) {
+  let a = deg % 360;
+  if (a < 0) a += 360;
+  return a;
+}
+
+function _shortestAngleDiffDeg(a, b) {
+  const d = Math.abs(_normalizeAzimuthDeg(a) - _normalizeAzimuthDeg(b));
+  return d > 180 ? 360 - d : d;
+}
+
+export function bearingDeg(lat1, lon1, lat2, lon2) {
+  const phi1 = lat1 * Math.PI / 180;
+  const phi2 = lat2 * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const y = Math.sin(dLon) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
+  return _normalizeAzimuthDeg(Math.atan2(y, x) * 180 / Math.PI);
+}
+
+export function antennaPatternOffsetDb(pattern, boresightDeg, targetBearingDeg) {
+  if (!pattern || pattern === 'omni') return 0;
+
+  const offAxis = _shortestAngleDiffDeg(boresightDeg ?? 0, targetBearingDeg ?? 0);
+  if (typeof pattern === 'string') {
+    if (pattern === 'sector120') {
+      if (offAxis <= 60) return 0;
+      if (offAxis <= 90) return -3;
+      if (offAxis <= 120) return -10;
+      return -20;
+    }
+    if (pattern === 'sector90') {
+      if (offAxis <= 45) return 0;
+      if (offAxis <= 70) return -3;
+      if (offAxis <= 100) return -10;
+      return -20;
+    }
+    return 0;
+  }
+
+  const hpbwDeg = Math.max(1, Number(pattern.hpbwDeg) || 360);
+  const maxAttenDb = Math.max(0, Number(pattern.maxAttenDb) || 20);
+  const attenDb = Math.min(maxAttenDb, 12 * (offAxis / hpbwDeg) ** 2);
+  return -attenDb;
+}
+
+export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, totalDistM, freqMHz, useFresnel, diffractionModel = 'knife-edge') {
   const n = profileElevs.length;
   if (n < 2) {
     return {
@@ -77,6 +159,7 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
       geometricLos: true,
       fresnelClear: true,
       diffractionLossDb: 0,
+      diffractionModel,
       minClearanceM: Infinity,
       minFresnelClearanceRatio: Infinity,
     };
@@ -86,6 +169,10 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
   const rxH  = rxElevM + rxHeightM;
   const λ    = _getLambda(freqMHz);
   const fracs = _getFracs(n);
+  const distsM = new Float64Array(n);
+  const obstacleHeights = new Float64Array(n);
+  obstacleHeights[0] = txH;
+  obstacleHeights[n - 1] = rxH;
 
   // Earth-curvature correction using effective Earth radius (k = 4/3, standard atmosphere).
   // Adds d1*d2/(2*Re_eff) to each terrain sample, accounting for the planet's curvature
@@ -102,6 +189,8 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
     const r1    = Math.sqrt(λ * d1 * d2 / totalDistM);
     const bulge = d1 * d2 / (2 * RE_EFF);              // effective terrain rise due to Earth curvature
     const terrainH = profileElevs[i] + bulge;
+    distsM[i] = d1;
+    obstacleHeights[i] = terrainH;
     const clearanceM = lineH - terrainH;
     const h     = terrainH - lineH;
     const v     = h * Math.sqrt(2 * totalDistM / (λ * d1 * d2));
@@ -112,6 +201,8 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
       if (ratio < minFresnelClearanceRatio) minFresnelClearanceRatio = ratio;
     }
   }
+  distsM[0] = 0;
+  distsM[n - 1] = totalDistM;
 
   const geometricLos = maxV < 0;
   const fresnelClear = minFresnelClearanceRatio >= 1;
@@ -123,21 +214,26 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
       geometricLos,
       fresnelClear,
       diffractionLossDb: 0,
+      diffractionModel,
       minClearanceM,
       minFresnelClearanceRatio,
     };
   }
 
-  // Continuous ITU-R P.526-15 approximation — no discontinuity, < 0.5 dB error for v > 2
-  const loss = maxV > -0.78
-    ? 6.9 + 20 * Math.log10(Math.sqrt((maxV - 0.1) ** 2 + 1) + maxV - 0.1)
-    : 0;
+  const singleEdgeLoss = _knifeEdgeLossDb(maxV);
+  const deygoutLoss = diffractionModel === 'deygout'
+    ? _deygoutSectionLoss(obstacleHeights, distsM, λ, 0, n - 1, txH, rxH)
+    : singleEdgeLoss;
+  const loss = diffractionModel === 'deygout'
+    ? Math.max(singleEdgeLoss, deygoutLoss)
+    : singleEdgeLoss;
 
   return {
     los,
     geometricLos,
     fresnelClear,
     diffractionLossDb: Math.max(0, loss),
+    diffractionModel: diffractionModel === 'deygout' && deygoutLoss >= singleEdgeLoss ? 'deygout' : 'knife-edge',
     minClearanceM,
     minFresnelClearanceRatio,
   };
@@ -154,6 +250,55 @@ export function earthBulgeM(fraction, totalDistM) {
   return (d1 > 0 && d2 > 0) ? d1 * d2 / (2 * RE_EFF) : 0;
 }
 
+// ─── Shadow fading (log-normal fading) ──────────────────────────────
+// Log-normal fading model: L = L_0 + 10n·log10(d) + X_σ
+// where X_σ ~ N(0, σ) is Gaussian random variable (in dB)
+// Typical σ = 4–8 dB for LoRa links in suburban/urban areas
+/**
+ * Apply log-normal shadow fading to path loss.
+ * @param {number} sigmaDbd - standard deviation of fading (dB); 0 = disabled
+ * @returns {number} shadow fading value (dB), normally distributed with mean 0 and std dev σ
+ */
+export function shadowFadingDb(sigmaDbd, seedKey = null) {
+  if (!Number.isFinite(sigmaDbd) || sigmaDbd <= 0) return 0;
+
+  let u1;
+  let u2;
+  if (seedKey == null) {
+    // Backward-compatible random mode.
+    u1 = Math.max(Number.EPSILON, Math.random());
+    u2 = Math.random();
+  } else {
+    // Deterministic mode for stable repeated calculations with unchanged inputs.
+    const seedA = _fnv1a32(`${seedKey}|a`);
+    const seedB = _fnv1a32(`${seedKey}|b`);
+    u1 = Math.max(Number.EPSILON, _unitFromSeed(seedA));
+    u2 = _unitFromSeed(seedB);
+  }
+
+  // Box-Muller transform: convert two uniform RVs to Gaussian
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return sigmaDbd * z;
+}
+
+function _fnv1a32(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function _unitFromSeed(seed) {
+  // LCG step; returns [0, 1).
+  const next = (Math.imul(seed >>> 0, 1664525) + 1013904223) >>> 0;
+  return next / 4294967296;
+}
+// ─── FUTURE: Multi-edge diffraction models ──────────────────────────────────────────────────────────────────────────────────────────────
+// Current: Deygout multi-edge (primary) + single knife-edge fallback lower bound
+// TODO: Rounded obstacle diffraction — smooth transitions for non-sharp peaks
+// TODO: Antenna patterns — directional gain (azimuth/elevation masks) per antenna
 export function segmentPolygonIntervals(lat1, lon1, lat2, lon2, poly) {
   if (!poly || poly.length < 3) return [];
 
@@ -245,6 +390,10 @@ export function writePixel(buf, base, sigDbm, rxSens) {
  * @returns {number} interpolated elevation (m)
  */
 export function bilinearElev(lat, lon, grid, res, latMin, latMax, lonMin, lonMax) {
+  if (!grid || res <= 1) return grid?.[0] ?? 0;
+  const latSpan = latMax - latMin;
+  const lonSpan = lonMax - lonMin;
+  if (latSpan === 0 || lonSpan === 0) return grid[0] ?? 0;
   const cFrac = (lon - lonMin) / (lonMax - lonMin) * (res - 1);
   const rFrac = (latMax - lat) / (latMax - latMin) * (res - 1);
   const c0 = Math.max(0, Math.min(res - 2, Math.floor(cFrac)));

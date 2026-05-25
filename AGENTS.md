@@ -45,7 +45,7 @@ The test: Every changed line should trace directly to the user's request.
 ## 4. Goal-Driven Execution
 
 **Define success criteria. Loop until verified.**
-
+60
 Transform tasks into verifiable goals:
 - "Add validation" → "Write tests for invalid inputs, then make them pass"
 - "Fix the bug" → "Write a test that reproduces it, then make it pass"

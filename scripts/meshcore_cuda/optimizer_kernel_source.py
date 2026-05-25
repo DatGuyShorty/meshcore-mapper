@@ -22,6 +22,7 @@ void optimizer_signal_kernel(
     float radiusM,
     int useLos,
     int useFresnel,
+    int useDeygout,
     float profileTargetSpacingM,
     int profileMaxSamples,
     int useFoliage,
@@ -127,7 +128,18 @@ void optimizer_signal_kernel(
             }
 
             if (maxV >= -0.7f) {
-                float diffLoss = knife_edge_loss_from_v(maxV);
+                float diffLoss = useDeygout != 0
+                    ? deygout_diffraction_loss(
+                        txLat, txLon,
+                        ptLat, ptLon,
+                        elev, evalRes,
+                        latMin, latMax,
+                        lonMin, lonMax,
+                        txAbs, rxAbs,
+                        dist, samples,
+                        lambda, reEff
+                    )
+                    : knife_edge_loss_from_v(maxV);
                 sig -= diffLoss;
                 if (diffLoss > 60.0f) sig = fminf(sig, effectiveSens - 10.0f);
             }

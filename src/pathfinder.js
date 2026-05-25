@@ -1,10 +1,10 @@
 /**
  * pathfinder.js — Best relay path search through the repeater network.
  *
- * Algorithm: max-bottleneck Dijkstra.
- *   Maximises the minimum per-hop link margin along the path (i.e. find the path
- *   where the worst single hop has the highest margin).  This matches how a LoRa
- *   mesh routes: a chain is only as reliable as its weakest link.
+ * Algorithm: radius-limited frontier search.
+ *   Starts from the selected source node, expands only to repeaters within the
+ *   hop radius, and ranks paths lexicographically by bottleneck margin then hop
+ *   count. This matches the requested "best signal, fewest hops" behavior.
  *
  * Elevation fetches are batched in two calls:
  *   1. One point per node (TX/RX ground elevation).
@@ -15,11 +15,12 @@
 import { fetchElevations } from './elevation.js';
 import { fetchFoliage, foliageLossDb } from './foliage.js';
 import { fetchBuildings, buildingLossDb } from './buildings.js';
-import { haversine, fspl, checkLoS, profileSampleCount } from './propagation.js';
+import { antennaPatternOffsetDb, bearingDeg, haversine, fspl, checkLoS, profileSampleCount } from './propagation.js';
 
 const PROFILE_TARGET_SPACING_M = 75;
 const PROFILE_MAX_SAMPLES = 512;
 const MAX_EDGE_KM = 200;    // skip edges longer than this — no LoRa link will span 200 km
+const DEFAULT_HOP_RADIUS_KM = 25;
 
 /**
  * Build profile sample-point array from node A to node B.
@@ -62,6 +63,24 @@ function _reverseFloat64(src) {
   return out;
 }
 
+function _isBetterScore(candidateMargin, candidateHops, currentMargin, currentHops) {
+  if (candidateMargin > currentMargin) return true;
+  if (candidateMargin < currentMargin) return false;
+  return candidateHops < currentHops;
+}
+
+function _bestFrontierIndex(frontier, bestMargin, bestHops) {
+  let bestPos = 0;
+  for (let i = 1; i < frontier.length; i++) {
+    const a = frontier[i];
+    const b = frontier[bestPos];
+    if (_isBetterScore(bestMargin[a], bestHops[a], bestMargin[b], bestHops[b])) {
+      bestPos = i;
+    }
+  }
+  return bestPos;
+}
+
 /**
  * Link margin (dB) when node txNode transmits to rxNode.
  * rxGain  — RX antenna gain, dBi (assumed same for all RX nodes)
@@ -74,7 +93,7 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
   const distM = haversine(txNode.lat, txNode.lon, rxNode.lat, rxNode.lon);
   if (distM < 1) return 60; // same location
   const pathLoss = fspl(distM, txNode.freq);
-  const los = checkLoS(txElev, rxElev, profile, txNode.height, rxNode.height, distM, txNode.freq, useFresnel);
+  const los = checkLoS(txElev, rxElev, profile, txNode.height, rxNode.height, distM, txNode.freq, useFresnel, 'deygout');
   const foliageLoss = scenario.foliage
     ? foliageLossDb(
         profileLats, profileLons, profile, txNode.height, rxNode.height,
@@ -91,8 +110,13 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
         distM, scenario.buildingLossPerM
       )
     : 0;
+  const txToRxBearing = bearingDeg(txNode.lat, txNode.lon, rxNode.lat, rxNode.lon);
+  const rxToTxBearing = bearingDeg(rxNode.lat, rxNode.lon, txNode.lat, txNode.lon);
+  const txPatternOffset = antennaPatternOffsetDb(txNode.pattern ?? 'omni', txNode.azimuthDeg ?? 0, txToRxBearing);
+  const rxPatternOffset = antennaPatternOffsetDb(rxNode.pattern ?? 'omni', rxNode.azimuthDeg ?? 0, rxToTxBearing);
   const effectiveRxGain = Number.isFinite(rxNode.gain) ? rxNode.gain : rxGain;
-  return txNode.power + txNode.gain + effectiveRxGain - pathLoss - los.diffractionLossDb - foliageLoss - buildingLoss - rxSens;
+  return txNode.power + txNode.gain + txPatternOffset + effectiveRxGain + rxPatternOffset
+    - pathLoss - los.diffractionLossDb - foliageLoss - buildingLoss - rxSens;
 }
 
 /**
@@ -109,44 +133,87 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
  *   bottleneck: number,
  *   numHops: number,
  *   edgeDistances: number[],
+ *   edgeRxPowers: number[],
  * } | null>}  null = no path found
  */
 export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresnel, scenario = {}) {
+  const t0 = performance.now();
+  const step = (msg) => {
+    const elapsed = (performance.now() - t0).toFixed(1);
+    if (typeof scenario.onLog === 'function') {
+      scenario.onLog(`[${elapsed}ms] ${msg}`);
+      return;
+    }
+    console.info(`[pathfinder] [${elapsed}ms] ${msg}`);
+  };
+  const progress = (pct, msg) => {
+    if (typeof scenario.onProgress === 'function') scenario.onProgress(pct, msg);
+  };
   const signal = scenario.signal ?? null;
   const n = nodes.length;
   if (n < 2) return null;
+
+  progress(2, 'Preparing relay path search...');
+  step('Settings: ' + JSON.stringify({
+    nodes: n,
+    fromId,
+    toId,
+    rxSens,
+    rxGain,
+    useFresnel,
+    pathHopRadiusKm: Number.isFinite(scenario.pathHopRadiusKm) ? scenario.pathHopRadiusKm : DEFAULT_HOP_RADIUS_KM,
+    useFoliage: Boolean(scenario.useFoliage),
+    useBuildings: Boolean(scenario.useBuildings),
+    deriveObstacleHeights: Boolean(scenario.deriveObstacleHeights),
+  }));
 
   const idxById = new Map(nodes.map((nd, i) => [nd.id, i]));
   const fromIdx = idxById.get(fromId);
   const toIdx   = idxById.get(toId);
   if (fromIdx === undefined || toIdx === undefined) return null;
   if (fromIdx === toIdx) return null;
+  const hopRadiusKm = Math.max(1, Number(scenario.pathHopRadiusKm) || DEFAULT_HOP_RADIUS_KM);
+  const hopRadiusM = Math.min(hopRadiusKm, MAX_EDGE_KM) * 1000;
+  step(`Hop radius: ${hopRadiusKm.toFixed(1)} km (effective cap ${Math.min(hopRadiusKm, MAX_EDGE_KM).toFixed(1)} km)`);
+  const sourceRadiusCount = nodes.reduce((count, nd, idx) => {
+    if (idx === fromIdx) return count;
+    const distM = haversine(nodes[fromIdx].lat, nodes[fromIdx].lon, nd.lat, nd.lon);
+    return count + (distM <= hopRadiusM ? 1 : 0);
+  }, 0);
+  step(`Source-radius filter: ${sourceRadiusCount} node(s) within first-hop window`);
 
   // ── 1. Fetch ground elevations for all nodes (one point each) ──
+  progress(12, 'Fetching node elevations...');
   const nodeElevs = await fetchElevations(
     nodes.map(nd => ({ latitude: nd.lat, longitude: nd.lon })),
     null,
     { signal }
   );
+  progress(22, 'Node elevations ready.');
+  step(`Node elevations fetched (${nodeElevs.length})`);
 
-  // ── 2. Build edge list + batch all profile points ──
-  // Keep only edges within MAX_EDGE_KM to limit fetch size.
-  const edges = []; // { i, j, distM, offset }
+  // ── 2. Build radius-limited candidate edges + batch all profile points ──
+  const edges = []; // { i, j, distM, samples, offset }
   const allProfilePts = [];
 
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const distM = haversine(nodes[i].lat, nodes[i].lon, nodes[j].lat, nodes[j].lon);
-      if (distM > MAX_EDGE_KM * 1000) continue;
+      if (distM > hopRadiusM) continue;
       const samples = profileSampleCount(distM, PROFILE_TARGET_SPACING_M, 16, PROFILE_MAX_SAMPLES);
       edges.push({ i, j, distM, samples, offset: allProfilePts.length });
       _profilePoints(nodes[i], nodes[j], samples).forEach(p => allProfilePts.push(p));
     }
   }
+  progress(36, `Built ${edges.length} candidate hop${edges.length !== 1 ? 's' : ''}.`);
+  step(`Candidate hops within radius: ${edges.length}, profile points: ${allProfilePts.length}`);
 
   let profileElevs = [];
   if (allProfilePts.length > 0) {
+    progress(44, `Fetching terrain profiles for ${edges.length} hop${edges.length !== 1 ? 's' : ''}...`);
     profileElevs = await fetchElevations(allProfilePts, null, { signal });
+    progress(58, 'Terrain profiles ready.');
+    step(`Profile elevations fetched (${profileElevs.length})`);
   }
 
   // ── 3. Build directed margin matrix ──
@@ -154,6 +221,7 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
   let foliage = null;
   let buildings = null;
   if (scenario.useFoliage || scenario.useBuildings) {
+    progress(64, 'Fetching relay obstacle layers...');
     const bbox = _nodesBbox(nodes);
     [foliage, buildings] = await Promise.all([
       scenario.useFoliage
@@ -179,6 +247,8 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
             })
         : Promise.resolve(null),
     ]);
+    progress(72, 'Relay obstacle layers ready.');
+    step(`Obstacle layers ready: foliage=${foliage ? 'yes' : 'no'}, buildings=${buildings ? 'yes' : 'no'}`);
   }
   const linkScenario = {
     foliage,
@@ -187,8 +257,7 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
     buildingLossPerM: scenario.buildingLossPerM ?? 0.5,
   };
 
-  const margin  = new Float32Array(n * n).fill(-Infinity);
-  const distMat = new Float32Array(n * n).fill(0);
+  const adjacency = Array.from({ length: n }, () => []);
 
   for (const { i, j, distM, samples, offset } of edges) {
     const profile = profileElevs.slice(offset, offset + samples);
@@ -197,62 +266,79 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
     const reverseProfile = profile.slice().reverse();
     const reverseLats = _reverseFloat64(lats);
     const reverseLons = _reverseFloat64(lons);
-    margin[i * n + j] = _linkMargin(nodes[i], nodeElevs[i], nodes[j], nodeElevs[j], profile, lats, lons, rxGain, rxSens, useFresnel, linkScenario);
-    margin[j * n + i] = _linkMargin(nodes[j], nodeElevs[j], nodes[i], nodeElevs[i], reverseProfile, reverseLats, reverseLons, rxGain, rxSens, useFresnel, linkScenario);
-    distMat[i * n + j] = distMat[j * n + i] = distM;
+    const forwardMargin = _linkMargin(nodes[i], nodeElevs[i], nodes[j], nodeElevs[j], profile, lats, lons, rxGain, rxSens, useFresnel, linkScenario);
+    const reverseMargin = _linkMargin(nodes[j], nodeElevs[j], nodes[i], nodeElevs[i], reverseProfile, reverseLats, reverseLons, rxGain, rxSens, useFresnel, linkScenario);
+    adjacency[i].push({ idx: j, distM, margin: forwardMargin });
+    adjacency[j].push({ idx: i, distM, margin: reverseMargin });
   }
+  progress(82, 'Relay hop margins calculated.');
+  step('Radius-limited hop margins built');
 
-  // ── 4. Max-bottleneck Dijkstra ──
-  // best[i] = highest bottleneck margin reachable from fromIdx to i
-  const best    = new Float32Array(n).fill(-Infinity);
-  const prev    = new Int32Array(n).fill(-1);
-  const visited = new Uint8Array(n);
-  best[fromIdx] = Infinity; // source is free
+  // ── 4. Radius-based frontier search ──
+  // Prefer stronger bottleneck margin first, then fewer hops.
+  const bestMargin = new Float32Array(n).fill(-Infinity);
+  const bestHops = new Int32Array(n).fill(0x7fffffff);
+  const prev = new Int32Array(n).fill(-1);
+  const incomingMargin = new Float32Array(n).fill(-Infinity);
+  const settled = new Uint8Array(n);
+  const frontier = [fromIdx];
+  bestMargin[fromIdx] = Infinity;
+  bestHops[fromIdx] = 0;
 
-  for (let iter = 0; iter < n; iter++) {
-    // Pick the unvisited node with the best reachable bottleneck
-    let u = -1;
-    for (let k = 0; k < n; k++) {
-      if (!visited[k] && (u === -1 || best[k] > best[u])) u = k;
-    }
-    if (u === -1 || best[u] === -Infinity) break;
-    visited[u] = 1;
+  while (frontier.length > 0) {
+    const uPos = _bestFrontierIndex(frontier, bestMargin, bestHops);
+    const u = frontier.splice(uPos, 1)[0];
+    if (settled[u]) continue;
+    settled[u] = 1;
     if (u === toIdx) break;
 
-    for (let v = 0; v < n; v++) {
-      if (visited[v]) continue;
-      const m = margin[u * n + v];
-      if (m === -Infinity) continue;
-      const reachable = Math.min(best[u], m);
-      if (reachable > best[v]) {
-        best[v] = reachable;
+    for (const edge of adjacency[u]) {
+      const v = edge.idx;
+      if (settled[v]) continue;
+      const reachableMargin = Math.min(bestMargin[u], edge.margin);
+      const reachableHops = bestHops[u] + 1;
+      if (_isBetterScore(reachableMargin, reachableHops, bestMargin[v], bestHops[v])) {
+        bestMargin[v] = reachableMargin;
+        bestHops[v] = reachableHops;
         prev[v] = u;
+        incomingMargin[v] = edge.margin;
+        frontier.push(v);
       }
     }
   }
+  progress(92, 'Relay graph search complete.');
+  step('Radius-based frontier search complete');
 
-  if (best[toIdx] === -Infinity) return null; // no connected path
+  if (bestMargin[toIdx] === -Infinity) {
+    progress(100, 'No relay path found.');
+    step(`No path found (${(performance.now() - t0).toFixed(1)}ms total)`);
+    return null; // no connected path
+  }
 
   // ── 5. Reconstruct path ──
   const path = [];
   let cur = toIdx;
   while (cur !== fromIdx) {
     const p = prev[cur];
-    path.unshift({ node: nodes[cur], incomingMargin: margin[p * n + cur] });
+    path.unshift({ node: nodes[cur], incomingMargin: incomingMargin[cur] });
     cur = p;
   }
   path.unshift({ node: nodes[fromIdx], incomingMargin: null });
 
   const edgeDistances = [];
+  const edgeRxPowers = [];
   for (let s = 1; s < path.length; s++) {
     const a = path[s - 1].node, b = path[s].node;
     edgeDistances.push(haversine(a.lat, a.lon, b.lat, b.lon));
+    edgeRxPowers.push(path[s].incomingMargin + rxSens);
   }
 
+  progress(100, 'Relay path ready.');
   return {
     path,
-    bottleneck: best[toIdx],
+    bottleneck: bestMargin[toIdx],
     numHops: path.length - 1,
     edgeDistances,
+    edgeRxPowers,
   };
 }

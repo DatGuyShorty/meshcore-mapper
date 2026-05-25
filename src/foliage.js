@@ -11,6 +11,13 @@ const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
+const MIRROR_COOLDOWN_MS = {
+  status406: 10 * 60 * 1000,
+  status429: 2 * 60 * 1000,
+  status5xx: 60 * 1000,
+  network: 60 * 1000,
+};
+const _mirrorCooldownUntil = new Map();
 
 // Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same data.
 // Old 'v3:' per-repeater exact-bbox keys become unreachable (stale but harmless).
@@ -18,6 +25,20 @@ const TILE_SIZE = 0.25;  // degrees — 0.25° ≈ 27 km lat; a 15 km radius spa
 const CACHE_V_OSM = 'fv4:';
 const CACHE_V_DERIVED = 'fv5:'; // canopy heights prefer DSM-DEM derivation
 const FOLIAGE_TILE_CONCURRENCY = 3;
+
+function _mirrorInCooldown(base) {
+  return (_mirrorCooldownUntil.get(base) ?? 0) > Date.now();
+}
+
+function _markMirrorCooldown(base, ms) {
+  _mirrorCooldownUntil.set(base, Date.now() + Math.max(1000, ms));
+}
+
+function _pickMirror(attempt) {
+  const available = OVERPASS_MIRRORS.filter(base => !_mirrorInCooldown(base));
+  const pool = available.length ? available : OVERPASS_MIRRORS;
+  return pool[attempt % pool.length];
+}
 
 function _abortError() {
   const err = new Error('Cancelled');
@@ -81,6 +102,24 @@ const CANOPY_HEIGHTS = {
 const _memCache    = new Map();
 const MEM_CACHE_MAX = 8;
 
+function _isClosedRing(ring) {
+  if (!Array.isArray(ring) || ring.length < 4) return false;
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  return !!first && !!last && first[0] === last[0] && first[1] === last[1];
+}
+
+function _fallbackFeatureId(prefix, ring, bbox) {
+  if (bbox) {
+    return `${prefix}:bb:${bbox.latMin.toFixed(6)}:${bbox.latMax.toFixed(6)}:${bbox.lonMin.toFixed(6)}:${bbox.lonMax.toFixed(6)}:${ring?.length ?? 0}`;
+  }
+  if (!ring?.length) return `${prefix}:empty`;
+  const first = ring[0];
+  const mid = ring[Math.floor(ring.length / 2)] ?? first;
+  const last = ring[ring.length - 1] ?? first;
+  return `${prefix}:rg:${ring.length}:${first[0].toFixed(6)}:${first[1].toFixed(6)}:${mid[0].toFixed(6)}:${mid[1].toFixed(6)}:${last[0].toFixed(6)}:${last[1].toFixed(6)}`;
+}
+
 function _polygonCentroid(ring) {
   if (!ring?.length) return null;
   let lat = 0;
@@ -92,13 +131,26 @@ function _polygonCentroid(ring) {
   return { latitude: lat / ring.length, longitude: lon / ring.length };
 }
 
-async function _deriveCanopyFromDsmMinusDem(polygons, fallbackHeights, signal, datasetBatchConcurrency) {
+async function _deriveCanopyFromDsmMinusDem(polygons, fallbackHeights, signal, datasetBatchConcurrency, sampleLimit = 0) {
   if (!polygons.length) return fallbackHeights;
 
-  const centroids = new Array(polygons.length);
-  for (let i = 0; i < polygons.length; i++) {
-    centroids[i] = _polygonCentroid(polygons[i]) ?? { latitude: 0, longitude: 0 };
+  const sampleCount = Number.isFinite(sampleLimit) ? Math.max(0, Math.floor(sampleLimit)) : 0;
+  const sampled = [];
+  if (sampleCount > 0 && polygons.length > sampleCount) {
+    const step = polygons.length / sampleCount;
+    const seen = new Set();
+    for (let i = 0; i < sampleCount; i++) {
+      const idx = Math.min(polygons.length - 1, Math.floor(i * step));
+      if (seen.has(idx)) continue;
+      seen.add(idx);
+      sampled.push({ idx, centroid: _polygonCentroid(polygons[idx]) ?? { latitude: 0, longitude: 0 } });
+    }
+  } else {
+    for (let i = 0; i < polygons.length; i++) {
+      sampled.push({ idx: i, centroid: _polygonCentroid(polygons[i]) ?? { latitude: 0, longitude: 0 } });
+    }
   }
+  const centroids = sampled.map(s => s.centroid);
 
   try {
     const fetchOpts = { signal, batchConcurrency: datasetBatchConcurrency };
@@ -109,13 +161,13 @@ async function _deriveCanopyFromDsmMinusDem(polygons, fallbackHeights, signal, d
 
     const derived = fallbackHeights.slice();
     let applied = 0;
-    for (let i = 0; i < derived.length; i++) {
+    for (let i = 0; i < sampled.length; i++) {
       const delta = dsm[i] - dem[i];
       if (!Number.isFinite(delta) || delta <= 0) continue;
-      derived[i] = Math.max(0.5, Math.min(60, delta));
+      derived[sampled[i].idx] = Math.max(0.5, Math.min(60, delta));
       applied++;
     }
-    console.info(`[foliage] DSM-DEM canopy applied for ${applied}/${derived.length} polygons`);
+    console.info(`[foliage] DSM-DEM canopy applied for ${applied}/${sampled.length} polygons (sampled from ${derived.length})`);
     return derived;
   } catch (err) {
     if (err?.cancelled || err?.name === 'AbortError') throw err;
@@ -154,6 +206,7 @@ async function _fetchFoliageTile(la, lo, key, {
   signal = null,
   datasetBatchConcurrency = 2,
   deriveObstacleHeights = false,
+  derivationSampleLimit = 0,
 } = {}) {
   _throwIfAborted(signal);
   if (_memCache.has(key)) {
@@ -183,36 +236,53 @@ async function _fetchFoliageTile(la, lo, key, {
   const query = `[out:json][timeout:60];(${filters});out geom;`;
 
   let res = null, lastErr = null;
-  for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 2; attempt++) {
+  for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 3; attempt++) {
     _throwIfAborted(signal);
-    const base = OVERPASS_MIRRORS[attempt % OVERPASS_MIRRORS.length];
-    const url  = `${base}?data=${encodeURIComponent(query)}`;
+    const base = _pickMirror(attempt);
     if (attempt > 0) await _sleep(2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length), signal);
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener('abort', onAbort, { once: true });
-    const timer = setTimeout(() => controller.abort(), 60000);
     try {
-      res = await scheduledFetch(url, { headers: { 'Accept': '*/*' }, signal: controller.signal });
-      clearTimeout(timer);
+      res = await scheduledFetch(base, {
+        method: 'POST',
+        headers: {
+          'Accept': '*/*',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal,
+        timeoutMs: 60000,
+      });
     } catch (err) {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) throw _abortError();
+      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.network);
       lastErr = err;
       continue;
     }
-    signal?.removeEventListener('abort', onAbort);
-    if (res.status === 429 || res.status === 406 || res.status >= 500) { res = null; continue; }
+    if (res.status === 406) {
+      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status406);
+      res = null;
+      continue;
+    }
+    if (res.status === 429) {
+      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status429);
+      res = null;
+      continue;
+    }
+    if (res.status >= 500) {
+      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status5xx);
+      res = null;
+      continue;
+    }
     break;
   }
   if (!res) throw new Error(`Overpass API unreachable: ${lastErr?.message ?? 'all mirrors rejected'}`);
   if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
 
   const data = await res.json();
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [];
+  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [];
+  const seenFeatureIds = new Set();
 
-  const addRing = (ring, factor, canopyH) => {
+  const addRing = (ring, factor, canopyH, featureId) => {
+    if (featureId && seenFeatureIds.has(featureId)) return;
     if (ring.length < 3) return;
     let la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity;
     for (const [rla, rlo] of ring) {
@@ -223,22 +293,34 @@ async function _fetchFoliageTile(la, lo, key, {
     bboxes.push({ latMin: la0, latMax: la1, lonMin: lo0, lonMax: lo1 });
     factors.push(factor);
     canopyHeights.push(canopyH);
+    ids.push(featureId || _fallbackFeatureId('f', ring, bboxes[bboxes.length - 1]));
+    if (featureId) seenFeatureIds.add(featureId);
   };
 
   for (const el of data.elements) {
     const tag = el.tags?.landuse || el.tags?.natural || el.tags?.barrier;
+    const isHedge = tag === 'hedge';
     // Loss factor relative to dense forest (1.0). Low/sparse vegetation gets partial weight.
     const factor = (['scrub', 'heath', 'shrubbery', 'hedge'].includes(tag)) ? 0.4
                  : (['orchard', 'vineyard', 'greenhouse_horticulture'].includes(tag)) ? 0.55
                  : (['wetland'].includes(tag)) ? 0.6
                  : 1.0;
     const canopyH  = CANOPY_HEIGHTS[tag] ?? 10;
+    const baseFeatureId = `${el.type}:${el.id ?? 'na'}`;
     if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
-      addRing(el.geometry.map(n => [n.lat, n.lon]), factor, canopyH);
+      const ring = el.geometry.map(n => [n.lat, n.lon]);
+      if (isHedge && !_isClosedRing(ring) && String(el.tags?.area || '').toLowerCase() !== 'yes') continue;
+      addRing(ring, factor, canopyH, baseFeatureId);
     } else if (el.type === 'relation' && el.members) {
-      for (const m of el.members) {
+      for (let mi = 0; mi < el.members.length; mi++) {
+        const m = el.members[mi];
         if (m.type !== 'way' || m.role === 'inner' || !m.geometry || m.geometry.length < 3) continue;
-        addRing(m.geometry.map(n => [n.lat, n.lon]), factor, canopyH);
+        addRing(
+          m.geometry.map(n => [n.lat, n.lon]),
+          factor,
+          canopyH,
+          `${baseFeatureId}:outer:${m.ref ?? mi}`
+        );
       }
     }
   }
@@ -248,11 +330,12 @@ async function _fetchFoliageTile(la, lo, key, {
       polygons,
       canopyHeights,
       signal,
-      datasetBatchConcurrency
+      datasetBatchConcurrency,
+      derivationSampleLimit
     )
     : canopyHeights;
   console.info(`[foliage] tile ${key}: ${polygons.length} polygon(s)`);
-  const tileData = { polygons, bboxes, factors, canopyHeights: derivedCanopyHeights };
+  const tileData = { polygons, bboxes, factors, canopyHeights: derivedCanopyHeights, ids };
   if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
   _memCache.set(key, tileData);
   await window.electronAPI.cacheFoliageStore(key, tileData);
@@ -271,11 +354,13 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
     tileConcurrency = FOLIAGE_TILE_CONCURRENCY,
     datasetBatchConcurrency = 2,
     deriveObstacleHeights = false,
+    derivationSampleLimit = 100,
   } = options;
   _throwIfAborted(signal);
   const cacheVersion = deriveObstacleHeights ? CACHE_V_DERIVED : CACHE_V_OSM;
   const tiles = _tilesForBbox(latMin, latMax, lonMin, lonMax, cacheVersion);
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [];
+  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [];
+  const seenMerged = new Set();
   let completed = 0;
   let nextIdx = 0;
   const workersLimit = Math.max(1, Math.min(12, Math.floor(tileConcurrency)));
@@ -291,7 +376,14 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
       const { la, lo, key } = tiles[idx];
 
       let td;
-      try { td = await _fetchFoliageTile(la, lo, key, { signal, datasetBatchConcurrency, deriveObstacleHeights }); }
+      try {
+        td = await _fetchFoliageTile(la, lo, key, {
+          signal,
+          datasetBatchConcurrency,
+          deriveObstacleHeights,
+          derivationSampleLimit,
+        });
+      }
       catch (e) {
         if (e?.cancelled || e?.name === 'AbortError') throw e;
         console.warn(`[foliage] tile ${key} failed, skipping:`, e);
@@ -300,10 +392,16 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
 
       if (td) {
         for (let i = 0; i < td.polygons.length; i++) {
+          const poly = td.polygons[i];
+          const bb = td.bboxes[i];
+          const id = td.ids?.[i] || _fallbackFeatureId('f', poly, bb);
+          if (seenMerged.has(id)) continue;
+          seenMerged.add(id);
           polygons.push(td.polygons[i]);
           bboxes.push(td.bboxes[i]);
           factors.push(td.factors[i]);
           canopyHeights.push(td.canopyHeights[i]);
+          ids.push(id);
         }
       }
 
@@ -316,7 +414,7 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
 
   console.info(`[foliage] merged ${polygons.length} polygon(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);
-  return { polygons, bboxes, factors, canopyHeights, tileIndex };
+  return { polygons, bboxes, factors, canopyHeights, ids, tileIndex };
 }
 
 export function weissbergerFoliageLossDb(freqMHz, depthM) {

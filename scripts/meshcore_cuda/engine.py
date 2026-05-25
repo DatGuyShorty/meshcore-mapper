@@ -55,6 +55,7 @@ def compute(params_path):
     rep = p["rep"]
     d_elev = cp.asarray(elev)
     d_rgba = cp.empty(grid_res * grid_res * 4, dtype=cp.uint8)
+    d_signal = cp.empty(grid_res * grid_res, dtype=cp.float32)
 
     d_f_verts = cp.asarray(np.asarray(foliage["verts"], dtype=np.float32))
     d_f_offsets = cp.asarray(np.asarray(foliage["offsets"], dtype=np.int32))
@@ -80,7 +81,7 @@ def compute(params_path):
     grid = (math.ceil(grid_res / block[0]), math.ceil(grid_res / block[1]))
     _json({"type": "progress", "stage": "cuda-kernel", "pct": 0.72})
     kernel(grid, block, (
-        d_elev, d_rgba,
+        d_elev, d_rgba, d_signal,
         np.int32(grid_res), np.int32(elev_res),
         np.float32(p["latMin"]), np.float32(p["latMax"]), np.float32(p["lonMin"]), np.float32(p["lonMax"]),
         np.float32(rep["lat"]), np.float32(rep["lon"]), np.float32(p["txElev"]), np.float32(rep["height"]),
@@ -124,6 +125,7 @@ def compute(params_path):
     t_kernel = time.perf_counter()
     _json({"type": "progress", "stage": "downloading-result", "pct": 0.9})
     cp.asnumpy(d_rgba).tofile(p["outPath"])
+    cp.asnumpy(d_signal).tofile(p["signalPath"])
     t_download = time.perf_counter()
     _json({
         "ok": True,

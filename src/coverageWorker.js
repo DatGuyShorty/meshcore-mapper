@@ -10,6 +10,7 @@ self.onmessage = ({ data }) => {
     gridRes, ELEV_RES, rowStart, rowEnd,
     rep, txElev, latMin, latMax, lonMin, lonMax,
     radiusKm, rxHeight, effectiveSens, useLos, useFresnel,
+    diffractionModel,
     useFoliage, foliageLossPerM, profileTargetSpacingM, profileMaxSamples, foliage,
     useBuildings, buildingLossPerM, buildings,
   } = data;
@@ -18,6 +19,7 @@ self.onmessage = ({ data }) => {
   const gridElevs = new Float32Array(gridElevsBuf);
   const rowCount = rowEnd - rowStart;
   const rgba = new Uint8ClampedArray(rowCount * gridRes * 4);
+  const signalGrid = new Float32Array(rowCount * gridRes);
   const fsplBase = fsplBaseDb(rep.freq);
   const profileBuffers = ensureProfileBuffers(profileMaxSamples);
   const bounds = { latMin, latMax, lonMin, lonMax };
@@ -35,9 +37,11 @@ self.onmessage = ({ data }) => {
       const colFrac = gridRes > 1 ? c / (gridRes - 1) : 0;
       const ptLon = lonMin + colFrac * (lonMax - lonMin);
       const localBase = ((r - rowStart) * gridRes + c) * 4;
+      const localIdx = (r - rowStart) * gridRes + c;
       const dist = flatDistanceM(rep.lat, rep.lon, ptLat, ptLon);
 
       if (dist > radiusM) {
+        signalGrid[localIdx] = -200;
         writePixel(rgba, localBase, -200, effectiveSens);
         continue;
       }
@@ -46,7 +50,7 @@ self.onmessage = ({ data }) => {
       const { rxPower } = computeSignalToPoint({
         tx: rep, txElev, rxLat: ptLat, rxLon: ptLon,
         distM: dist, fsplBase, elevGrid: gridElevs, elevRes: ELEV_RES, bounds,
-        rxHeight, effectiveSens, useLos, useFresnel,
+        rxHeight, effectiveSens, useLos, useFresnel, diffractionModel,
         foliage: useFoliage ? foliage : null,
         foliageLossPerM,
         buildings: useBuildings ? buildings : null,
@@ -54,6 +58,7 @@ self.onmessage = ({ data }) => {
         profileTargetSpacingM, profileMaxSamples, profileBuffers,
       });
 
+      signalGrid[localIdx] = rxPower;
       writePixel(rgba, localBase, rxPower, effectiveSens);
     }
 
@@ -68,9 +73,10 @@ self.onmessage = ({ data }) => {
     rowStart,
     rowEnd,
     rgbaBuffer: rgba.buffer,
+    signalBuffer: signalGrid.buffer,
     stats: {
       computeMs: performance.now() - t0,
       insidePoints,
     },
-  }, [rgba.buffer]);
+  }, [rgba.buffer, signalGrid.buffer]);
 };

@@ -9,10 +9,13 @@
 </head>
 <body>
   <div id="app">
-    <aside id="sidebar">
-      <div id="sidebar-header">
-        <h1>MeshCore Mapper</h1>
-        <p class="subtitle">RF coverage and propagation planning</p>
+    <header id="topbar">
+      <div id="brand-block" aria-label="Application">
+        <div class="brand-copy">
+          <h1>MeshCore Mapper</h1>
+          <p class="subtitle">RF coverage and propagation planning</p>
+        </div>
+        <button id="btn-toggle-sidebar" class="btn-secondary" type="button" aria-controls="sidebar" aria-expanded="true">Hide Panel</button>
       </div>
 
       <div id="tab-bar" role="tablist" aria-label="Workspace sections">
@@ -36,6 +39,15 @@
           <span class="tab-icon" aria-hidden="true">S</span>
           <span class="tab-label">Settings</span>
         </button>
+      </div>
+
+    </header>
+
+    <div id="workspace">
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <h2 id="drawer-title">Nodes</h2>
+        <p class="subtitle">Settings and workflow controls</p>
       </div>
 
       <div class="tab-panel" id="tab-nodes" role="tabpanel">
@@ -114,10 +126,10 @@
           </div>
 
           <div class="node-filter-row">
-            <input id="node-filter" type="search" placeholder="Filter nodes" />
+            <input id="node-filter" type="search" placeholder="Search nodes by name, coords, or radio settings" />
             <select id="node-sort" title="Sort order">
               <option value="added">Added order</option>
-              <option value="name-az">Name A to Z</option>
+              <option value="name-az" selected>Name A to Z</option>
               <option value="name-za">Name Z to A</option>
             </select>
           </div>
@@ -137,7 +149,7 @@
             <p class="section-heading">Reference overlays</p>
             <div class="option-group">
               <label class="checkbox-label">
-                <input type="checkbox" id="layer-foliage" />
+                <input type="checkbox" id="layer-foliage" checked />
                 Forest and vegetation
               </label>
               <label class="opacity-row">Vegetation opacity
@@ -146,7 +158,7 @@
             </div>
             <div class="option-group">
               <label class="checkbox-label">
-                <input type="checkbox" id="layer-buildings" />
+                <input type="checkbox" id="layer-buildings" checked />
                 Building footprints
               </label>
               <label class="opacity-row">Building opacity
@@ -157,6 +169,21 @@
               <input type="checkbox" id="layer-auto-refresh" checked />
               Auto-refresh on pan or zoom
             </label>
+          </div>
+          <div class="panel-section">
+            <p class="section-heading">3D Terrain</p>
+            <label>Terrain Detail
+              <select id="terrain3d-grid-res">
+                <option value="48">Fast</option>
+                <option value="64" selected>Balanced</option>
+                <option value="96">Detailed</option>
+                <option value="128">Maximum</option>
+              </select>
+            </label>
+            <label class="opacity-row">Vertical scale
+              <input type="range" id="terrain3d-vertical-scale" min="1" max="8" value="3" step="0.5" />
+            </label>
+            <button id="btn-refresh-3d" class="btn-secondary full-width" type="button">Refresh 3D View</button>
           </div>
           <div class="action-row">
             <button id="btn-refresh-layers" class="btn-secondary full-width">Refresh Layers</button>
@@ -216,70 +243,74 @@
             <div id="quality-note" class="quality-note"></div>
           </div>
 
-          <div class="panel-section">
-            <p class="section-heading">Propagation effects</p>
-            <label class="checkbox-label">
-              <input type="checkbox" id="use-los" checked />
-              Terrain diffraction and Earth curvature
-            </label>
-            <label class="checkbox-label" title="Fresnel clearance is reported as a clearance flag; diffraction loss is still computed from the terrain profile.">
-              <input type="checkbox" id="use-fresnel" checked />
-              Fresnel clearance flag
-            </label>
-            <div class="option-group">
+          <details class="subpanel">
+            <summary>Propagation Effects</summary>
+            <div class="panel-section">
               <label class="checkbox-label">
-                <input type="checkbox" id="use-foliage" />
-                Foliage attenuation
+                <input type="checkbox" id="use-los" checked />
+                Terrain diffraction and Earth curvature
               </label>
-              <label>Forest Loss (dB/m)
-                <input type="number" id="foliage-loss-per-m" value="0.3" min="0.01" max="2" step="0.01" title="Dense-vegetation linear loss, capped by the vegetation attenuation model for long forest paths." />
+              <label class="checkbox-label" title="Fresnel clearance is reported as a clearance flag; diffraction loss is still computed from the terrain profile.">
+                <input type="checkbox" id="use-fresnel" checked />
+                Fresnel clearance flag
               </label>
+              <div class="option-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-foliage" />
+                  Foliage attenuation
+                </label>
+                <label>Forest Loss (dB/m)
+                  <input type="number" id="foliage-loss-per-m" value="0.3" min="0.01" max="2" step="0.01" title="Dense-vegetation linear loss, capped by the vegetation attenuation model for long forest paths." />
+                </label>
+              </div>
+              <div class="option-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="use-buildings" />
+                  Building attenuation
+                </label>
+                <label>Building Loss (dB/m)
+                  <input type="number" id="building-loss-per-m" value="0.5" min="0.05" max="3" step="0.05" />
+                </label>
+              </div>
             </div>
-            <div class="option-group">
-              <label class="checkbox-label">
-                <input type="checkbox" id="use-buildings" />
-                Building attenuation
-              </label>
-              <label>Building Loss (dB/m)
-                <input type="number" id="building-loss-per-m" value="0.5" min="0.05" max="3" step="0.05" />
-              </label>
-            </div>
-          </div>
+          </details>
 
-          <div class="panel-section">
-            <p class="section-heading">Fetch performance</p>
-            <label>Compute Backend
-              <select id="compute-backend">
-                <option value="auto" selected>Auto</option>
-                <option value="cuda">Python CUDA</option>
-                <option value="cpu">CPU Workers</option>
-              </select>
-            </label>
-            <label>Obstacle Heights
-              <select id="obstacle-height-mode">
-                <option value="osm" selected>OSM defaults</option>
-                <option value="dsm-dem">DSM-DEM derived</option>
-              </select>
-            </label>
-            <div id="backend-status" class="status-line">Detecting compute backends...</div>
-            <div class="field-grid">
-              <label>Calculation Workers
-                <input type="number" id="compute-worker-count" value="0" min="0" max="8" step="1" title="0 = Auto" />
+          <details class="subpanel">
+            <summary>Compute and Fetch Settings</summary>
+            <div class="panel-section">
+              <label>Compute Backend
+                <select id="compute-backend">
+                  <option value="auto" selected>Auto (CUDA preferred)</option>
+                  <option value="cuda">Python CUDA preferred</option>
+                  <option value="cpu">CPU Workers</option>
+                </select>
               </label>
-              <label>DSM-DEM Workers
-                <input type="number" id="dataset-batch-concurrency" value="2" min="1" max="4" step="1" />
+              <label>Obstacle Heights
+                <select id="obstacle-height-mode">
+                  <option value="osm" selected>OSM defaults</option>
+                  <option value="dsm-dem">DSM-DEM derived</option>
+                </select>
               </label>
-              <label>DEM Tile Workers
-                <input type="number" id="dem-tile-concurrency" value="6" min="1" max="16" step="1" />
-              </label>
-              <label>Foliage Tile Workers
-                <input type="number" id="foliage-tile-concurrency" value="3" min="1" max="12" step="1" />
-              </label>
-              <label>Building Tile Workers
-                <input type="number" id="building-tile-concurrency" value="3" min="1" max="12" step="1" />
-              </label>
+              <div id="backend-status" class="status-line">Detecting compute backends...</div>
+              <div class="field-grid">
+                <label>Calculation Workers
+                  <input type="number" id="compute-worker-count" value="0" min="0" max="8" step="1" title="0 = Auto" />
+                </label>
+                <label>DSM-DEM Workers
+                  <input type="number" id="dataset-batch-concurrency" value="2" min="1" max="4" step="1" />
+                </label>
+                <label>DEM Tile Workers
+                  <input type="number" id="dem-tile-concurrency" value="6" min="1" max="16" step="1" />
+                </label>
+                <label>Foliage Tile Workers
+                  <input type="number" id="foliage-tile-concurrency" value="3" min="1" max="12" step="1" />
+                </label>
+                <label>Building Tile Workers
+                  <input type="number" id="building-tile-concurrency" value="3" min="1" max="12" step="1" />
+                </label>
+              </div>
             </div>
-          </div>
+          </details>
 
           <div class="action-row">
             <button id="btn-compute" class="btn-primary">Compute Coverage</button>
@@ -290,7 +321,7 @@
       </div>
 
       <div class="tab-panel hidden" id="tab-planning" role="tabpanel">
-        <details class="panel workflow-panel" open>
+        <details class="panel workflow-panel">
           <summary>Best Location Optimizer</summary>
           <div class="panel-section">
             <p class="section-heading">Search inputs</p>
@@ -329,15 +360,17 @@
           <div class="panel-section">
             <p class="section-heading">Endpoints</p>
             <div class="action-row">
-              <button id="btn-p2p-pick" class="btn-secondary">Pick A to B</button>
+              <button id="btn-p2p-pick" class="btn-secondary" title="Pick point A and point B on the map">Pick</button>
               <button id="btn-p2p-clear" class="btn-secondary">Clear</button>
-              <button id="btn-p2p-update" class="btn-primary">Recalculate</button>
+              <button id="btn-p2p-update" class="btn-primary">Update</button>
+              <button id="btn-p2p-dir-coverage" class="btn-secondary" title="Run coverage only in the A->B direction">Dir Coverage</button>
               <button id="btn-cancel-p2p" class="btn-secondary" disabled>Cancel</button>
             </div>
             <div id="p2p-pick-hint" class="hint hidden">Click point A (transmitter) on the map.</div>
           </div>
-          <div class="panel-section">
-            <p class="section-heading">Link inputs</p>
+          <details class="subpanel">
+            <summary>Radio Link Settings</summary>
+            <div class="panel-section">
             <div class="field-grid">
               <label>TX Height (m)
                 <input type="number" id="p2p-tx-height" value="10" min="1" max="500" />
@@ -362,10 +395,39 @@
                 <input type="number" id="p2p-freq" value="869.525" min="433" max="915" step="0.001" />
               </label>
             </div>
+            <div class="field-grid">
+              <label>Antenna Pattern
+                <select id="p2p-pattern">
+                  <option value="omni" selected>Omni</option>
+                  <option value="sector120">Sector 120°</option>
+                  <option value="sector90">Sector 90°</option>
+                </select>
+              </label>
+              <label>TX Azimuth (deg)
+                <input type="number" id="p2p-tx-azimuth" value="0" min="-360" max="360" step="1" />
+              </label>
+            </div>
+            <label>RX Azimuth (deg)
+              <input type="number" id="p2p-rx-azimuth" value="180" min="-360" max="360" step="1" />
+            </label>
             <label>RX Sensitivity (dBm)
               <input type="number" id="p2p-rx-sens" value="-133" min="-150" max="-80" />
             </label>
-          </div>
+            <label>Shadow Fading Std Dev (dB)
+              <input type="number" id="shadow-fading-sigma" value="0" min="0" max="12" step="0.5" />
+            </label>
+            <label class="checkbox-label" title="Run multiple shadow-fading trials and report reliability stats.">
+              <input type="checkbox" id="p2p-shadow-stochastic" />
+              Stochastic shadow fading (Monte Carlo)
+            </label>
+            <label>Monte Carlo trials
+              <input type="number" id="p2p-mc-trials" value="200" min="16" max="5000" step="1" />
+            </label>
+            <label>Directional coverage sector (deg)
+              <input type="number" id="p2p-dir-sector-deg" value="10" min="10" max="180" step="5" />
+            </label>
+            </div>
+          </details>
           <div id="p2p-status" class="hint hidden"></div>
           <div id="p2p-results"></div>
         </details>
@@ -382,10 +444,18 @@
                 <select id="path-to"></select>
               </label>
             </div>
+            <label>Hop Radius (km)
+              <input type="number" id="path-hop-radius-km" value="25" min="1" max="200" step="1" />
+            </label>
+            <div class="action-row compact">
+              <button id="btn-path-pick-from" class="btn-secondary">Pick From Map</button>
+              <button id="btn-path-pick-to" class="btn-secondary">Pick To Map</button>
+            </div>
             <label class="checkbox-label" title="Fresnel clearance is reported as a clearance flag; diffraction loss is computed from terrain obstruction.">
               <input type="checkbox" id="path-use-fresnel" checked />
               Fresnel clearance flag
             </label>
+            <div id="path-pick-hint" class="hint hidden">Click a repeater marker on the map to choose the path endpoint.</div>
           </div>
           <div class="action-row">
             <button id="btn-find-path" class="btn-primary full-width">Find Best Path</button>
@@ -443,8 +513,29 @@
 
     <div id="map-container">
       <div id="map"></div>
-      <div id="map-legend" aria-label="Coverage margin legend">
-        <div class="legend-title">Coverage Margin</div>
+      <div id="map-view-control" class="map-view-control" role="group" aria-label="Map view mode">
+        <button id="btn-view-2d" class="map-view-btn active" type="button" aria-pressed="true">2D</button>
+        <button id="btn-view-3d" class="map-view-btn" type="button" aria-pressed="false">3D</button>
+      </div>
+      <div id="map3d" class="hidden" aria-label="3D terrain and obstruction map">
+        <canvas id="map3d-canvas"></canvas>
+        <div class="map3d-toolbar" role="group" aria-label="3D view controls">
+          <button id="btn-map3d-reset" class="btn-secondary btn-xs" type="button">Reset</button>
+          <button id="btn-map3d-refresh" class="btn-secondary btn-xs" type="button">Refresh</button>
+          <button id="btn-map3d-fullscreen" class="btn-secondary btn-xs" type="button">Fullscreen</button>
+        </div>
+        <div id="map3d-status" class="status-line hidden"></div>
+        <div id="map3d-cursor"></div>
+      </div>
+      <div id="map-legend" data-mode="margin" aria-label="Coverage margin legend">
+        <div class="legend-header">
+          <div class="legend-title" id="legend-title">Coverage Margin</div>
+          <select id="coverage-overlay-mode" aria-label="Signal overlay">
+            <option value="margin">Margin</option>
+            <option value="rssi">RSSI</option>
+            <option value="snr">SNR</option>
+          </select>
+        </div>
         <div class="legend-gradient">
           <div class="legend-gradient-bar"></div>
           <div class="legend-gradient-labels">
@@ -465,6 +556,7 @@
         <span id="cursor-coords"></span>
       </div>
     </div>
+    </div>
   </div>
 
   <div id="dev-console-bar">
@@ -481,21 +573,53 @@
   </div>
 
   <script src="vendor/leaflet.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js"
+      }
+    }
+  </script>
   <script>
     (function() {
+      const app = document.getElementById('app');
       const tabs = document.querySelectorAll('#tab-bar .tab-btn');
       const panels = document.querySelectorAll('.tab-panel');
-      tabs.forEach(btn => {
-        btn.addEventListener('click', () => {
-          tabs.forEach(t => {
-            t.classList.remove('active');
-            t.setAttribute('aria-selected', 'false');
-          });
-          panels.forEach(p => p.classList.add('hidden'));
-          btn.classList.add('active');
-          btn.setAttribute('aria-selected', 'true');
-          document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+      const drawerTitle = document.getElementById('drawer-title');
+      const toggleBtn = document.getElementById('btn-toggle-sidebar');
+      const titles = {
+        nodes: 'Nodes',
+        map: 'Map Layers',
+        coverage: 'Coverage',
+        planning: 'Planning',
+        settings: 'Settings',
+      };
+      const resizeMapSoon = () => {
+        requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+      };
+
+      function selectTab(btn) {
+        tabs.forEach(t => {
+          t.classList.remove('active');
+          t.setAttribute('aria-selected', 'false');
         });
+        panels.forEach(p => p.classList.add('hidden'));
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+        drawerTitle.textContent = titles[btn.dataset.tab] || btn.textContent.trim();
+      }
+
+      tabs.forEach(btn => {
+        btn.addEventListener('click', () => selectTab(btn));
+      });
+
+      toggleBtn.addEventListener('click', () => {
+        const collapsed = app.classList.toggle('sidebar-collapsed');
+        toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+        toggleBtn.textContent = collapsed ? 'Show Panel' : 'Hide Panel';
+        resizeMapSoon();
       });
     })();
 
@@ -504,6 +628,7 @@
       const app = document.getElementById('app');
       let dragging = false, startX = 0, startW = 0;
       handle.addEventListener('mousedown', e => {
+        if (app.classList.contains('sidebar-collapsed')) return;
         dragging = true; startX = e.clientX;
         startW = parseInt(getComputedStyle(app).getPropertyValue('--sidebar-w'), 10);
         handle.classList.add('dragging');

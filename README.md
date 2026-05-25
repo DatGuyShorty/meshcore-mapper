@@ -42,20 +42,21 @@ Requires internet access for the elevation API (open-elevation.com + opentopodat
 
 ### Coverage tab
 - **Coverage heatmap** — continuous gradient overlay (red → amber → yellow → green) showing received power as a smooth gradient over a 50 dB range above the sensitivity threshold
-- **Terrain LoS** — 32-sample terrain profiles with knife-edge diffraction (ITU-R P.526-15)
+- **Terrain LoS** — terrain profiles with Deygout multi-edge diffraction and ITU-R P.526-style knife-edge loss
 - **Earth curvature correction** — standard atmosphere k = 4/3 effective Earth radius applied to each terrain sample; ~14 m correction at 15 km range
-- **Fresnel zone clearance** — optional first-zone obstruction penalty
+- **Fresnel zone clearance** — optional clearance flag; diffraction loss is still computed from terrain obstruction
 - **Foliage attenuation** — signal loss through OSM forest/wood/scrub/orchard polygons; configurable dB/m with a vegetation-model cap for long forest paths; height-aware (ray vs canopy top); 16×16 tile-grid index
-- **Building attenuation** — building footprints from Overpass API; height-coded fill on map; loss applied in Web Worker (dB/m through each building)
+- **Building attenuation** — building footprints from Overpass API; height-coded fill on map; loss applied by the active compute backend (dB/m through each building)
 - **Tile-based caching** — foliage and buildings cached on a shared 0.25° grid; nearby repeaters reuse the same tiles; 30-day SQLite TTL per tile
 - **Canvas renderer** — all foliage and building polygons rendered with a single shared `L.canvas()` instead of per-polygon SVG nodes; much faster with many buildings
 - **Coverage for visible nodes only** — hidden nodes are skipped; use the 👁 toggle to select which repeaters to compute
-- **Adaptive elevation resolution** — ELEV_RES = min(radiusKm × 2000 / 150, 256) ≈ 150 m/cell
-- **Web Worker** — signal computation runs in a background thread; main thread stays responsive during compute
+- **Adaptive elevation resolution** — terrain grids scale with coverage quality and radius, while staying under renderer and memory caps
+- **CUDA-first compute** — Python CUDA is preferred by default for coverage and optimizer scoring; CPU workers are the automatic fallback
 - System / fade margin, RX sensitivity, analysis radius, grid resolution controls
 - Opacity slider for the coverage overlay
+- Opacity sliders for vegetation and building obstacle overlays
 
-### Tools tab
+### Planning tab
 - **Best Location Optimizer** — draw a search area on the map; greedy N-repeater placement by marginal coverage scoring; candidate grid 12–32 resolution
 - **Link Budget (P2P)** — click two map points (or tap a repeater marker to set as point A); fetches 64-point elevation profile; reports distance, FSPL, diffraction loss, received power, link margin (colour-coded), LoS + Fresnel zone status; terrain cross-section SVG
 
@@ -88,7 +89,7 @@ The overlay uses a **continuous gradient** — colours blend smoothly based on e
 | Red-orange | Weak (+0–10 dB above threshold) |
 | Dark red | Below threshold — no coverage |
 
-**Effective threshold** = Receiver Sensitivity + System Fade Margin. With the defaults (−137 dBm + 10 dB), colours span from −127 dBm (red) to −77 dBm (green).
+**Effective threshold** = Receiver Sensitivity + System Fade Margin. With the defaults (−133 dBm + 10 dB), colours span from −123 dBm (red) to −73 dBm (green).
 
 ---
 
@@ -125,11 +126,15 @@ src/
   ui.js              Progress overlay, status bar, yieldToUI, escHtml
   repeaters.js       Repeater CRUD, map markers, placement UI, undo-last-remove,
                      WebSocket live feed, filter/sort, context menu, DB persistence
-  coverage.js        Coverage orchestration: fetch elevations/foliage/buildings, spawn Worker,
-                     render overlay; only runs for visible repeaters
-  coverageWorker.js  Web Worker — pure signal computation inner loop (no DOM)
+  coverage.js        Coverage orchestration: fetch elevations/foliage/buildings,
+                     run compute backend, render overlay; only runs for visible repeaters
+  coverageBackend.js CUDA-first coverage backend selection with CPU-worker fallback
+  coverageWorker.js  CPU worker — pure signal computation inner loop (no DOM)
+  coverageGrid.js    Shared coverage bbox and terrain-grid helpers
+  mapAdapter.js      Thin map abstraction for viewport metrics and coverage overlay tiles
   optimizerUI.js     Draw search area, run optimizer, display results
   optimizer.js       findBestLocations() — greedy grid search, no DOM
+  optimizerBackend.js CUDA-first optimizer backend selection with CPU-worker fallback
   p2p.js             P2P link budget panel — pick two points (or tap repeater), full budget
                      table + terrain SVG; startPickingFrom() sets point A from repeater ctx menu
   config.js          saveConfig, loadConfig, screenshot, cache stats/purge
@@ -178,11 +183,11 @@ presets.yaml         Hardware and modem presets (extend freely, no code changes 
 |---|---|
 | Path loss | Free-Space Path Loss: `FSPL = 20·log10(d_m) + 20·log10(f_Hz) − 147.55` (dB) |
 | Effective EIRP | `TX Power (dBm) + Antenna Gain (dBi)` applied per repeater |
-| Terrain blockage | Fresnel-Kirchhoff ν; single dominant knife-edge (ITU-R P.526-15 approximation) |
+| Terrain blockage | Fresnel-Kirchhoff ν with Deygout multi-edge diffraction and ITU-R P.526-style knife-edge loss |
 | Earth curvature | Effective Earth radius Re = 6371 × 4/3 km (standard atmospheric refraction); applied as `d1·d2 / (2·Re)` bulge at each terrain sample |
 | Foliage loss | Configurable dB/m × traversal depth through OSM vegetation polygons, capped by a Weissberger-style vegetation attenuation curve for long forest paths (default dense-gradient cap 0.3 dB/m; scrub/orchard use partial multipliers); ray vs canopy-top height check |
 | Coverage threshold | `Receiver Sensitivity + System Fade Margin` |
-| Elevation data | SRTM 30 m via [open-elevation.com](https://open-elevation.com); [opentopodata.org](https://api.opentopodata.org) as fallback; adaptive grid ~150 m/cell; SQLite bbox cache (WAL) |
+| Elevation data | SRTM 30 m via [open-elevation.com](https://open-elevation.com); [opentopodata.org](https://api.opentopodata.org) as fallback; adaptive terrain grids with SQLite bbox cache (WAL) |
 
 **Path loss model notes:**
 - FSPL (free-space, n = 2) is accurate for clear LoS paths typical of hilltop relay nodes.

@@ -671,27 +671,20 @@ async function _fetchFromSingleAPI(api, points, stats, signal) {
     for (let attempt = 0; attempt < 3; attempt++) {
       _throwIfAborted(signal);
       if (attempt > 0) await sleep(2000 * attempt, signal);
-      const controller = new AbortController();
-      const onAbort = () => controller.abort();
-      signal?.addEventListener('abort', onAbort, { once: true });
-      const timer = setTimeout(() => controller.abort(), 25000);
       try {
         _metric(stats, 'apiRequests');
         resp = await scheduledFetch(api.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: _requestBody(api, batch),
-          signal: controller.signal,
+          signal,
+          timeoutMs: 25000,
         });
-        clearTimeout(timer);
       } catch (err) {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
         if (signal?.aborted) throw _abortError();
         lastErr = err;
         continue;
       }
-      signal?.removeEventListener('abort', onAbort);
 
       if (resp.status === 429) {
         resp = null;

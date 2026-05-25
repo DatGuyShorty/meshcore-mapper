@@ -6,6 +6,7 @@ import { map, state, clearCoverageLayers } from './map.js';
 import { confirmAction, escHtml, setStatus } from './ui.js';
 import { handleRepeaterClick, startPickingFrom } from './p2p.js';
 import { runCoverageAnalysis } from './coverage.js';
+import { handlePathNodePick } from './pathfinderUI.js';
 
 const PALETTE = [
   '#61dafb', '#4ade80', '#fb923c', '#f472b6',
@@ -17,7 +18,7 @@ let placingMode  = false;
 let editingId    = null; // null = add mode, number = ID being edited
 let _lastRemoved = null; // F5: single-level undo snapshot
 let _filterText  = '';
-let _sortMode    = 'added';
+let _sortMode    = 'name-az';
 
 // Context menu
 let _ctxMenu     = null;
@@ -338,6 +339,9 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2, optio
       r.lon = marker.getLatLng().lng;
       // B8: keep popup content in sync with new position
       r.marker.setPopupContent(`<b>${escHtml(r.name)}</b><br>TX: ${r.power} dBm + ${r.gain} dBi @ ${r.freq} MHz<br>Ant. height: ${r.height} m`);
+      document.dispatchEvent(new CustomEvent('repeater:moved', {
+        detail: { id: r.id, lat: r.lat, lon: r.lon },
+      }));
     }
     clearCoverageLayers();
     setStatus('Repeater moved. Click Compute Coverage to refresh.');
@@ -345,9 +349,11 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2, optio
   });
 
   marker.on('click', async (e) => {
+    if (e.originalEvent) e.originalEvent._meshcoreHandled = true;
     const r = state.repeaters.find(x => x.id === id);
     if (!r) return;
     if (await handleRepeaterClick(r)) return; // consumed by P2P picking
+    if (handlePathNodePick(r)) return; // consumed by best-path picking
     _showCtxMenu(r, e.originalEvent);
   });
 
@@ -442,7 +448,13 @@ function renderRepeaterList() {
   const ul = document.getElementById('repeater-list');
 
   let list = state.repeaters.filter(r =>
-    !_filterText || r.name.toLowerCase().includes(_filterText)
+    !_filterText || [
+      r.name,
+      `${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}`,
+      `${r.height} ${r.power} ${r.freq} ${r.gain}`,
+      r.short ?? '',
+      r.lastSeen ?? '',
+    ].join(' ').toLowerCase().includes(_filterText)
   );
   if (_sortMode === 'name-az') list.sort((a, b) => a.name.localeCompare(b.name));
   else if (_sortMode === 'name-za') list.sort((a, b) => b.name.localeCompare(a.name));
@@ -558,6 +570,7 @@ export function init() {
 
   map.on('click', (e) => {
     if (!placingMode) return;
+    if (e.originalEvent) e.originalEvent._meshcoreHandled = true;
     const name   = document.getElementById('repeater-name').value.trim() || `Repeater ${state.nextId}`;
     const height = parseFloat(document.getElementById('repeater-height').value) || 10;
     const power  = parseFloat(document.getElementById('repeater-power').value) || 20;

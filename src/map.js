@@ -63,18 +63,25 @@ map.on('mousemove', (e) => {
 export const state = {
   repeaters: [],       // { id, name, lat, lon, height, power, freq, marker, color }
   coverageLayers: [],  // Leaflet ImageOverlay per repeater
+  coverageResults: [], // point-inspection metadata per computed repeater coverage
   foliageLayers: [],   // Leaflet Polygon outlines for forest/wood areas
   buildingLayers: [],  // Leaflet Polygon outlines for building footprints
   nextId: 1,
 };
 
-/** Remove all coverage overlays from the map and reset the state array. */
-export function clearCoverageLayers() {
+/** Remove rendered coverage overlay tiles while keeping computed coverage metadata. */
+export function clearCoverageOverlayTiles() {
   state.coverageLayers.forEach(l => {
     if (l._blobUrl) URL.revokeObjectURL(l._blobUrl); // B7: free blob memory
     map.removeLayer(l);
   });
   state.coverageLayers = [];
+}
+
+/** Remove all coverage overlays from the map and reset the state array. */
+export function clearCoverageLayers() {
+  clearCoverageOverlayTiles();
+  state.coverageResults = [];
 }
 
 /** Remove all foliage polygon outlines from the map. */

@@ -70,7 +70,7 @@ Last reviewed: May 2026.
 | Verbose logging | `console.info/debug` added to coverage, elevation, foliage, optimizer, p2p | 5 src files |
 | Bug fixes | Dead `signalToRGBA` removed; `dc-log`/`dc-debug` CSS added | `propagation.js`, `style.css` |
 | Earth curvature | k = 4/3 effective Earth radius bulge in `checkLoS` | `propagation.js` |
-| Web Worker | Coverage inner loop moved to `coverageWorker.js`; main thread stays responsive | `coverage.js`, new `coverageWorker.js` |
+| Compute backend | Coverage inner loop runs through CUDA-first backend selection with CPU worker fallback | `coverageBackend.js`, `coverageWorkerPool.js`, `coverageWorker.js` |
 | README + docs | README rewritten; `summary.md` created | `README.md`, `summary.md` |
 | Repeater visibility | Per-repeater 👁 toggle hides marker + coverage overlay | `repeaters.js`, `coverage.js`, `style.css` |
 | Repeater → P2P | Clicking repeater marker in pick mode sets it as TX point A/B | `p2p.js`, `repeaters.js` |
@@ -78,7 +78,7 @@ Last reviewed: May 2026.
 | P2P diffraction fix | Separate geometric LoS vs Fresnel zone rows; correct ITU-R P.526 v calculation | `p2p.js` |
 | Building detection | `buildings.js` — Overpass fetch, SQLite cache (30d TTL), `buildingLossDb()` | `src/buildings.js`, `main.js`, `preload.js` |
 | Building map layer | Filled building footprints on map, height-coded color, togglable | `coverage.js`, `map.js`, `index.html` |
-| Building propagation | Building attenuation wired into Web Worker alongside foliage | `coverageWorker.js` |
+| Building propagation | Building attenuation wired into the active compute backend alongside foliage | `coverageBackend.js`, `coverageWorker.js` |
 | Foliage filled render | Foliage polygons now filled (semi-transparent green) not just outlines | `coverage.js` |
 | Tile-based cache | Foliage + buildings cached on shared 0.25° grid tiles; nearby repeaters reuse tiles | `foliage.js`, `buildings.js` |
 | Canvas renderer | All foliage + building polygons use `L.canvas()` not per-polygon SVG | `coverage.js` |
@@ -90,7 +90,7 @@ Last reviewed: May 2026.
 | WS save error fix | `INSERT` used `r.id` (undefined); changed to autoincrement; `String(err)` for sql.js raw throws | `main.js` |
 | Filter + sort | Name filter + sort dropdown (added / A→Z / Z→A) above node list | `repeaters.js`, `index.html`, `style.css` |
 | Node context menu | Marker click opens ctx menu: Info, P2P Link, Edit, Hide/Show, Remove | `repeaters.js`, `p2p.js`, `style.css` |
-| P2P startPickingFrom | `startPickingFrom(r)` sets repeater as point A and auto-switches to Tools tab | `p2p.js` |
+| P2P startPickingFrom | `startPickingFrom(r)` sets repeater as point A and auto-switches to Planning tab | `p2p.js` |
 | Hide/Show All | Button toggles all markers on/off | `repeaters.js`, `index.html` |
 | Popup fix | Marker click awaited properly; popup opens when not in P2P pick mode | `repeaters.js` |
 | Coverage – visible only | Analysis only runs for visible (unhidden) repeaters | `coverage.js` |

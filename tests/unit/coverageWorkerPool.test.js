@@ -14,12 +14,14 @@ describe('coverage worker pool', () => {
       postMessage(msg) {
         queueMicrotask(() => {
           const rowCount = msg.rowEnd - msg.rowStart;
+          const signalGrid = new Float32Array(rowCount * msg.gridRes);
           this.onmessage?.({
             data: {
               type: 'done',
               rowStart: msg.rowStart,
               rowEnd: msg.rowEnd,
               rgbaBuffer: new ArrayBuffer(rowCount * msg.gridRes * 4),
+              signalBuffer: signalGrid.buffer,
               stats: { computeMs: 1, insidePoints: rowCount * msg.gridRes },
             },
           });
@@ -43,6 +45,7 @@ describe('coverage worker pool', () => {
     expect(job.workerCount).toBe(6);
     expect(result.stats.workerCount).toBe(6);
     expect(result.rgba).toHaveLength(17 * 17 * 4);
+    expect(result.signalGrid).toHaveLength(17 * 17);
   });
 
   it('builds non-empty worker bands for uneven row splits', () => {

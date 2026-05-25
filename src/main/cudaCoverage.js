@@ -43,6 +43,7 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
     try {
       const gridPath = path.join(tmpDir, 'grid_elevs.f32');
       const outPath = path.join(tmpDir, 'coverage.rgba');
+      const signalPath = path.join(tmpDir, 'coverage_signal.f32');
       const paramsPath = path.join(tmpDir, 'params.json');
       const gridElevs = _toFloat32Array(payload.gridElevs);
       const gridRes = _boundedInt(payload.gridRes, 'gridRes', 1, MAX_CUDA_GRID_RES);
@@ -56,6 +57,7 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
       fs.writeFileSync(paramsPath, JSON.stringify({
         gridPath,
         outPath,
+        signalPath,
         gridRes,
         ELEV_RES: elevRes,
         rep: payload.rep,
@@ -69,6 +71,7 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
         effectiveSens: payload.effectiveSens,
         useLos: payload.useLos,
         useFresnel: payload.useFresnel,
+        useDeygout: Boolean(payload.useDeygout || payload.diffractionModel === 'deygout'),
         useFoliage: payload.useFoliage,
         useBuildings: payload.useBuildings,
         profileTargetSpacingM: payload.profileTargetSpacingM,
@@ -92,6 +95,7 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
       return {
         ...result,
         rgba: new Uint8Array(fs.readFileSync(outPath)),
+        signalGrid: _readFloat32File(signalPath),
       };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -186,6 +190,12 @@ function _toFloat32Array(value) {
   if (value instanceof ArrayBuffer) return new Float32Array(value);
   if (Array.isArray(value)) return Float32Array.from(value);
   throw new Error('Invalid gridElevs payload for Python CUDA backend');
+}
+
+function _readFloat32File(filePath) {
+  const bytes = fs.readFileSync(filePath);
+  const view = new Float32Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 4));
+  return new Float32Array(view);
 }
 
 function _candidateCoordsToFloat32(candidates) {

@@ -15,6 +15,7 @@ let _autoRefresh = true;
 let _loading = false;
 let _refreshTimer = null;
 let _abortController = null;
+let _suppressStartupRefresh = true;
 
 const DEFAULT_FOLIAGE_OPACITY = 0.18;
 const DEFAULT_BUILDING_OPACITY = 0.45;
@@ -165,6 +166,10 @@ function _abortError() {
 }
 
 function _scheduleRefresh() {
+  if (_suppressStartupRefresh) {
+    _suppressStartupRefresh = false;
+    return;
+  }
   if (!_autoRefresh || (!_foliageEnabled && !_buildingsEnabled)) return;
   clearTimeout(_refreshTimer);
   _refreshTimer = setTimeout(_refresh, 800);
@@ -204,5 +209,7 @@ export function init() {
   document.getElementById('btn-cancel-layers').addEventListener('click', () => _abortController?.abort());
 
   map.on('moveend', _scheduleRefresh);
-  if (_foliageEnabled || _buildingsEnabled) setTimeout(_refresh, 0);
+  if (_foliageEnabled || _buildingsEnabled) {
+    _setStatus('Layers enabled. Pan/zoom map or click Refresh Layers to load data.');
+  }
 }

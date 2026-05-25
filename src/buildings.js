@@ -11,6 +11,13 @@ const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
+const MIRROR_COOLDOWN_MS = {
+  status406: 10 * 60 * 1000,
+  status429: 2 * 60 * 1000,
+  status5xx: 60 * 1000,
+  network: 60 * 1000,
+};
+const _mirrorCooldownUntil = new Map();
 
 // Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same tiles.
 const TILE_SIZE = 0.25;  // degrees
@@ -18,6 +25,20 @@ const CACHE_V_OSM = 'bv2:';
 const CACHE_V_DERIVED = 'bv3:'; // building heights prefer DSM-DEM derivation
 const TILE_N    = 16;
 const BUILDING_TILE_CONCURRENCY = 3;
+
+function _mirrorInCooldown(base) {
+  return (_mirrorCooldownUntil.get(base) ?? 0) > Date.now();
+}
+
+function _markMirrorCooldown(base, ms) {
+  _mirrorCooldownUntil.set(base, Date.now() + Math.max(1000, ms));
+}
+
+function _pickMirror(attempt) {
+  const available = OVERPASS_MIRRORS.filter(base => !_mirrorInCooldown(base));
+  const pool = available.length ? available : OVERPASS_MIRRORS;
+  return pool[attempt % pool.length];
+}
 
 function _abortError() {
   const err = new Error('Cancelled');
@@ -63,6 +84,17 @@ const DEFAULT_WALL_LOSS_DB_PER_M = 0.5; // ~0.5 dB/m at 868 MHz (ITU-R P.2040 re
 const _memCache     = new Map();
 const MEM_CACHE_MAX = 8;
 
+function _fallbackFeatureId(prefix, ring, bbox) {
+  if (bbox) {
+    return `${prefix}:bb:${bbox.latMin.toFixed(6)}:${bbox.latMax.toFixed(6)}:${bbox.lonMin.toFixed(6)}:${bbox.lonMax.toFixed(6)}:${ring?.length ?? 0}`;
+  }
+  if (!ring?.length) return `${prefix}:empty`;
+  const first = ring[0];
+  const mid = ring[Math.floor(ring.length / 2)] ?? first;
+  const last = ring[ring.length - 1] ?? first;
+  return `${prefix}:rg:${ring.length}:${first[0].toFixed(6)}:${first[1].toFixed(6)}:${mid[0].toFixed(6)}:${mid[1].toFixed(6)}:${last[0].toFixed(6)}:${last[1].toFixed(6)}`;
+}
+
 function _polygonCentroid(ring) {
   if (!ring?.length) return null;
   let lat = 0;
@@ -74,13 +106,26 @@ function _polygonCentroid(ring) {
   return { latitude: lat / ring.length, longitude: lon / ring.length };
 }
 
-async function _deriveBuildingHeightsFromDsmMinusDem(polygons, fallbackHeights, signal, datasetBatchConcurrency) {
+async function _deriveBuildingHeightsFromDsmMinusDem(polygons, fallbackHeights, signal, datasetBatchConcurrency, sampleLimit = 0) {
   if (!polygons.length) return fallbackHeights;
 
-  const centroids = new Array(polygons.length);
-  for (let i = 0; i < polygons.length; i++) {
-    centroids[i] = _polygonCentroid(polygons[i]) ?? { latitude: 0, longitude: 0 };
+  const sampleCount = Number.isFinite(sampleLimit) ? Math.max(0, Math.floor(sampleLimit)) : 0;
+  const sampled = [];
+  if (sampleCount > 0 && polygons.length > sampleCount) {
+    const step = polygons.length / sampleCount;
+    const seen = new Set();
+    for (let i = 0; i < sampleCount; i++) {
+      const idx = Math.min(polygons.length - 1, Math.floor(i * step));
+      if (seen.has(idx)) continue;
+      seen.add(idx);
+      sampled.push({ idx, centroid: _polygonCentroid(polygons[idx]) ?? { latitude: 0, longitude: 0 } });
+    }
+  } else {
+    for (let i = 0; i < polygons.length; i++) {
+      sampled.push({ idx: i, centroid: _polygonCentroid(polygons[i]) ?? { latitude: 0, longitude: 0 } });
+    }
   }
+  const centroids = sampled.map(s => s.centroid);
 
   try {
     const fetchOpts = { signal, batchConcurrency: datasetBatchConcurrency };
@@ -91,13 +136,13 @@ async function _deriveBuildingHeightsFromDsmMinusDem(polygons, fallbackHeights, 
 
     const derived = fallbackHeights.slice();
     let applied = 0;
-    for (let i = 0; i < derived.length; i++) {
+    for (let i = 0; i < sampled.length; i++) {
       const delta = dsm[i] - dem[i];
       if (!Number.isFinite(delta) || delta <= 0) continue;
-      derived[i] = Math.max(2, Math.min(180, delta));
+      derived[sampled[i].idx] = Math.max(2, Math.min(180, delta));
       applied++;
     }
-    console.info(`[buildings] DSM-DEM heights applied for ${applied}/${derived.length} buildings`);
+    console.info(`[buildings] DSM-DEM heights applied for ${applied}/${sampled.length} buildings (sampled from ${derived.length})`);
     return derived;
   } catch (err) {
     if (err?.cancelled || err?.name === 'AbortError') throw err;
@@ -164,6 +209,7 @@ async function _fetchBuildingsTile(la, lo, key, {
   signal = null,
   datasetBatchConcurrency = 2,
   deriveObstacleHeights = false,
+  derivationSampleLimit = 0,
 } = {}) {
   _throwIfAborted(signal);
   if (_memCache.has(key)) {
@@ -185,36 +231,53 @@ async function _fetchBuildingsTile(la, lo, key, {
   const query = `[out:json][timeout:60];(way["building"]${bbox};relation["building"]${bbox};);out geom tags;`;
 
   let res = null, lastErr = null;
-  for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 2; attempt++) {
+  for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 3; attempt++) {
     _throwIfAborted(signal);
-    const base = OVERPASS_MIRRORS[attempt % OVERPASS_MIRRORS.length];
-    const url  = `${base}?data=${encodeURIComponent(query)}`;
+    const base = _pickMirror(attempt);
     if (attempt > 0) await _sleep(2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length), signal);
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener('abort', onAbort, { once: true });
-    const timer = setTimeout(() => controller.abort(), 60000);
     try {
-      res = await scheduledFetch(url, { headers: { 'Accept': '*/*' }, signal: controller.signal });
-      clearTimeout(timer);
+      res = await scheduledFetch(base, {
+        method: 'POST',
+        headers: {
+          'Accept': '*/*',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal,
+        timeoutMs: 60000,
+      });
     } catch (err) {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) throw _abortError();
+      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.network);
       lastErr = err;
       continue;
     }
-    signal?.removeEventListener('abort', onAbort);
-    if (res.status === 429 || res.status === 406 || res.status >= 500) { res = null; continue; }
+    if (res.status === 406) {
+      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status406);
+      res = null;
+      continue;
+    }
+    if (res.status === 429) {
+      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status429);
+      res = null;
+      continue;
+    }
+    if (res.status >= 500) {
+      _markMirrorCooldown(base, MIRROR_COOLDOWN_MS.status5xx);
+      res = null;
+      continue;
+    }
     break;
   }
   if (!res) throw new Error(`Overpass API unreachable: ${lastErr?.message ?? 'all mirrors rejected'}`);
   if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
 
   const data = await res.json();
-  const polygons = [], bboxes = [], heights = [];
+  const polygons = [], bboxes = [], heights = [], ids = [];
+  const seenFeatureIds = new Set();
 
-  const addRing = (ring, h) => {
+  const addRing = (ring, h, featureId) => {
+    if (featureId && seenFeatureIds.has(featureId)) return;
     if (ring.length < 3) return;
     let la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity;
     for (const [rla, rlo] of ring) {
@@ -224,16 +287,20 @@ async function _fetchBuildingsTile(la, lo, key, {
     polygons.push(ring);
     bboxes.push({ latMin: la0, latMax: la1, lonMin: lo0, lonMax: lo1 });
     heights.push(h);
+    ids.push(featureId || _fallbackFeatureId('b', ring, bboxes[bboxes.length - 1]));
+    if (featureId) seenFeatureIds.add(featureId);
   };
 
   for (const el of data.elements) {
     const h = _buildingHeight(el.tags);
+    const baseFeatureId = `${el.type}:${el.id ?? 'na'}`;
     if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
-      addRing(el.geometry.map(n => [n.lat, n.lon]), h);
+      addRing(el.geometry.map(n => [n.lat, n.lon]), h, baseFeatureId);
     } else if (el.type === 'relation' && el.members) {
-      for (const m of el.members) {
+      for (let mi = 0; mi < el.members.length; mi++) {
+        const m = el.members[mi];
         if (m.type !== 'way' || m.role === 'inner' || !m.geometry || m.geometry.length < 3) continue;
-        addRing(m.geometry.map(n => [n.lat, n.lon]), h);
+        addRing(m.geometry.map(n => [n.lat, n.lon]), h, `${baseFeatureId}:outer:${m.ref ?? mi}`);
       }
     }
   }
@@ -243,11 +310,12 @@ async function _fetchBuildingsTile(la, lo, key, {
       polygons,
       heights,
       signal,
-      datasetBatchConcurrency
+      datasetBatchConcurrency,
+      derivationSampleLimit
     )
     : heights;
   console.info(`[buildings] tile ${key}: ${polygons.length} building(s)`);
-  const tileData = { polygons, bboxes, heights: derivedHeights };
+  const tileData = { polygons, bboxes, heights: derivedHeights, ids };
   if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
   _memCache.set(key, tileData);
   await window.electronAPI.cacheBuildingsStore(key, tileData);
@@ -266,11 +334,13 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {
     tileConcurrency = BUILDING_TILE_CONCURRENCY,
     datasetBatchConcurrency = 2,
     deriveObstacleHeights = false,
+    derivationSampleLimit = 100,
   } = options;
   _throwIfAborted(signal);
   const cacheVersion = deriveObstacleHeights ? CACHE_V_DERIVED : CACHE_V_OSM;
   const tiles = _tilesForBboxB(latMin, latMax, lonMin, lonMax, cacheVersion);
-  const polygons = [], bboxes = [], heights = [];
+  const polygons = [], bboxes = [], heights = [], ids = [];
+  const seenMerged = new Set();
   let completed = 0;
   let nextIdx = 0;
   const workersLimit = Math.max(1, Math.min(12, Math.floor(tileConcurrency)));
@@ -286,7 +356,14 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {
       const { la, lo, key } = tiles[idx];
 
       let td;
-      try { td = await _fetchBuildingsTile(la, lo, key, { signal, datasetBatchConcurrency, deriveObstacleHeights }); }
+      try {
+        td = await _fetchBuildingsTile(la, lo, key, {
+          signal,
+          datasetBatchConcurrency,
+          deriveObstacleHeights,
+          derivationSampleLimit,
+        });
+      }
       catch (e) {
         if (e?.cancelled || e?.name === 'AbortError') throw e;
         console.warn(`[buildings] tile ${key} failed, skipping:`, e);
@@ -295,9 +372,15 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {
 
       if (td) {
         for (let i = 0; i < td.polygons.length; i++) {
+          const poly = td.polygons[i];
+          const bb = td.bboxes[i];
+          const id = td.ids?.[i] || _fallbackFeatureId('b', poly, bb);
+          if (seenMerged.has(id)) continue;
+          seenMerged.add(id);
           polygons.push(td.polygons[i]);
           bboxes.push(td.bboxes[i]);
           heights.push(td.heights[i]);
+          ids.push(id);
         }
       }
 
@@ -310,7 +393,7 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {
 
   console.info(`[buildings] merged ${polygons.length} building(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);
-  return { polygons, bboxes, heights, tileIndex };
+  return { polygons, bboxes, heights, ids, tileIndex };
 }
 
 function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCount) {

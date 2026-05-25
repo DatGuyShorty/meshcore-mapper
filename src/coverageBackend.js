@@ -24,12 +24,12 @@ export function formatCoverageBackendStatus(status = getCoverageBackendStatus())
   const cuda = status.cuda?.available
     ? `Python CUDA ready (${status.cuda.device || 'device detected'})`
     : `Python CUDA unavailable (${status.cuda?.reason || 'not available'})`;
-  return `${cuda}; CPU workers ready`;
+  return `${cuda}; CPU fallback ready`;
 }
 
 export function resolveBackendOrder(preference, caps = getCoverageBackendStatus()) {
   const pref = preference || 'auto';
-  if (pref === 'cuda') return ['cuda'];
+  if (pref === 'cuda') return ['cuda', 'cpu'];
   if (pref === 'cpu') return ['cpu'];
   const order = [];
   if (caps.cuda?.available) order.push('cuda');
@@ -53,7 +53,6 @@ export async function computeCoverage(payload, {
 } = {}) {
   const errors = [];
   const order = resolveBackendOrder(backendPreference);
-  const explicitCuda = backendPreference === 'cuda';
 
   for (const backend of order) {
     if (signal?.aborted) throw _abortError();
@@ -62,9 +61,6 @@ export async function computeCoverage(payload, {
         const result = await _runCuda(payload, { signal, onProgress });
         if (result?.unsupported) {
           const msg = result.message || 'unsupported payload';
-          if (explicitCuda) {
-            throw new Error(`CUDA backend selected, but unavailable for this run: ${msg}`);
-          }
           errors.push(`Python CUDA: ${msg}`);
           continue;
         }
@@ -117,8 +113,11 @@ async function _runCuda(payload, { signal, onProgress }) {
     const rgba = response.rgba instanceof Uint8ClampedArray
       ? response.rgba
       : new Uint8ClampedArray(response.rgba);
+    const signalGrid = response.signalGrid instanceof Float32Array
+      ? response.signalGrid
+      : new Float32Array(response.signalGrid);
     onProgress?.({ pct: 1, stage: 'completed' });
-    return { rgba, stats: response.stats ?? {} };
+    return { rgba, signalGrid, stats: response.stats ?? {} };
   } finally {
     signal?.removeEventListener('abort', cancelOnAbort);
     window.electronAPI?.offCudaCoverageProgress?.(progressListener);
@@ -127,15 +126,24 @@ async function _runCuda(payload, { signal, onProgress }) {
 
 function _validateCoverageResult(result, backend, payload) {
   const rgba = result?.rgba;
+  const signalGrid = result?.signalGrid;
   const expectedBytes = payload.gridRes * payload.gridRes * 4;
+  const expectedSignals = payload.gridRes * payload.gridRes;
   if (!(rgba instanceof Uint8ClampedArray) || rgba.length !== expectedBytes) {
     throw new Error(
       `${backend} backend returned invalid RGBA buffer `
       + `(expected ${expectedBytes} bytes, got ${rgba?.length ?? 'undefined'})`
     );
   }
+  if (!(signalGrid instanceof Float32Array) || signalGrid.length !== expectedSignals) {
+    throw new Error(
+      `${backend} backend returned invalid signal grid `
+      + `(expected ${expectedSignals} floats, got ${signalGrid?.length ?? 'undefined'})`
+    );
+  }
   return {
     rgba,
+    signalGrid,
     stats: result?.stats ?? {},
     backend,
   };

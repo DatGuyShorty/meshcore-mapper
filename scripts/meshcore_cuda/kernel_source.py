@@ -654,6 +654,7 @@ extern "C" __global__
 void coverage_kernel(
     const float* elev,
     unsigned char* rgba,
+    float* signals,
     int gridRes,
     int elevRes,
     float latMin,
@@ -1003,6 +1004,7 @@ void coverage_kernel(
     }
 
     int base = pix * 4;
+    signals[pix] = sig;
     rgba[base] = r;
     rgba[base + 1] = g;
     rgba[base + 2] = b;

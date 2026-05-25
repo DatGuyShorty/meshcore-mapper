@@ -131,6 +131,7 @@ def compute_optimizer(params_path):
             np.float32(float(opts["radiusKm"]) * 1000.0),
             np.int32(1 if opts.get("useLos") else 0),
             np.int32(1 if opts.get("useFresnel") else 0),
+            np.int32(1 if opts.get("useDeygout") or opts.get("diffractionModel") == "deygout" else 0),
             np.float32(opts.get("profileTargetSpacingM", 100)),
             np.int32(opts.get("profileMaxSamples", 256)),
             np.int32(1 if opts.get("useFoliage") else 0),

@@ -1,5 +1,5 @@
 const HOST_LIMITS = new Map([
-  ['api.opentopodata.org', 2],
+  ['api.opentopodata.org', 1],
   ['api.open-elevation.com', 1],
   ['s3.amazonaws.com', 8],
   ['overpass-api.de', 1],
@@ -10,8 +10,9 @@ const DEFAULT_LIMIT = 4;
 const queues = new Map();
 
 export function scheduledFetch(url, init = {}) {
+  const { timeoutMs, signal, ...fetchInit } = init || {};
   const host = _hostFor(url);
-  return _schedule(host, () => fetch(url, init), init.signal);
+  return _schedule(host, () => _fetchWithTimeout(url, fetchInit, signal, timeoutMs), signal);
 }
 
 export function getRequestSchedulerSnapshot() {
@@ -79,6 +80,24 @@ function _hostFor(url) {
   } catch {
     return 'default';
   }
+}
+
+function _fetchWithTimeout(url, init, signal, timeoutMs) {
+  const ms = Number(timeoutMs);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return fetch(url, { ...init, signal });
+  }
+
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(), ms);
+
+  return fetch(url, { ...init, signal: controller.signal })
+    .finally(() => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    });
 }
 
 function _abortError() {
