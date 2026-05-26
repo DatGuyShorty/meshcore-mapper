@@ -1,3 +1,5 @@
+import { obstacleLayerHasHoles } from './osmGeometry.js';
+
 let _cudaStatus = null;
 
 export function resolveOptimizerBackendOrder(preference, caps = {}) {
@@ -70,7 +72,7 @@ async function _runCudaOptimizer(data, { signal, onProgress }) {
   if (!_cudaStatus?.available || !window.electronAPI?.cudaOptimizerCompute) {
     return { unsupported: true, message: _cudaStatus?.reason || 'Python CUDA optimizer unavailable' };
   }
-  if (_hasObstacleHoles(data?.opts?.foliage) || _hasObstacleHoles(data?.opts?.buildings)) {
+  if (obstacleLayerHasHoles(data?.opts?.foliage) || obstacleLayerHasHoles(data?.opts?.buildings)) {
     return { unsupported: true, message: 'hole-aware OSM multipolygons require CPU backend' };
   }
 
@@ -145,6 +147,3 @@ function _humanizeStage(stage) {
   return String(stage).replace(/[-_]/g, ' ');
 }
 
-function _hasObstacleHoles(layer) {
-  return Array.isArray(layer?.holes) && layer.holes.some(polyHoles => Array.isArray(polyHoles) && polyHoles.length > 0);
-}

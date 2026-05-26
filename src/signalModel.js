@@ -127,10 +127,14 @@ export function computeSignalToPoint({
 }
 
 function _hasFiniteLatLon(lat, lon) {
-  return Number.isFinite(Number(lat))
-    && Number.isFinite(Number(lon))
-    && Number(lat) >= -90
-    && Number(lat) <= 90;
+  const la = Number(lat);
+  const lo = Number(lon);
+  return Number.isFinite(la)
+    && Number.isFinite(lo)
+    && la >= -90
+    && la <= 90
+    && lo >= -180
+    && lo <= 180;
 }
 
 function _shortestDeltaLonDeg(a, b) {

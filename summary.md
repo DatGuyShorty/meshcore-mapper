@@ -112,7 +112,7 @@ Compute        -> Python CUDA helper or JS Web Workers
 
 ### Main-process support
 
-- `src/main/cacheDb.js` — manages `cache.db` with `sql.js`, WAL mode, debounced save, and integrity checking.
+- `src/main/cacheDb.js` — manages `cache.db` with `sql.js` (in-memory WASM SQLite), full `db.export()` writes debounced 2 s, and integrity checking on load. (WAL/synchronous pragmas are set but have no effect on the in-memory database.)
 - `src/main/ipcHandlers.js` — IPC for file save/open, presets, screenshots, SQLite cache lookup/store, cache stats, purge operations, and WebSocket node persistence.
 - `src/main/window.js` — creates the Electron browser window, loads `index.html`, and wires F12 DevTools toggle.
 - `src/main/cudaCoverage.js` — Python CUDA probe/compute/optimizer IPC, temp-file payload orchestration, payload validation, cancellation, and progress events.
@@ -150,7 +150,7 @@ Compute        -> Python CUDA helper or JS Web Workers
   - `foliage_cache`
   - `buildings_cache`
   - `ws_repeaters`
-- The cache uses WAL mode and `PRAGMA synchronous=NORMAL`.
+- `cache.db` is loaded into memory at startup (`sql.js`) and rewritten as a whole file on a 2 s debounced timer; WAL/journal pragmas are nominal only.
 - UI provides cache statistics, per-table purge, and `VACUUM`.
 - Live WebSocket repeater data is persisted and restored on startup.
 - User UI settings are persisted via `localStorage` under `meshcoreMapper_settings`.

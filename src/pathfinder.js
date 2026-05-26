@@ -39,12 +39,30 @@ function _profilePoints(a, b, samples) {
 
 function _nodesBbox(nodes) {
   const PAD = 0.003;
+  let latMin = Infinity, latMax = -Infinity, lonMin = Infinity, lonMax = -Infinity;
+  for (const n of nodes) {
+    if (n.lat < latMin) latMin = n.lat;
+    if (n.lat > latMax) latMax = n.lat;
+    if (n.lon < lonMin) lonMin = n.lon;
+    if (n.lon > lonMax) lonMax = n.lon;
+  }
   return {
-    latMin: Math.min(...nodes.map(n => n.lat)) - PAD,
-    latMax: Math.max(...nodes.map(n => n.lat)) + PAD,
-    lonMin: Math.min(...nodes.map(n => n.lon)) - PAD,
-    lonMax: Math.max(...nodes.map(n => n.lon)) + PAD,
+    latMin: latMin - PAD,
+    latMax: latMax + PAD,
+    lonMin: lonMin - PAD,
+    lonMax: lonMax + PAD,
   };
+}
+
+/** Nodes that appear as either endpoint of any candidate edge — i.e. nodes that
+ *  could possibly lie on a relay path. Isolated nodes outside hop radius of
+ *  everyone are skipped so we don't fetch obstacles for them. */
+function _nodesInEdges(nodes, edges) {
+  const idxSet = new Set();
+  for (const { i, j } of edges) { idxSet.add(i); idxSet.add(j); }
+  const out = [];
+  for (const idx of idxSet) out.push(nodes[idx]);
+  return out;
 }
 
 function _profileCoordArrays(points) {
@@ -222,7 +240,10 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
   let buildings = null;
   if (scenario.useFoliage || scenario.useBuildings) {
     progress(64, 'Fetching relay obstacle layers...');
-    const bbox = _nodesBbox(nodes);
+    const connectedNodes = _nodesInEdges(nodes, edges);
+    const bbox = connectedNodes.length
+      ? _nodesBbox(connectedNodes)
+      : _nodesBbox([nodes[fromIdx], nodes[toIdx]]);
     [foliage, buildings] = await Promise.all([
       scenario.useFoliage
         ? fetchFoliage(bbox.latMin, bbox.latMax, bbox.lonMin, bbox.lonMax, {

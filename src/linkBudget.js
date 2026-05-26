@@ -45,7 +45,19 @@ function _computeMonteCarlo({
   };
 }
 
+function _isValidEndpoint(p) {
+  if (!p) return false;
+  const lat = Number(p.lat);
+  const lng = Number(p.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng)
+    && lat >= -90 && lat <= 90
+    && lng >= -180 && lng <= 180;
+}
+
 export async function calculateLinkBudget(pointA, pointB, settings, { signal = null } = {}) {
+  if (!_isValidEndpoint(pointA) || !_isValidEndpoint(pointB)) {
+    throw new Error('calculateLinkBudget requires endpoints with finite lat in [-90,90] and lng in [-180,180]');
+  }
   const startTime = performance.now();
   const log = [];
   const step = (msg) => {

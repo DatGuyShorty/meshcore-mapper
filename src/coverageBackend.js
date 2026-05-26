@@ -1,4 +1,5 @@
 import { createCoverageWorkerPoolJob } from './coverageWorkerPool.js';
+import { obstacleLayerHasHoles } from './osmGeometry.js';
 
 let _cudaStatus = { available: false, reason: 'Not probed yet' };
 let _currentCpuJob = null;
@@ -82,7 +83,7 @@ async function _runCuda(payload, { signal, onProgress }) {
   if (!_cudaStatus.available || !window.electronAPI?.cudaCoverageCompute) {
     return { unsupported: true, message: _cudaStatus.reason || 'Python CUDA unavailable' };
   }
-  if (_hasObstacleHoles(payload.foliage) || _hasObstacleHoles(payload.buildings)) {
+  if (obstacleLayerHasHoles(payload.foliage) || obstacleLayerHasHoles(payload.buildings)) {
     return { unsupported: true, message: 'hole-aware OSM multipolygons require CPU backend' };
   }
 
@@ -169,6 +170,3 @@ function _abortError() {
   return err;
 }
 
-function _hasObstacleHoles(layer) {
-  return Array.isArray(layer?.holes) && layer.holes.some(polyHoles => Array.isArray(polyHoles) && polyHoles.length > 0);
-}

@@ -311,3 +311,13 @@ export function holeCandidatesForOuter(outer, holes) {
       || holeBb.lonMin > outerBb.lonMax);
   });
 }
+
+/**
+ * Whether an obstacle payload (foliage or buildings) contains any multipolygon holes.
+ * CUDA backends currently can't subtract holes from polygon traversal intervals, so
+ * payloads with holes must fall back to the CPU pipeline.
+ */
+export function obstacleLayerHasHoles(layer) {
+  return Array.isArray(layer?.holes)
+    && layer.holes.some(polyHoles => Array.isArray(polyHoles) && polyHoles.length > 0);
+}

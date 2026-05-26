@@ -14,8 +14,8 @@ This file collects the potential bugs discovered during the current review of th
 - `src/foliage.js`: relation member assembly still does not explicitly support holes.
 
 ## Input validation / grid generation
-- `src/config.js`: `loadConfig()` reports the count of `config.repeaters` from the file even when some entries are skipped for invalid coords or malformed repeater data.
-- `src/signalModel.js`: `computeSignalToPoint()` does not validate TX/RX coordinates or computed distance, so invalid inputs can produce NaN signal values and corrupt later scoring or link-budget results.
+- `src/signalModel.js`: `_hasFiniteLatLon()` validated latitude but not longitude bounds — now fixed; `computeSignalToPoint()` still relies on caller for distance sanity.
+- `src/linkBudget.js`: `calculateLinkBudget()` previously trusted endpoint coordinates without validation — now rejects invalid lat/lng before fetching elevations.
 
 ## Elevation / path sampling
 - `src/elevation.js`: `fetchElevationsFromTiles()` bypasses the point DB entirely, which is a design choice but means point cache reuse is not leveraged for large raster queries.
@@ -32,8 +32,7 @@ This file collects the potential bugs discovered during the current review of th
 
 ## Miscellaneous
 - `src/linkBudget.js`: fallback noise/SNR values are derived from `result.effectiveSens` when certain metadata is missing, which may produce misleading link-budget outputs instead of failing earlier.
-- `src/repeaters.js`: live WebSocket feed sync treats an empty incoming node list as an instruction to remove all WS repeaters, which may purge nodes during a transient feed glitch.
-- `src/repeaters.js`: `_wsKeyForRow()` may collapse distinct live feed rows into the same key when rows share the same coordinates, which can hide duplicate WS sources or incorrectly merge entries.
+- `src/repeaters.js`: `_wsKeyForRow()` may collapse distinct live feed rows into the same key when rows share the same coordinates and lack identifiers; `normalizeWsRepeaterSnapshot()` does count and report the collisions but rows are still dropped.
 - `src/repeaters.js`: `setEditMode()` assumes a repeater exists and can throw if called with an invalid ID, which can happen during stale UI interactions.
 - `src/main/cudaCoverage.js`: Python CUDA helper stdout parsing is brittle; any stray non-JSON output can cause the backend to fail even when the helper otherwise completes successfully.
 
@@ -48,6 +47,14 @@ This file collects the potential bugs discovered during the current review of th
 - `src/main/ipcHandlers.js`: cache stats count only fresh foliage/building rows.
 - `src/map3d.js`: the 3D render loop is stopped when returning to 2D mode.
 - `index.html`: sidebar width is now persisted to `localStorage`.
+- `src/config.js`: `loadConfig()` now reports the count of skipped invalid repeaters alongside the loaded count.
+- `src/elevation.js`: `fetchElevations()` and `fetchElevationsFromTiles()` now use the same 4-decimal rounding for in-memory cache keys.
+- `src/repeaters.js`: live WS sync no longer purges all WS nodes when the feed sends an empty or all-invalid snapshot; only an explicit `{clear: true}` payload clears the set.
+- `src/foliage.js`: multipolygon forests that previously rendered as empty (super-relations, fragmented members) now fall back to rendering outer-role member ways individually; Overpass query also uses deep recursion (`>>;`) so sub-relation members are fetched.
+- `src/signalModel.js`: `_hasFiniteLatLon()` now also validates longitude bounds, preventing out-of-range longitudes from flowing into bearing/distance math.
+- `src/linkBudget.js`: endpoint coordinates are validated up front; invalid lat/lng causes an immediate, descriptive error instead of NaN cascading through the budget.
+- `src/coverageBackend.js` / `src/optimizerBackend.js`: duplicated `_hasObstacleHoles` helper extracted to `src/osmGeometry.js#obstacleLayerHasHoles`.
+- `src/pathfinder.js`: obstacle bounding box now spans only nodes reachable from the source within the hop radius, avoiding unrelated foliage/building tile fetches.
 - `src/settings.js`: barrier layer controls are now included in persisted map-layer settings.
 
 ## Documentation / summary inconsistencies
