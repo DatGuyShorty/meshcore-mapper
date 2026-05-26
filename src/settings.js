@@ -78,7 +78,6 @@ export function getCoverageSettings() {
     ...radioMetrics,
     radiusKm: num('analysis-radius', 15),
     qualityMult,
-    gridRes: qualityMult, // kept for downstream compatibility; actual px computed in coverage.js
     diffractionModel: 'deygout',
     useDeygout: true,
     scenarioProfile: document.getElementById('scenario-profile')?.value || 'balanced',

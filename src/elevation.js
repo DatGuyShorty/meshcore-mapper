@@ -138,7 +138,7 @@ export function _estimatePointSpacingM(points) {
     if (lon < minLon) minLon = lon;
     if (lon > maxLon) maxLon = lon;
   }
-  if (!Number.isFinite(minLat) || minLat === maxLat && minLon === maxLon) return 0;
+  if (!Number.isFinite(minLat) || (minLat === maxLat && minLon === maxLon)) return 0;
 
   const latMid = (minLat + maxLat) / 2;
   const widthM = Math.abs(maxLon - minLon) * 111320 * Math.cos(latMid * Math.PI / 180);
