@@ -28,6 +28,20 @@ describe('3D map tile texture helpers', () => {
     expect(layout.tileYMax).toBeGreaterThanOrEqual(layout.tileYMin);
   });
 
+  it('lays out map textures across the antimeridian without negative width', () => {
+    const layout = tileTextureLayout({
+      latMin: -1,
+      latMax: 1,
+      lonMin: 179.5,
+      lonMax: 180.5,
+    }, 3, 512);
+
+    expect(layout.pixelWidth).toBeGreaterThan(1);
+    expect(layout.se.x).toBeGreaterThan(layout.nw.x);
+    expect(layout.tileXMax).toBeGreaterThanOrEqual(layout.tileXMin);
+    expect(tileUrl({ url: '/{z}/{x}/{y}.png' }, 3, layout.tileXMax, layout.tileYMin)).toMatch(/^\/3\/[0-7]\/\d+\.png$/);
+  });
+
   it('formats active Leaflet tile URLs', () => {
     const url = tileUrl({
       url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',

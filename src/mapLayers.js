@@ -92,8 +92,7 @@ function _buildingStyle(fillColor) {
 }
 
 function _applyFoliageOpacity() {
-  const style = _foliageStyle();
-  state.foliageLayers.forEach(layer => layer.setStyle(style));
+  state.foliageLayers.forEach(layer => layer.setStyle(_foliageStyle(layer._foliageKind)));
 }
 
 function _applyBuildingOpacity() {
@@ -133,6 +132,7 @@ async function _loadFoliage(signal) {
       renderer: _getRenderer(),
       ..._foliageStyle(kind),
     }).addTo(map);
+    layer._foliageKind = kind;
     state.foliageLayers.push(layer);
     if (i % 200 === 0) await yieldToUI();
   }
@@ -185,6 +185,7 @@ async function _refresh() {
   }
 
   _loading = true;
+  _abortController?.abort();
   _abortController = new AbortController();
   const btn = document.getElementById('btn-refresh-layers');
   const cancelBtn = document.getElementById('btn-cancel-layers');
@@ -252,19 +253,19 @@ export function init() {
 
   foliageEl.addEventListener('change', async (e) => {
     _foliageEnabled = e.target.checked;
-    if (!_foliageEnabled) { clearFoliageLayers(); _setStatus(''); return; }
+    if (!_foliageEnabled) { _abortController?.abort(); clearFoliageLayers(); _setStatus(''); return; }
     await _refresh();
   });
 
   buildingsEl.addEventListener('change', async (e) => {
     _buildingsEnabled = e.target.checked;
-    if (!_buildingsEnabled) { clearBuildingLayers(); _setStatus(''); return; }
+    if (!_buildingsEnabled) { _abortController?.abort(); clearBuildingLayers(); _setStatus(''); return; }
     await _refresh();
   });
 
   barriersEl.addEventListener('change', async (e) => {
     _barriersEnabled = e.target.checked;
-    if (!_barriersEnabled) { clearBarrierLayers(); _setStatus(''); return; }
+    if (!_barriersEnabled) { _abortController?.abort(); clearBarrierLayers(); _setStatus(''); return; }
     await _refresh();
   });
 

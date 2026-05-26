@@ -70,10 +70,13 @@ async function _runCudaOptimizer(data, { signal, onProgress }) {
   if (!_cudaStatus?.available || !window.electronAPI?.cudaOptimizerCompute) {
     return { unsupported: true, message: _cudaStatus?.reason || 'Python CUDA optimizer unavailable' };
   }
+  if (_hasObstacleHoles(data?.opts?.foliage) || _hasObstacleHoles(data?.opts?.buildings)) {
+    return { unsupported: true, message: 'hole-aware OSM multipolygons require CPU backend' };
+  }
 
   const cancelOnAbort = () => window.electronAPI.cudaOptimizerCancel?.().catch(() => {});
   signal?.addEventListener('abort', cancelOnAbort, { once: true });
-  const progressListener = (_evt, msg) => {
+  const progressListener = (msg) => {
     const pct = Number(msg?.pct);
     if (!Number.isFinite(pct)) return;
     const stage = msg?.stage ? `CUDA: ${_humanizeStage(msg.stage)}` : 'CUDA optimizer';
@@ -140,4 +143,8 @@ function _abortError() {
 
 function _humanizeStage(stage) {
   return String(stage).replace(/[-_]/g, ' ');
+}
+
+function _hasObstacleHoles(layer) {
+  return Array.isArray(layer?.holes) && layer.holes.some(polyHoles => Array.isArray(polyHoles) && polyHoles.length > 0);
 }

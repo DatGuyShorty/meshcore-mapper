@@ -155,7 +155,7 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
   try {
     step('Fetching obstacle payloads...');
     const obstacleFetchStart = performance.now();
-    const { foliagePayload, buildingsPayload } = await _fetchObstaclePayloads({
+    const { foliagePayload, buildingsPayload, obstacleWarnings } = await _fetchObstaclePayloads({
       useFoliage, useBuildings, unionBBox, metrics, signal: _abortController.signal,
       foliageTileConcurrency,
       buildingTileConcurrency,
@@ -174,6 +174,11 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
         );
       },
     });
+    if (obstacleWarnings.length) {
+      const warning = obstacleWarnings.join(' ');
+      step(`Obstacle warnings: ${warning}`);
+      setInlineStatus('coverage-status', warning, 'warning');
+    }
     step(`Obstacle payloads ready: foliage=${foliagePayload ? 'yes' : 'no'}, buildings=${buildingsPayload ? 'yes' : 'no'}`);
 
     const slicePct = 85 / active.length;
@@ -421,6 +426,7 @@ async function _fetchObstaclePayloads({
   const osmStart = performance.now();
   let foliageData = null;
   let buildingData = null;
+  const obstacleWarnings = [];
 
   const progressState = {
     foliageDone: 0,
@@ -452,6 +458,7 @@ async function _fetchObstaclePayloads({
         .catch(e => {
           if (e?.cancelled || e?.name === 'AbortError') throw e;
           console.warn('Foliage fetch failed, skipping:', e);
+          obstacleWarnings.push('Foliage losses were requested but vegetation data could not be loaded.');
           return null;
         })
       : Promise.resolve(null),
@@ -471,6 +478,7 @@ async function _fetchObstaclePayloads({
         .catch(e => {
           if (e?.cancelled || e?.name === 'AbortError') throw e;
           console.warn('Buildings fetch failed, skipping:', e);
+          obstacleWarnings.push('Building losses were requested but structure data could not be loaded.');
           return null;
         })
       : Promise.resolve(null),
@@ -486,14 +494,17 @@ async function _fetchObstaclePayloads({
       bboxes: foliageData.bboxes,
       canopyHeights: foliageData.canopyHeights,
       factors: foliageData.factors,
+      holes: foliageData.holes,
       tileIndex: foliageData.tileIndex,
     } : null,
     buildingsPayload: buildingData ? {
       polygons: buildingData.polygons,
       bboxes: buildingData.bboxes,
       heights: buildingData.heights,
+      holes: buildingData.holes,
       tileIndex: buildingData.tileIndex,
     } : null,
+    obstacleWarnings,
   };
 }
 

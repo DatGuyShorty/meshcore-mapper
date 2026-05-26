@@ -230,6 +230,8 @@ export function init() {
         ]);
         opts.foliage = foliage;
         opts.buildings = buildings;
+        if (opts.useFoliage && !foliage) setInlineStatus('opt-status', 'Foliage loss requested but vegetation data was unavailable.', 'warning');
+        if (opts.useBuildings && !buildings) setInlineStatus('opt-status', 'Building loss requested but structure data was unavailable.', 'warning');
         step(`Obstacle layers ready: foliage=${foliage ? 'yes' : 'no'}, buildings=${buildings ? 'yes' : 'no'}`);
       }
 

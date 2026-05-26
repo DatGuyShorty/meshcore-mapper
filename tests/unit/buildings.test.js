@@ -19,6 +19,7 @@ describe('building blocker extraction helpers', () => {
     expect(inferBuildingHeight({ building: 'house' })).toBe(6);
     expect(inferBuildingHeight({ building: 'cathedral' })).toBeGreaterThan(inferBuildingHeight({ building: 'house' }));
     expect(inferBuildingHeight({ building: 'industrial', 'building:levels': '2', 'roof:height': '2' })).toBeCloseTo(10.4);
+    expect(inferBuildingHeight({ building: 'yes', 'building:height': '14 m' })).toBe(14);
     expect(inferBuildingHeight({ man_made: 'silo' })).toBe(18);
     expect(inferBuildingHeight({ barrier: 'city_wall' })).toBe(8);
   });
@@ -37,6 +38,8 @@ describe('building blocker extraction helpers', () => {
     expect(query).toContain('["building"]');
     expect(query).toContain('["building:part"]');
     expect(query).toContain('storage_tank');
+    expect(query).toContain('node["building"]');
+    expect(query).toContain('node["man_made"');
     expect(query).toContain('retaining_wall');
     expect(query).toContain('["military"="bunker"]');
   });
@@ -87,5 +90,26 @@ describe('building attenuation', () => {
     );
 
     expect(loss).toBe(0);
+  });
+
+  it('preserves multipolygon holes when computing building loss', () => {
+    const profileLats = new Float64Array([2, 2]);
+    const profileLons = new Float64Array([-1, 5]);
+    const profileElevs = new Float32Array([0, 0]);
+    const outer = [[0, 0], [0, 4], [4, 4], [4, 0], [0, 0]];
+    const inner = [[1, 1], [1, 3], [3, 3], [3, 1], [1, 1]];
+    const bbox = { latMin: 0, latMax: 4, lonMin: 0, lonMax: 4 };
+
+    const solidLoss = buildingLossDb(
+      profileLats, profileLons, profileElevs,
+      1, 1, [outer], [bbox], [10], null, 600, 1
+    );
+    const holeLoss = buildingLossDb(
+      profileLats, profileLons, profileElevs,
+      1, 1, [outer], [bbox], [10], null, 600, 1, [[inner]]
+    );
+
+    expect(holeLoss).toBeGreaterThan(0);
+    expect(holeLoss).toBeLessThan(solidLoss);
   });
 });

@@ -1,3 +1,5 @@
+import { clampedGridFractions } from './osmGeometry.js';
+
 const M_PER_LAT = 110574;
 const M_PER_LON = 111320;
 
@@ -193,8 +195,9 @@ export function sampleTerrainElevation(lat, lon, { bounds, elevations, res }) {
   const latSpan = bounds.latMax - bounds.latMin;
   const lonSpan = bounds.lonMax - bounds.lonMin;
   if (latSpan === 0 || lonSpan === 0) return elevations[0] ?? 0;
-  const rowF = (bounds.latMax - lat) / latSpan * (res - 1);
-  const colF = (lon - bounds.lonMin) / lonSpan * (res - 1);
+  const fractions = clampedGridFractions(lat, lon, bounds);
+  const rowF = fractions.row * (res - 1);
+  const colF = fractions.col * (res - 1);
   const r0 = Math.max(0, Math.min(res - 2, Math.floor(rowF)));
   const c0 = Math.max(0, Math.min(res - 2, Math.floor(colF)));
   const tr = rowF - r0;

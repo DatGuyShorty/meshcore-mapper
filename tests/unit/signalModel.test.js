@@ -10,6 +10,8 @@ import {
 describe('signal model helpers', () => {
   it('computes flat distance and FSPL base terms', () => {
     expect(flatDistanceM(0, 0, 0, 0.01)).toBeCloseTo(1113.2, 1);
+    expect(flatDistanceM(0, 179.9, 0, -179.9)).toBeGreaterThan(22000);
+    expect(flatDistanceM(0, 179.9, 0, -179.9)).toBeLessThan(22500);
     expect(fsplBaseDb(868)).toBeCloseTo(31.21, 1);
   });
 
@@ -61,5 +63,20 @@ describe('signal model helpers', () => {
     expect(result.effectiveTxGain).toBe(-5);
     expect(result.effectiveRxGain).toBe(2);
     expect(result.rxPower).toBeCloseTo(20 - 5 + 2 - expectedPathLoss);
+  });
+
+  it('returns a safe no-coverage result for invalid signal inputs', () => {
+    const result = computeSignalToPoint({
+      tx: { lat: 95, lon: 0, height: 10, power: 20, freq: 868, gain: 0 },
+      txElev: 0,
+      rxLat: 0,
+      rxLon: 0,
+      rxHeight: 1.5,
+      useLos: false,
+    });
+
+    expect(result.rxPower).toBe(-200);
+    expect(result.distM).toBe(Infinity);
+    expect(result.los).toBeNull();
   });
 });

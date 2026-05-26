@@ -51,9 +51,15 @@ function registerIpcHandlers({ ipcMain, dialog, cache, presetsPath }) {
 }
 
 function registerCacheHandlers(ipcMain, cache) {
-  ipcMain.handle('cache-elevations-lookup-bbox', (_e, { latMin, latMax, lonMin, lonMax }) => {
+  ipcMain.handle('cache-elevations-lookup-bbox', (_e, bbox = {}) => {
+    bbox = bbox ?? {};
     const db = cache.db;
     if (!db) return [];
+    const latMin = _finiteNumber(bbox.latMin);
+    const latMax = _finiteNumber(bbox.latMax);
+    const lonMin = _finiteNumber(bbox.lonMin);
+    const lonMax = _finiteNumber(bbox.lonMax);
+    if (![latMin, latMax, lonMin, lonMax].every(Number.isFinite)) return [];
     let stmt;
     try {
       stmt = db.prepare('SELECT lat, lon, elev FROM elevations WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?');
@@ -85,8 +91,8 @@ function registerCacheHandlers(ipcMain, cache) {
       insertStmt = db.prepare('INSERT OR IGNORE INTO elevation_lookup_points (lat, lon) VALUES (?, ?)');
       db.run('BEGIN');
       for (const p of points) {
-        if (!Number.isFinite(p?.lat) || !Number.isFinite(p?.lon)) continue;
-        insertStmt.run([p.lat, p.lon]);
+        if (!_validLatLon(p?.lat, p?.lon)) continue;
+        insertStmt.run([Number(p.lat), Number(p.lon)]);
       }
       db.run('COMMIT');
 
@@ -110,11 +116,13 @@ function registerCacheHandlers(ipcMain, cache) {
 
   ipcMain.handle('cache-elevations-store', (_e, entries) => {
     const db = cache.db;
-    if (!db || !entries.length) return;
+    if (!db || !Array.isArray(entries) || !entries.length) return;
+    const validEntries = entries.filter(e => _validLatLon(e?.lat, e?.lon) && Number.isFinite(Number(e?.elev)));
+    if (!validEntries.length) return;
     const stmt = db.prepare('INSERT OR REPLACE INTO elevations (lat, lon, elev) VALUES (?, ?, ?)');
     try {
       db.run('BEGIN');
-      for (const e of entries) stmt.run([e.lat, e.lon, e.elev]);
+      for (const e of validEntries) stmt.run([Number(e.lat), Number(e.lon), Number(e.elev)]);
       db.run('COMMIT');
       cache.scheduleSave();
     } catch (err) {
@@ -125,9 +133,14 @@ function registerCacheHandlers(ipcMain, cache) {
     }
   });
 
-  ipcMain.handle('cache-dem-tile-get', (_e, { source, z, x, y }) => {
+  ipcMain.handle('cache-dem-tile-get', (_e, tile = {}) => {
+    tile = tile ?? {};
     const db = cache.db;
-    if (!db || !source) return null;
+    const source = _safeSource(tile.source);
+    const z = _boundedInteger(tile.z, 0, 30);
+    const x = _boundedInteger(tile.x, 0, Number.MAX_SAFE_INTEGER);
+    const y = _boundedInteger(tile.y, 0, Number.MAX_SAFE_INTEGER);
+    if (!db || !source || z === null || x === null || y === null) return null;
     let stmt;
     try {
       stmt = db.prepare('SELECT data FROM dem_tiles WHERE source = ? AND z = ? AND x = ? AND y = ?');
@@ -143,9 +156,15 @@ function registerCacheHandlers(ipcMain, cache) {
     }
   });
 
-  ipcMain.handle('cache-dem-tile-store', (_e, { source, z, x, y, data }) => {
+  ipcMain.handle('cache-dem-tile-store', (_e, tile = {}) => {
+    tile = tile ?? {};
     const db = cache.db;
-    if (!db || !source || !data) return;
+    const source = _safeSource(tile.source);
+    const z = _boundedInteger(tile.z, 0, 30);
+    const x = _boundedInteger(tile.x, 0, Number.MAX_SAFE_INTEGER);
+    const y = _boundedInteger(tile.y, 0, Number.MAX_SAFE_INTEGER);
+    const data = _validBlobPayload(tile.data);
+    if (!db || !source || z === null || x === null || y === null || !data) return;
     try {
       db.run(
         'INSERT OR REPLACE INTO dem_tiles (source, z, x, y, data, cached_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -224,10 +243,11 @@ function registerCacheHandlers(ipcMain, cache) {
     const db = cache.db;
     if (!db) return { elevations: 0, demTiles: 0, foliage: 0, buildings: 0, sizeKb: 0 };
     try {
+      const osmFreshCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
       const elevCount = db.exec('SELECT COUNT(*) FROM elevations')[0]?.values[0][0] ?? 0;
       const demTileCount = db.exec('SELECT COUNT(*) FROM dem_tiles')[0]?.values[0][0] ?? 0;
-      const folCount = db.exec('SELECT COUNT(*) FROM foliage_cache')[0]?.values[0][0] ?? 0;
-      const bldgCount = db.exec('SELECT COUNT(*) FROM buildings_cache')[0]?.values[0][0] ?? 0;
+      const folCount = db.exec(`SELECT COUNT(*) FROM foliage_cache WHERE cached_at >= ${osmFreshCutoff}`)[0]?.values[0][0] ?? 0;
+      const bldgCount = db.exec(`SELECT COUNT(*) FROM buildings_cache WHERE cached_at >= ${osmFreshCutoff}`)[0]?.values[0][0] ?? 0;
       const pageSize = db.exec('PRAGMA page_size')[0]?.values[0][0] ?? 4096;
       const pageCount = db.exec('PRAGMA page_count')[0]?.values[0][0] ?? 0;
       return {
@@ -253,14 +273,15 @@ function registerCacheHandlers(ipcMain, cache) {
 function registerWsHandlers(ipcMain, cache) {
   ipcMain.handle('ws-repeaters-save', (_e, rows) => {
     const db = cache.db;
-    if (!db) return;
+    if (!db || !Array.isArray(rows)) return;
+    const safeRows = rows.map(_safeWsRow).filter(Boolean);
     try {
       db.run('BEGIN');
       db.run('DELETE FROM ws_repeaters');
-      if (rows && rows.length) {
+      if (safeRows.length) {
         const stmt = db.prepare('INSERT INTO ws_repeaters (data, saved_at) VALUES (?, ?)');
         const now = Date.now();
-        for (const r of rows) stmt.run([JSON.stringify(r), now]);
+        for (const r of safeRows) stmt.run([JSON.stringify(r), now]);
         stmt.free();
       }
       db.run('COMMIT');
@@ -278,7 +299,10 @@ function registerWsHandlers(ipcMain, cache) {
       const stmt = db.prepare('SELECT data FROM ws_repeaters ORDER BY id');
       const rows = [];
       while (stmt.step()) {
-        try { rows.push(JSON.parse(stmt.getAsObject().data)); } catch {}
+        try {
+          const row = _safeWsRow(JSON.parse(stmt.getAsObject().data));
+          if (row) rows.push(row);
+        } catch {}
       }
       stmt.free();
       return rows;
@@ -305,6 +329,56 @@ function _deleteAndSave(cache, sql, label) {
   } catch (err) {
     console.error(label, err.message);
   }
+}
+
+function _finiteNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _validLatLon(lat, lon) {
+  const la = Number(lat);
+  const lo = Number(lon);
+  return Number.isFinite(la)
+    && Number.isFinite(lo)
+    && la >= -90
+    && la <= 90
+    && lo >= -180
+    && lo <= 180;
+}
+
+function _boundedInteger(value, min, max) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min || n > max) return null;
+  return n;
+}
+
+function _safeSource(source) {
+  if (typeof source !== 'string') return null;
+  const trimmed = source.trim();
+  return /^[a-z0-9:_-]{1,48}$/i.test(trimmed) ? trimmed : null;
+}
+
+function _validBlobPayload(data) {
+  if (!data) return null;
+  if (data instanceof Uint8Array || data instanceof ArrayBuffer) return data;
+  if (ArrayBuffer.isView(data)) return data;
+  if (Array.isArray(data) && data.length <= 8 * 1024 * 1024) return data;
+  return null;
+}
+
+function _safeWsRow(row) {
+  const lat = Number(row?.lat);
+  const lon = Number(row?.lon);
+  if (!_validLatLon(lat, lon)) return null;
+  return {
+    name: String(row?.name ?? 'Unknown').slice(0, 120),
+    lat,
+    lon,
+    short: row?.short === undefined || row?.short === null ? null : String(row.short).slice(0, 80),
+    lastSeen: row?.lastSeen === undefined || row?.lastSeen === null ? null : String(row.lastSeen).slice(0, 80),
+    wsKey: row?.wsKey === undefined || row?.wsKey === null ? null : String(row.wsKey).slice(0, 160),
+  };
 }
 
 module.exports = { registerIpcHandlers };

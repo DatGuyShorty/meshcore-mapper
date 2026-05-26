@@ -24,6 +24,13 @@ describe('coverage point inspection', () => {
     expect(rows).toEqual([]);
   });
 
+  it('ignores coverage results with invalid radius metadata', () => {
+    const result = makeCoverageResult(1, 'Near', 0, 0);
+    result.radiusKm = undefined;
+
+    expect(inspectCoverageAtPoint({ lat: 0, lng: 0.01 }, [result])).toEqual([]);
+  });
+
   function makeCoverageResult(id, name, lat, lon) {
     return {
       rep: {

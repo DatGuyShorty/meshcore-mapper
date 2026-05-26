@@ -54,6 +54,7 @@ export async function calculateLinkBudget(pointA, pointB, settings, { signal = n
     console.log(`[p2p] ${entry}`);
     log.push(entry);
   };
+  const warnings = [];
 
   step('Settings: ' + JSON.stringify({
     txHeight: settings.txHeight,
@@ -119,6 +120,16 @@ export async function calculateLinkBudget(pointA, pointB, settings, { signal = n
       : Promise.resolve(null),
   ]);
   step(`Foliage data: ${foliage ? 'loaded' : 'skipped'}, Buildings: ${buildings ? 'loaded' : 'skipped'}`);
+  if (settings.useFoliage && !foliage) {
+    const warning = 'Foliage loss was requested but vegetation data was unavailable.';
+    warnings.push(warning);
+    step(`Warning: ${warning}`);
+  }
+  if (settings.useBuildings && !buildings) {
+    const warning = 'Building loss was requested but structure data was unavailable.';
+    warnings.push(warning);
+    step(`Warning: ${warning}`);
+  }
 
   const txElev = elevs[0];
   const rxElev = elevs[sampleCount - 1];
@@ -142,13 +153,13 @@ export async function calculateLinkBudget(pointA, pointB, settings, { signal = n
   const foliageLoss = foliage
     ? foliageLossDb(profileLats, profileLons, elevs, settings.txHeight, settings.rxHeight,
         foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
-        foliage.tileIndex, distM, settings.foliageLossPerM, settings.freqMHz)
+        foliage.tileIndex, distM, settings.foliageLossPerM, settings.freqMHz, foliage.holes)
     : 0;
   step(`Foliage loss: ${foliageLoss.toFixed(1)} dB, Diffraction loss: ${geoResult.diffractionLossDb.toFixed(1)} dB`);
   const buildingLoss = buildings
     ? buildingLossDb(profileLats, profileLons, elevs, settings.txHeight, settings.rxHeight,
         buildings.polygons, buildings.bboxes, buildings.heights,
-        buildings.tileIndex, distM, settings.buildingLossPerM)
+        buildings.tileIndex, distM, settings.buildingLossPerM, buildings.holes)
     : 0;
   step(`Building loss: ${buildingLoss.toFixed(1)} dB`);
 
@@ -220,6 +231,7 @@ export async function calculateLinkBudget(pointA, pointB, settings, { signal = n
     fresnelResult,
     monteCarlo,
     profileSvg,
+    warnings,
     _calcLog: log,
   };
 }

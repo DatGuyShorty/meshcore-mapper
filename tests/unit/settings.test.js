@@ -39,6 +39,8 @@ describe('coverage settings parsing', () => {
 
     const settings = getCoverageSettings();
     expect(PERSISTED_SETTING_IDS).toContain('coverage-overlay-mode');
+    expect(PERSISTED_SETTING_IDS).toContain('layer-barriers');
+    expect(PERSISTED_SETTING_IDS).toContain('barrier-opacity');
     expect(settings.computeBackend).toBe('cuda');
     expect(settings.deriveObstacleHeights).toBe(true);
     expect(settings.computeWorkerCount).toBe(8);
@@ -105,6 +107,12 @@ describe('coverage settings parsing', () => {
       diffractionModel: 'deygout',
       useDeygout: true,
     });
+  });
+
+  it('clamps optimizer candidate resolution to a valid range', () => {
+    setValue('opt-candidate-res', '0');
+
+    expect(getOptimizerSettings().opts.candidateRes).toBe(1);
   });
 
   function setValue(id, value) {

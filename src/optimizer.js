@@ -68,6 +68,8 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
             .catch(e => { console.warn('[optimizer] buildings fetch failed, skipping:', e); return null; })
         : Promise.resolve(null),
     ]);
+    if (opts.useFoliage && !foliage) progress(18, 'Warning: foliage loss requested but vegetation data was unavailable.');
+    if (opts.useBuildings && !buildings) progress(18, 'Warning: building loss requested but structure data was unavailable.');
   }
 
   progress(20, 'Scoring candidate locations…');
@@ -142,12 +144,15 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
 // ─── Helpers ────────────────────────────────────────────────────
 
 export function buildGrid(latMin, latMax, lonMin, lonMax, res) {
+  const gridRes = Math.max(1, Math.floor(Number(res) || 1));
   const pts = [];
-  for (let r = 0; r < res; r++) {
-    for (let c = 0; c < res; c++) {
+  const rowDen = Math.max(1, gridRes - 1);
+  const colDen = Math.max(1, gridRes - 1);
+  for (let r = 0; r < gridRes; r++) {
+    for (let c = 0; c < gridRes; c++) {
       pts.push({
-        latitude:  latMax - r * (latMax - latMin) / (res - 1),
-        longitude: lonMin + c * (lonMax - lonMin) / (res - 1),
+        latitude:  latMax - r * (latMax - latMin) / rowDen,
+        longitude: lonMin + c * (lonMax - lonMin) / colDen,
       });
     }
   }

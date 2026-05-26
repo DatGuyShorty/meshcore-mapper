@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { resolveBackendOrder } from '../../src/coverageBackend.js';
 
@@ -22,5 +23,13 @@ describe('coverage backend selection', () => {
     expect(resolveBackendOrder('stale-setting', {
       cuda: { available: true },
     })).toEqual(['cuda', 'cpu']);
+  });
+
+  it('keeps CUDA fallback visible for hole-aware OSM geometry', () => {
+    const coverageBackend = readFileSync('src/coverageBackend.js', 'utf8');
+    const optimizerBackend = readFileSync('src/optimizerBackend.js', 'utf8');
+
+    expect(coverageBackend).toContain('hole-aware OSM multipolygons require CPU backend');
+    expect(optimizerBackend).toContain('hole-aware OSM multipolygons require CPU backend');
   });
 });

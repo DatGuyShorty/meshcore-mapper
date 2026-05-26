@@ -647,6 +647,11 @@
     (function() {
       const handle = document.getElementById('sidebar-resizer');
       const app = document.getElementById('app');
+      const storageKey = 'meshcoreMapper_sidebarWidth';
+      const savedWidth = parseInt(localStorage.getItem(storageKey), 10);
+      if (Number.isFinite(savedWidth)) {
+        app.style.setProperty('--sidebar-w', Math.max(280, Math.min(620, savedWidth)) + 'px');
+      }
       let dragging = false, startX = 0, startW = 0;
       handle.addEventListener('mousedown', e => {
         if (app.classList.contains('sidebar-collapsed')) return;
@@ -667,6 +672,7 @@
         handle.classList.remove('dragging');
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        localStorage.setItem(storageKey, parseInt(getComputedStyle(app).getPropertyValue('--sidebar-w'), 10));
       });
     })();
   </script>

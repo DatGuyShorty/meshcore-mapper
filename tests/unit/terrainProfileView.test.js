@@ -49,4 +49,11 @@ describe('terrain profile view helpers', () => {
     expect(svg).toContain('H120.0 V');
     expect(svg).toContain('1.50 km');
   });
+
+  it('renders finite SVG for degenerate profiles', () => {
+    const svg = drawTerrainProfile(new Float32Array([100]), 100, 100, 10, 1.5, 0, 868);
+
+    expect(svg).toContain('<svg');
+    expect(svg).not.toMatch(/NaN|Infinity/);
+  });
 });

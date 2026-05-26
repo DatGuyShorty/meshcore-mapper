@@ -1,3 +1,5 @@
+import { clampedGridFractions } from './osmGeometry.js';
+
 /**
  * propagation.js
  * Pure LoRa radio propagation calculations.
@@ -341,6 +343,36 @@ export function segmentPolygonIntervals(lat1, lon1, lat2, lon2, poly) {
   return intervals;
 }
 
+export function segmentPolygonIntervalsWithHoles(lat1, lon1, lat2, lon2, poly, holes = []) {
+  let intervals = segmentPolygonIntervals(lat1, lon1, lat2, lon2, poly);
+  if (!intervals.length || !Array.isArray(holes) || holes.length === 0) return intervals;
+
+  for (const hole of holes) {
+    const holeIntervals = segmentPolygonIntervals(lat1, lon1, lat2, lon2, hole);
+    if (!holeIntervals.length) continue;
+    intervals = _subtractIntervals(intervals, holeIntervals);
+    if (!intervals.length) break;
+  }
+  return intervals;
+}
+
+function _subtractIntervals(intervals, cuts) {
+  let out = intervals;
+  for (const [cutA, cutB] of cuts) {
+    const next = [];
+    for (const [a, b] of out) {
+      if (cutB <= a || cutA >= b) {
+        next.push([a, b]);
+        continue;
+      }
+      if (cutA > a) next.push([a, Math.min(cutA, b)]);
+      if (cutB < b) next.push([Math.max(cutB, a), b]);
+    }
+    out = next;
+  }
+  return out;
+}
+
 
 // P6: write directly into a Uint8ClampedArray — avoids one [r,g,b,a] allocation per pixel
 /**
@@ -394,8 +426,9 @@ export function bilinearElev(lat, lon, grid, res, latMin, latMax, lonMin, lonMax
   const latSpan = latMax - latMin;
   const lonSpan = lonMax - lonMin;
   if (latSpan === 0 || lonSpan === 0) return grid[0] ?? 0;
-  const cFrac = (lon - lonMin) / (lonMax - lonMin) * (res - 1);
-  const rFrac = (latMax - lat) / (latMax - latMin) * (res - 1);
+  const fractions = clampedGridFractions(lat, lon, { latMin, latMax, lonMin, lonMax });
+  const cFrac = fractions.col * (res - 1);
+  const rFrac = fractions.row * (res - 1);
   const c0 = Math.max(0, Math.min(res - 2, Math.floor(cFrac)));
   const r0 = Math.max(0, Math.min(res - 2, Math.floor(rFrac)));
   const tc = cFrac - c0, tr = rFrac - r0;

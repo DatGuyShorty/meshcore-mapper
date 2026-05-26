@@ -112,6 +112,7 @@ export function set3dMode(enabled) {
 
   if (_active) {
     _ensureScene();
+    _startLoop();
     _resize();
     _renderPreview();
     refresh3d({ force: true });
@@ -120,6 +121,7 @@ export function set3dMode(enabled) {
     _abortController?.abort();
     clearTimeout(_refreshTimer);
     clearTimeout(_retileTimer);
+    _disposeScene();
     _lastValidBounds = null;
     map.invalidateSize();
     setStatus('2D map view active.');
@@ -812,6 +814,12 @@ function _startLoop() {
   tick();
 }
 
+function _stopLoop() {
+  if (!_animationId) return;
+  cancelAnimationFrame(_animationId);
+  _animationId = null;
+}
+
 function _resize() {
   const host = document.getElementById('map3d');
   if (!_renderer || !host) return;
@@ -874,7 +882,8 @@ function _onPointerMove(event) {
   _raycaster.setFromCamera(_pointer, _camera);
   const hit = _raycaster.intersectObject(_terrainMesh, false)[0];
   if (!hit) return;
-  const elev = hit.point.y / _terrainState.verticalScale + elevationStats(_terrainState.elevations).min;
+  const minElevation = _meshArrays?.minElevation ?? elevationStats(_terrainState.elevations).min;
+  const elev = hit.point.y / _terrainState.verticalScale + minElevation;
   document.getElementById('map3d-cursor').textContent = `Terrain ${elev.toFixed(0)} m AMSL`;
 }
 
@@ -904,6 +913,33 @@ function _disposeObject(obj) {
       mat?.dispose?.();
     }
   });
+}
+
+function _disposeScene() {
+  _stopLoop();
+  clearTimeout(_refreshTimer);
+  clearTimeout(_retileTimer);
+  _textureSerial++;
+  _resizeObserver?.disconnect();
+  _resizeObserver = null;
+  _controls?.removeEventListener?.('end', _scheduleRetileFromControls);
+  _controls?.dispose?.();
+  _controls = null;
+  _renderer?.domElement?.removeEventListener?.('pointermove', _onPointerMove);
+  _clearRoot();
+  if (_root && _scene) _scene.remove(_root);
+  _root = null;
+  _terrainMesh = null;
+  _terrainState = null;
+  _meshArrays = null;
+  _coverageGroup = null;
+  _linkGroup = null;
+  _raycaster = null;
+  _pointer = null;
+  _renderer?.dispose?.();
+  _renderer = null;
+  _camera = null;
+  _scene = null;
 }
 
 function _gridRes() {

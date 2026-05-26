@@ -82,11 +82,14 @@ async function _runCuda(payload, { signal, onProgress }) {
   if (!_cudaStatus.available || !window.electronAPI?.cudaCoverageCompute) {
     return { unsupported: true, message: _cudaStatus.reason || 'Python CUDA unavailable' };
   }
+  if (_hasObstacleHoles(payload.foliage) || _hasObstacleHoles(payload.buildings)) {
+    return { unsupported: true, message: 'hole-aware OSM multipolygons require CPU backend' };
+  }
 
   onProgress?.({ pct: 0.02, stage: 'launching-python' });
   const cancelOnAbort = () => window.electronAPI.cudaCoverageCancel?.().catch(() => {});
   signal?.addEventListener('abort', cancelOnAbort, { once: true });
-  const progressListener = (_evt, msg) => {
+  const progressListener = (msg) => {
     const pct = Number(msg?.pct);
     if (!Number.isFinite(pct)) return;
     onProgress?.({
@@ -164,4 +167,8 @@ function _abortError() {
   err.name = 'AbortError';
   err.cancelled = true;
   return err;
+}
+
+function _hasObstacleHoles(layer) {
+  return Array.isArray(layer?.holes) && layer.holes.some(polyHoles => Array.isArray(polyHoles) && polyHoles.length > 0);
 }

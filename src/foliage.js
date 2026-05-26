@@ -3,9 +3,22 @@
  * and compute additional signal attenuation from forest traversal.
  * Exports: fetchFoliage, foliageLossDb
  */
-import { earthBulgeM, segmentPolygonIntervals } from './propagation.js';
+import { earthBulgeM, segmentPolygonIntervalsWithHoles } from './propagation.js';
 import { fetchDatasetElevations } from './elevation.js';
 import { scheduledFetch } from './requestScheduler.js';
+import { fetchOsmTileBatch } from './osmTilePipeline.js';
+import {
+  assembleMultipolygon,
+  fallbackFeatureId as _fallbackFeatureId,
+  featureDedupeKey,
+  holeCandidatesForOuter,
+  isClosedRing as _isClosedRing,
+  lineCorridorRings as _lineCorridorRings,
+  overpassBboxString,
+  pointCircleRing as _pointCircleRing,
+  ringBBox,
+  tileDescriptorsForBbox,
+} from './osmGeometry.js';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -14,12 +27,9 @@ const OVERPASS_MIRRORS = [
 
 // Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same data.
 // Old 'v3:' per-repeater exact-bbox keys become unreachable (stale but harmless).
-const TILE_SIZE = 0.25;  // degrees — 0.25° ≈ 27 km lat; a 15 km radius spans ≤ 4 tiles
-const CACHE_V_OSM = 'fv7:';
-const CACHE_V_DERIVED = 'fv8:'; // canopy heights prefer DSM-DEM derivation
+const CACHE_V_OSM = 'fv9:';
+const CACHE_V_DERIVED = 'fv10:'; // canopy heights prefer DSM-DEM derivation
 const FOLIAGE_TILE_CONCURRENCY = 3;
-const M_PER_LAT = 110574;
-const M_PER_LON = 111320;
 
 function _abortError() {
   const err = new Error('Cancelled');
@@ -49,17 +59,9 @@ function _sleep(ms, signal) {
   });
 }
 
-function _snap(v) { return Math.floor(v / TILE_SIZE) * TILE_SIZE; }
-
 /** Return 0.25° tile descriptors covering the given bbox. */
 function _tilesForBbox(latMin, latMax, lonMin, lonMax, cacheVersion) {
-  const tiles = [];
-  for (let la = _snap(latMin); la < latMax; la += TILE_SIZE) {
-    for (let lo = _snap(lonMin); lo < lonMax; lo += TILE_SIZE) {
-      tiles.push({ la, lo, key: `${cacheVersion}${la.toFixed(4)}:${lo.toFixed(4)}` });
-    }
-  }
-  return tiles;
+  return tileDescriptorsForBbox(latMin, latMax, lonMin, lonMax, cacheVersion);
 }
 
 // P2: tile grid resolution for spatial index
@@ -111,122 +113,6 @@ const FOLIAGE_FACTORS = {
 // B3: multi-entry in-memory cache (LRU-capped at 8 entries)
 const _memCache    = new Map();
 const MEM_CACHE_MAX = 8;
-
-function _isClosedRing(ring) {
-  if (!Array.isArray(ring) || ring.length < 4) return false;
-  const first = ring[0];
-  const last = ring[ring.length - 1];
-  return !!first && !!last && first[0] === last[0] && first[1] === last[1];
-}
-
-function _lineCorridorRings(ring, widthM) {
-  if (!Array.isArray(ring) || ring.length < 2 || !Number.isFinite(widthM) || widthM <= 0) return [];
-  const half = widthM / 2;
-  const out = [];
-  for (let i = 0; i < ring.length - 1; i++) {
-    const [lat1, lon1] = ring[i];
-    const [lat2, lon2] = ring[i + 1];
-    const latMid = (lat1 + lat2) / 2;
-    const lonScale = Math.max(1e-6, M_PER_LON * Math.cos(latMid * Math.PI / 180));
-    const dx = (lon2 - lon1) * lonScale;
-    const dy = (lat2 - lat1) * M_PER_LAT;
-    const len = Math.hypot(dx, dy);
-    if (len <= 0) continue;
-    const nx = -dy / len;
-    const ny = dx / len;
-    const dLat = (ny * half) / M_PER_LAT;
-    const dLon = (nx * half) / lonScale;
-    out.push([
-      [lat1 + dLat, lon1 + dLon],
-      [lat2 + dLat, lon2 + dLon],
-      [lat2 - dLat, lon2 - dLon],
-      [lat1 - dLat, lon1 - dLon],
-    ]);
-  }
-  return out;
-}
-
-function _assembleRings(segments) {
-  if (!Array.isArray(segments) || segments.length === 0) return [];
-  const toKey = (pt) => `${pt[0].toFixed(8)},${pt[1].toFixed(8)}`;
-  const pending = [];
-  const rings = [];
-
-  for (const seg of segments) {
-    if (!Array.isArray(seg) || seg.length < 2) continue;
-    const copy = seg.slice();
-    if (toKey(copy[0]) === toKey(copy[copy.length - 1])) {
-      rings.push(copy);
-    } else {
-      pending.push(copy);
-    }
-  }
-
-  while (pending.length > 0) {
-    let ring = pending.shift();
-    let extended = true;
-
-    while (extended) {
-      extended = false;
-      const startKey = toKey(ring[0]);
-      const endKey = toKey(ring[ring.length - 1]);
-
-      for (let i = 0; i < pending.length; i++) {
-        const segment = pending[i];
-        const segStart = toKey(segment[0]);
-        const segEnd = toKey(segment[segment.length - 1]);
-
-        if (endKey === segStart) {
-          ring = ring.concat(segment.slice(1));
-          pending.splice(i, 1);
-          extended = true;
-          break;
-        }
-        if (endKey === segEnd) {
-          ring = ring.concat(segment.slice(0, -1).reverse());
-          pending.splice(i, 1);
-          extended = true;
-          break;
-        }
-        if (startKey === segEnd) {
-          ring = segment.slice(0, -1).concat(ring);
-          pending.splice(i, 1);
-          extended = true;
-          break;
-        }
-        if (startKey === segStart) {
-          ring = segment.slice(1).reverse().concat(ring);
-          pending.splice(i, 1);
-          extended = true;
-          break;
-        }
-      }
-    }
-
-    if (ring.length >= 3 && toKey(ring[0]) === toKey(ring[ring.length - 1])) {
-      ring = ring.slice();
-      ring[ring.length - 1] = ring[0];
-    }
-    rings.push(ring);
-  }
-  return rings;
-}
-
-function _pointCircleRing(lat, lon, diameterM, sides = 12) {
-  const radius = Math.max(0.5, diameterM / 2);
-  const latScale = 1 / M_PER_LAT;
-  const lonScale = 1 / Math.max(1e-6, M_PER_LON * Math.cos(lat * Math.PI / 180));
-  const ring = [];
-  for (let i = 0; i < sides; i++) {
-    const theta = (i / sides) * 2 * Math.PI;
-    ring.push([
-      lat + Math.sin(theta) * radius * latScale,
-      lon + Math.cos(theta) * radius * lonScale,
-    ]);
-  }
-  ring.push(ring[0]);
-  return ring;
-}
 
 function _parseOsmLengthMeters(value) {
   if (value === null || value === undefined) return null;
@@ -333,23 +219,13 @@ export function buildFoliageOverpassQuery(bbox) {
   ].flatMap(([k, v]) => [`way["${k}"="${v}"]${bbox};`, `relation["${k}"="${v}"]${bbox};`]).join('');
   const nodeFilters = [
     `node["natural"="tree"]${bbox};`,
+    `node["barrier"="hedge"]${bbox};`,
   ].join('');
   const linearFilters = [
     `way["barrier"="hedge"]${bbox};`,
     `way["natural"="tree_row"]${bbox};`,
   ].join('');
   return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});out geom tags;`;
-}
-
-function _fallbackFeatureId(prefix, ring, bbox) {
-  if (bbox) {
-    return `${prefix}:bb:${bbox.latMin.toFixed(6)}:${bbox.latMax.toFixed(6)}:${bbox.lonMin.toFixed(6)}:${bbox.lonMax.toFixed(6)}:${ring?.length ?? 0}`;
-  }
-  if (!ring?.length) return `${prefix}:empty`;
-  const first = ring[0];
-  const mid = ring[Math.floor(ring.length / 2)] ?? first;
-  const last = ring[ring.length - 1] ?? first;
-  return `${prefix}:rg:${ring.length}:${first[0].toFixed(6)}:${first[1].toFixed(6)}:${mid[0].toFixed(6)}:${mid[1].toFixed(6)}:${last[0].toFixed(6)}:${last[1].toFixed(6)}`;
 }
 
 function _polygonCentroid(ring) {
@@ -434,12 +310,13 @@ function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
  * Fetch one 0.25° tile of foliage polygons (mem-cache → SQLite → Overpass).
  * Tiles are shared across all repeaters — cached once, reused for every coverage run in the area.
  */
-async function _fetchFoliageTile(la, lo, key, {
+async function _fetchFoliageTile(tile, {
   signal = null,
   datasetBatchConcurrency = 2,
   deriveObstacleHeights = false,
   derivationSampleLimit = 0,
 } = {}) {
+  const { key } = tile;
   _throwIfAborted(signal);
   if (_memCache.has(key)) {
     console.debug(`[foliage] mem-cache hit tile ${key}`);
@@ -454,9 +331,7 @@ async function _fetchFoliageTile(la, lo, key, {
   }
   console.info(`[foliage] fetching tile ${key} from Overpass`);
 
-  const tLatMax = (la + TILE_SIZE).toFixed(4);
-  const tLonMax = (lo + TILE_SIZE).toFixed(4);
-  const bbox = `(${la},${lo},${tLatMax},${tLonMax})`;
+  const bbox = overpassBboxString(tile);
   const query = buildFoliageOverpassQuery(bbox);
 
   let res = null, lastErr = null;
@@ -494,7 +369,7 @@ async function _fetchFoliageTile(la, lo, key, {
   if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
 
   const data = await res.json();
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [];
+  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [], holes = [];
   const seenFeatureIds = new Set();
   const elementGeom = new Map();
   for (const el of data.elements) {
@@ -508,21 +383,20 @@ async function _fetchFoliageTile(la, lo, key, {
     return elementGeom.get(`${member.type}:${member.ref}`) ?? null;
   };
 
-  const addRing = (ring, classification, featureId) => {
-    if (featureId && seenFeatureIds.has(featureId)) return;
+  const addRing = (ring, classification, featureId, ringHoles = []) => {
     if (ring.length < 3) return;
-    let la0 = Infinity, la1 = -Infinity, lo0 = Infinity, lo1 = -Infinity;
-    for (const [rla, rlo] of ring) {
-      if (rla < la0) la0 = rla; if (rla > la1) la1 = rla;
-      if (rlo < lo0) lo0 = rlo; if (rlo > lo1) lo1 = rlo;
-    }
+    const bbox = ringBBox(ring);
+    const id = featureId || _fallbackFeatureId('f', ring, bbox);
+    const dedupeKey = featureDedupeKey(id, ring, bbox);
+    if (seenFeatureIds.has(dedupeKey)) return;
     polygons.push(ring);
-    bboxes.push({ latMin: la0, latMax: la1, lonMin: lo0, lonMax: lo1 });
+    bboxes.push(bbox);
     factors.push(classification.factor);
     canopyHeights.push(classification.canopyHeight);
-    ids.push(featureId || _fallbackFeatureId('f', ring, bboxes[bboxes.length - 1]));
+    ids.push(id);
     kinds.push(classification.kind);
-    if (featureId) seenFeatureIds.add(featureId);
+    holes.push(ringHoles);
+    seenFeatureIds.add(dedupeKey);
   };
 
   for (const el of data.elements) {
@@ -540,23 +414,15 @@ async function _fetchFoliageTile(la, lo, key, {
         addRing(ring, classification, baseFeatureId);
       }
     } else if (el.type === 'relation' && el.members) {
-      if (Array.isArray(el.geometry) && el.geometry.length >= 3) {
-        addRing(el.geometry.map(n => [n.lat, n.lon]), classification, baseFeatureId);
-      } else {
-        const outerSegments = [];
-        for (const m of el.members) {
-          const role = String(m.role || 'outer').trim().toLowerCase();
-          if (role === 'inner') continue;
-          const geometry = memberGeometry(m);
-          if (!geometry || geometry.length < 2) continue;
-          outerSegments.push(geometry.map(n => [n.lat, n.lon]));
-        }
-        const outerRings = _assembleRings(outerSegments);
-        for (let ri = 0; ri < outerRings.length; ri++) {
-          const ring = outerRings[ri];
+      const multi = assembleMultipolygon(el.members, memberGeometry);
+      if (multi.outers.length) {
+        for (let ri = 0; ri < multi.outers.length; ri++) {
+          const ring = multi.outers[ri];
           if (ring.length < 3) continue;
-          addRing(ring, classification, `${baseFeatureId}:outer:${ri}`);
+          addRing(ring, classification, `${baseFeatureId}:outer:${ri}`, holeCandidatesForOuter(ring, multi.holes));
         }
+      } else if (Array.isArray(el.geometry) && el.geometry.length >= 3) {
+        addRing(el.geometry.map(n => [n.lat, n.lon]), classification, baseFeatureId);
       }
     } else if (el.type === 'node' && Number.isFinite(el.lat) && Number.isFinite(el.lon)) {
       const diameterM = classification.linearWidthM || 6;
@@ -574,7 +440,7 @@ async function _fetchFoliageTile(la, lo, key, {
     )
     : canopyHeights;
   console.info(`[foliage] tile ${key}: ${polygons.length} polygon(s)`);
-  const tileData = { polygons, bboxes, factors, canopyHeights: derivedCanopyHeights, ids, kinds };
+  const tileData = { polygons, bboxes, factors, canopyHeights: derivedCanopyHeights, ids, kinds, holes };
   if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
   _memCache.set(key, tileData);
   await window.electronAPI.cacheFoliageStore(key, tileData);
@@ -593,63 +459,42 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
   _throwIfAborted(signal);
   const cacheVersion = deriveObstacleHeights ? CACHE_V_DERIVED : CACHE_V_OSM;
   const tiles = _tilesForBbox(latMin, latMax, lonMin, lonMax, cacheVersion);
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [];
+  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [], holes = [];
   const seenMerged = new Set();
-  let completed = 0;
-  let nextIdx = 0;
-  const workersLimit = Math.max(1, Math.min(12, Math.floor(tileConcurrency)));
+  const tileResults = await fetchOsmTileBatch(tiles, {
+    signal,
+    tileConcurrency,
+    loadTile: tile => _fetchFoliageTile(tile, {
+      signal,
+      datasetBatchConcurrency,
+      deriveObstacleHeights,
+      derivationSampleLimit,
+    }),
+    onProgress: ({ completed, total }) => onProgress?.({ source: 'foliage', completed, total }),
+    onTileError: (e, tile) => console.warn(`[foliage] tile ${tile.key} failed, skipping:`, e),
+  });
 
-  onProgress?.({ source: 'foliage', completed, total: tiles.length });
-
-  const workers = Math.min(workersLimit, tiles.length || 1);
-  const runWorker = async () => {
-    for (;;) {
-      _throwIfAborted(signal);
-      const idx = nextIdx++;
-      if (idx >= tiles.length) return;
-      const { la, lo, key } = tiles[idx];
-
-      let td;
-      try {
-        td = await _fetchFoliageTile(la, lo, key, {
-          signal,
-          datasetBatchConcurrency,
-          deriveObstacleHeights,
-          derivationSampleLimit,
-        });
-      }
-      catch (e) {
-        if (e?.cancelled || e?.name === 'AbortError') throw e;
-        console.warn(`[foliage] tile ${key} failed, skipping:`, e);
-        td = null;
-      }
-
-      if (td) {
-        for (let i = 0; i < td.polygons.length; i++) {
-          const poly = td.polygons[i];
-          const bb = td.bboxes[i];
-          const id = td.ids?.[i] || _fallbackFeatureId('f', poly, bb);
-          if (seenMerged.has(id)) continue;
-          seenMerged.add(id);
-          polygons.push(poly);
-          bboxes.push(bb);
-          factors.push(td.factors[i]);
-          canopyHeights.push(td.canopyHeights[i]);
-          ids.push(id);
-          kinds.push(td.kinds?.[i] || 'vegetation');
-        }
-      }
-
-      completed++;
-      onProgress?.({ source: 'foliage', completed, total: tiles.length });
+  for (const { data: td } of tileResults) {
+    for (let i = 0; i < td.polygons.length; i++) {
+      const poly = td.polygons[i];
+      const bb = td.bboxes[i];
+      const id = td.ids?.[i] || _fallbackFeatureId('f', poly, bb);
+      const dedupeKey = featureDedupeKey(id, poly, bb);
+      if (seenMerged.has(dedupeKey)) continue;
+      seenMerged.add(dedupeKey);
+      polygons.push(poly);
+      bboxes.push(bb);
+      factors.push(td.factors[i]);
+      canopyHeights.push(td.canopyHeights[i]);
+      ids.push(id);
+      kinds.push(td.kinds?.[i] || 'vegetation');
+      holes.push(td.holes?.[i] ?? []);
     }
-  };
-
-  await Promise.all(Array.from({ length: workers }, () => runWorker()));
+  }
 
   console.info(`[foliage] merged ${polygons.length} polygon(s) from ${tiles.length} tile(s)`);
   const tileIndex = _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax);
-  return { polygons, bboxes, factors, canopyHeights, ids, kinds, tileIndex };
+  return { polygons, bboxes, factors, canopyHeights, ids, kinds, holes, tileIndex };
 }
 
 export function weissbergerFoliageLossDb(freqMHz, depthM) {
@@ -704,7 +549,7 @@ function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCo
  * @param {number}  lossPerMeterDb
  * @returns {number} total foliage loss in dB
  */
-export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH, polygons, bboxes, canopyHeights, factors, tileIndex, totalDistM, lossPerMeterDb = 0.3, freqMHz = 868) {
+export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH, polygons, bboxes, canopyHeights, factors, tileIndex, totalDistM, lossPerMeterDb = 0.3, freqMHz = 868, holes = []) {
   if (!polygons || polygons.length === 0) return 0;
   const n = profileLats.length;
   const segLen = totalDistM / (n - 1);
@@ -718,7 +563,7 @@ export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rx
     const lat2 = profileLats[si + 1], lon2 = profileLons[si + 1];
     const candidates = _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygons.length);
     for (const i of candidates) {
-      const intervals = segmentPolygonIntervals(lat1, lon1, lat2, lon2, polygons[i]);
+      const intervals = segmentPolygonIntervalsWithHoles(lat1, lon1, lat2, lon2, polygons[i], holes?.[i]);
       for (const [a, b] of intervals) {
         const f = (a + b) / 2;
         const t = (si + f) / (n - 1);

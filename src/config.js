@@ -2,8 +2,9 @@
  * config.js - Save/load project configuration to JSON, persist settings in localStorage.
  * Exports: init
  */
-import { map, state } from './map.js';
-import { addRepeater, removeRepeater } from './repeaters.js';
+import { map, state, clearCoverageLayers } from './map.js';
+import { addRepeater, removeRepeater, refreshRepeaterList } from './repeaters.js';
+import { parseConfigRepeaters } from './repeaterRows.js';
 import { PERSISTED_SETTING_IDS } from './settings.js';
 import {
   bindPersistedSettingChanges,
@@ -87,19 +88,33 @@ async function loadConfig() {
       return;
     }
 
-    if (config.settings) applySettings(config.settings, { notify: true });
-    if (Array.isArray(config.repeaters)) {
-      [...state.repeaters].forEach(r => removeRepeater(r.id));
-      for (const r of config.repeaters) {
-        const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
-        const height = parseFloat(r.height), power = parseFloat(r.power), freq = parseFloat(r.freq);
-        const gain = isFinite(parseFloat(r.gain)) ? parseFloat(r.gain) : 2;
-        if (!isFinite(lat) || !isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
-        if (!isFinite(height) || !isFinite(power) || !isFinite(freq)) continue;
-        addRepeater(r.name || 'Unnamed', lat, lon, height, power, freq, gain);
-      }
+    const parsedRepeaters = Array.isArray(config.repeaters)
+      ? parseConfigRepeaters(config.repeaters)
+      : null;
+    if (Array.isArray(config.repeaters) && parsedRepeaters.length === 0 && config.repeaters.length > 0) {
+      setStatus('Load failed: no valid repeaters found; existing nodes left unchanged.');
+      return;
     }
-    setStatus(`Loaded ${config.repeaters?.length ?? 0} repeater(s).`);
+
+    if (config.settings) applySettings(config.settings, { notify: true });
+    if (parsedRepeaters) {
+      [...state.repeaters].forEach(r => removeRepeater(r.id, {
+        rememberUndo: false,
+        render: false,
+        clearCoverage: false,
+        notify: false,
+      }));
+      for (const r of parsedRepeaters) {
+        addRepeater(r.name, r.lat, r.lon, r.height, r.power, r.freq, r.gain, {
+          render: false,
+          notify: false,
+        });
+      }
+      clearCoverageLayers();
+      refreshRepeaterList({ clearUndo: true });
+    }
+    const skipped = Array.isArray(config.repeaters) ? config.repeaters.length - (parsedRepeaters?.length ?? 0) : 0;
+    setStatus(`Loaded ${parsedRepeaters?.length ?? 0} repeater(s)${skipped > 0 ? `; skipped ${skipped} invalid.` : '.'}`);
   } finally {
     setButtonBusy('btn-load-config', false);
   }

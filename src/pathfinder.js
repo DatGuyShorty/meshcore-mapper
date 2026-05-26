@@ -99,7 +99,7 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
         profileLats, profileLons, profile, txNode.height, rxNode.height,
         scenario.foliage.polygons, scenario.foliage.bboxes,
         scenario.foliage.canopyHeights, scenario.foliage.factors,
-        scenario.foliage.tileIndex, distM, scenario.foliageLossPerM, txNode.freq
+        scenario.foliage.tileIndex, distM, scenario.foliageLossPerM, txNode.freq, scenario.foliage.holes
       )
     : 0;
   const buildingLoss = scenario.buildings
@@ -107,7 +107,7 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
         profileLats, profileLons, profile, txNode.height, rxNode.height,
         scenario.buildings.polygons, scenario.buildings.bboxes,
         scenario.buildings.heights, scenario.buildings.tileIndex,
-        distM, scenario.buildingLossPerM
+        distM, scenario.buildingLossPerM, scenario.buildings.holes
       )
     : 0;
   const txToRxBearing = bearingDeg(txNode.lat, txNode.lon, rxNode.lat, rxNode.lon);
@@ -247,6 +247,8 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
             })
         : Promise.resolve(null),
     ]);
+    if (scenario.useFoliage && !foliage) progress(72, 'Warning: foliage loss requested but vegetation data was unavailable.');
+    if (scenario.useBuildings && !buildings) progress(72, 'Warning: building loss requested but structure data was unavailable.');
     progress(72, 'Relay obstacle layers ready.');
     step(`Obstacle layers ready: foliage=${foliage ? 'yes' : 'no'}, buildings=${buildings ? 'yes' : 'no'}`);
   }

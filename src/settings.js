@@ -27,6 +27,7 @@ export const PLANNING_SETTING_IDS = [
 export const MAP_LAYER_SETTING_IDS = [
   'layer-foliage', 'foliage-opacity',
   'layer-buildings', 'building-opacity',
+  'layer-barriers', 'barrier-opacity',
   'layer-auto-refresh',
   'terrain3d-grid-res', 'terrain3d-vertical-scale',
 ];
@@ -149,7 +150,7 @@ export function getOptimizerSettings() {
       useBuildings: checked('use-buildings'),
       buildingLossPerM: num('building-loss-per-m', 0.5),
       deriveObstacleHeights: document.getElementById('obstacle-height-mode')?.value === 'dsm-dem',
-      candidateRes: intNum('opt-candidate-res', 20),
+      candidateRes: intClamped('opt-candidate-res', 20, 1, 256),
       evalRes: 48,
       profileTargetSpacingM: 100,
       profileMaxSamples: 256,

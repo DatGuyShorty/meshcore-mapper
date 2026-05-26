@@ -1,4 +1,7 @@
+import { normalizeLon } from './osmGeometry.js';
+
 const TILE_SIZE = 256;
+const MAX_TEXTURE_TILE_REQUESTS = 256;
 
 export function clampTileZoom(zoom, maxZoom = 19) {
   const z = Math.round(Number.isFinite(zoom) ? zoom : 12);
@@ -7,8 +10,9 @@ export function clampTileZoom(zoom, maxZoom = 19) {
 
 export function latLonToTilePixel(lat, lon, zoom) {
   const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
+  const wrappedLon = normalizeLon(lon) ?? 0;
   const n = 2 ** zoom;
-  const x = n * ((lon + 180) / 360) * TILE_SIZE;
+  const x = n * ((wrappedLon + 180) / 360) * TILE_SIZE;
   const latRad = clampedLat * Math.PI / 180;
   const y = n * (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * TILE_SIZE;
   return { x, y };
@@ -16,7 +20,12 @@ export function latLonToTilePixel(lat, lon, zoom) {
 
 export function tileTextureLayout(bounds, zoom, maxTextureSize = 1536) {
   const nw = latLonToTilePixel(bounds.latMax, bounds.lonMin, zoom);
-  const se = latLonToTilePixel(bounds.latMin, bounds.lonMax, zoom);
+  const rawSe = latLonToTilePixel(bounds.latMin, bounds.lonMax, zoom);
+  const worldPx = (2 ** zoom) * TILE_SIZE;
+  const se = {
+    ...rawSe,
+    x: rawSe.x <= nw.x ? rawSe.x + worldPx : rawSe.x,
+  };
   const pixelWidth = Math.max(1, se.x - nw.x);
   const pixelHeight = Math.max(1, se.y - nw.y);
   const scale = Math.min(1, maxTextureSize / Math.max(pixelWidth, pixelHeight));
@@ -37,8 +46,12 @@ export function tileTextureLayout(bounds, zoom, maxTextureSize = 1536) {
 }
 
 export async function buildMapTileCanvas({ bounds, zoom, layerInfo, signal = null, maxTextureSize = 1536 }) {
-  const z = clampTileZoom(zoom, layerInfo?.options?.maxZoom);
-  const layout = tileTextureLayout(bounds, z, maxTextureSize);
+  let z = clampTileZoom(zoom, layerInfo?.options?.maxZoom);
+  let layout = tileTextureLayout(bounds, z, maxTextureSize);
+  while (z > 0 && _layoutTileCount(layout) > MAX_TEXTURE_TILE_REQUESTS) {
+    z--;
+    layout = tileTextureLayout(bounds, z, maxTextureSize);
+  }
   const canvas = document.createElement('canvas');
   canvas.width = layout.width;
   canvas.height = layout.height;
@@ -155,6 +168,11 @@ async function _mapWithConcurrency(items, limit, mapper) {
       await mapper(items[idx], idx);
     }
   }));
+}
+
+function _layoutTileCount(layout) {
+  return Math.max(0, layout.tileXMax - layout.tileXMin + 1)
+    * Math.max(0, layout.tileYMax - layout.tileYMin + 1);
 }
 
 function _throwIfAborted(signal) {

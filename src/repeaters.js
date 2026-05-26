@@ -7,6 +7,7 @@ import { confirmAction, escHtml, setStatus } from './ui.js';
 import { handleRepeaterClick, startPickingFrom } from './p2p.js';
 import { runCoverageAnalysis } from './coverage.js';
 import { handlePathNodePick } from './pathfinderUI.js';
+import { normalizeWsRepeaterSnapshot, wsKeyForRow } from './repeaterRows.js';
 
 const PALETTE = [
   '#61dafb', '#4ade80', '#fb923c', '#f472b6',
@@ -106,13 +107,7 @@ function _getWsDefaults() {
 }
 
 function _wsKeyForRow(r) {
-  const rawKey = r?.wsKey ?? r?.short ?? r?.id ?? r?.name;
-  if (rawKey !== undefined && rawKey !== null && String(rawKey).trim()) {
-    return String(rawKey);
-  }
-  const lat = Number.isFinite(parseFloat(r?.lat)) ? parseFloat(r.lat).toFixed(5) : 'nan';
-  const lon = Number.isFinite(parseFloat(r?.lon)) ? parseFloat(r.lon).toFixed(5) : 'nan';
-  return `${lat}:${lon}`;
+  return wsKeyForRow(r);
 }
 
 function _wsPopupLines(r, name) {
@@ -198,26 +193,17 @@ function _setWsStatus(status) {
 }
 
 function _syncWsRepeaters(data) {
-  // Accept bare array or Node-RED { payload: [...] } wrapper
-  const list = Array.isArray(data) ? data
-    : Array.isArray(data?.payload) ? data.payload
-    : null;
-  if (!list) { console.warn('[ws] unexpected message shape, expected array'); return; }
+  const snapshot = normalizeWsRepeaterSnapshot(data);
+  if (!snapshot.ok) { console.warn('[ws] unexpected message shape, expected array'); return; }
+  if (snapshot.invalidCount) console.warn(`[ws] skipped ${snapshot.invalidCount} invalid entr${snapshot.invalidCount === 1 ? 'y' : 'ies'}`);
+  if (snapshot.duplicateCount) console.warn(`[ws] skipped ${snapshot.duplicateCount} duplicate entr${snapshot.duplicateCount === 1 ? 'y' : 'ies'}`);
 
-  const incoming = [];
-  const incomingKeys = new Set();
-  for (const r of list) {
-    const lat = parseFloat(r.lat);
-    const lon = parseFloat(r.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      console.warn('[ws] skipping entry with no coords:', r);
-      continue;
-    }
-    const key = _wsKeyForRow(r);
-    if (incomingKeys.has(key)) continue;
-    incomingKeys.add(key);
-    incoming.push(r);
+  if (!snapshot.explicitClear && snapshot.rows.length === 0 && _wsRepeaterIds.size > 0) {
+    console.warn('[ws] ignoring empty/all-invalid snapshot to avoid clearing existing live nodes');
+    return;
   }
+  const incoming = snapshot.rows;
+  const incomingKeys = snapshot.keys;
 
   let coverageChanged = false;
   let displayChanged = false;
@@ -488,6 +474,13 @@ function renderRepeaterList() {
     const el = ul.querySelector(`[data-id="${editingId}"]`);
     if (el) el.classList.add('editing');
   }
+}
+
+export function refreshRepeaterList({ notify = true, clearUndo = false } = {}) {
+  if (clearUndo) _lastRemoved = null;
+  renderRepeaterList();
+  _syncUndoBtn();
+  if (notify) document.dispatchEvent(new CustomEvent('repeaters:changed'));
 }
 
 export function init() {

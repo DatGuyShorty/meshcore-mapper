@@ -50,6 +50,10 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
       const elevRes = _boundedInt(payload.ELEV_RES, 'ELEV_RES', 1, MAX_CUDA_ELEV_RES);
       _expectLength(gridElevs, elevRes * elevRes, 'gridElevs');
       _expectFiniteObject(payload.rep, 'rep', ['lat', 'lon', 'height', 'power', 'freq']);
+      _expectFiniteObject(payload, 'coverage payload', [
+        'txElev', 'latMin', 'latMax', 'lonMin', 'lonMax',
+        'radiusKm', 'rxHeight', 'effectiveSens',
+      ]);
 
       fs.writeFileSync(gridPath, Buffer.from(gridElevs.buffer, gridElevs.byteOffset, gridElevs.byteLength));
       const foliage = _serializeFoliagePayload(payload.foliage, 'foliage');
@@ -114,6 +118,7 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
 
       const opts = { ...(payload.opts ?? {}) };
       const txParams = { ...(payload.txParams ?? {}) };
+      _expectFiniteObject(txParams, 'optimizer txParams', ['height', 'power', 'freq']);
       const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
       const candidateCount = candidates.length;
       const evalRes = _boundedInt(opts.evalRes, 'optimizer evalRes', 1, MAX_CUDA_OPTIMIZER_EVAL_RES);
@@ -147,6 +152,8 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
         lonMin: opts.lonMin,
         lonMax: opts.lonMax,
       };
+      _expectFiniteObject(bounds, 'optimizer bounds', ['latMin', 'latMax', 'lonMin', 'lonMax']);
+      _expectFiniteObject(opts, 'optimizer opts', ['rxHeight', 'rxSens', 'radiusKm']);
 
       fs.writeFileSync(paramsPath, JSON.stringify({
         evalElevsPath,

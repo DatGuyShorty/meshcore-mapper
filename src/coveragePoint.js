@@ -16,10 +16,12 @@ export function inspectCoverageAtPoint(latlng, coverageResults, { limit = 4 } = 
 
   const rows = [];
   for (const result of coverageResults ?? []) {
+    const radiusKm = Number(result?.radiusKm);
+    if (!Number.isFinite(radiusKm) || radiusKm <= 0) continue;
     if (!_insideBounds(lat, lon, result.bounds)) continue;
 
     const distM = flatDistanceM(result.rep.lat, result.rep.lon, lat, lon);
-    if (distM > result.radiusKm * 1000) continue;
+    if (distM > radiusKm * 1000) continue;
 
     const profileMaxSamples = result.profileMaxSamples ?? 512;
     const signal = computeSignalToPoint({

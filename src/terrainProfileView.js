@@ -48,6 +48,9 @@ function _candidatesAtPoint(lat, lon, tileIndex, count) {
 export function drawTerrainProfile(elevs, txElev, rxElev, txHeight, rxHeight, distM, freqMHz, vegH = null, bldH = null) {
   const W = 240, H = 105;
   const n = elevs.length;
+  if (n < 2 || !Number.isFinite(distM) || distM <= 0 || !Number.isFinite(freqMHz) || freqMHz <= 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block;border-radius:4px;background:#0d1117;margin-bottom:8px;border:1px solid #1e2a3a"></svg>`;
+  }
   const lambda = 299792458 / (freqMHz * 1e6);
   const txH = txElev + txHeight;
   const rxH = rxElev + rxHeight;
@@ -73,9 +76,10 @@ export function drawTerrainProfile(elevs, txElev, rxElev, txHeight, rxHeight, di
   ];
   const yMin = Math.min(...allH) - 5;
   const yMax = Math.max(...allH) + 12;
+  const ySpan = Math.max(1, yMax - yMin);
 
   const toX = i => 2 + (i / (n - 1)) * (W - 4);
-  const toY = h => 4 + (1 - (h - yMin) / (yMax - yMin)) * (H - 16);
+  const toY = h => 4 + (1 - (h - yMin) / ySpan) * (H - 16);
 
   const terrainTopPts = effective.map((e, i) => `${toX(i).toFixed(1)},${toY(e).toFixed(1)}`);
   const terrainRevPts = [...effective].reverse().map((e, i) => `${toX(n - 1 - i).toFixed(1)},${toY(e).toFixed(1)}`);

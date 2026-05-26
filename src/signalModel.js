@@ -7,15 +7,18 @@ export const DEFAULT_PROFILE_MIN_SAMPLES = 16;
 export const DEFAULT_PROFILE_MAX_SAMPLES = 512;
 
 export function flatDistanceM(txLat, txLon, rxLat, rxLon) {
+  if (!_hasFiniteLatLon(txLat, txLon) || !_hasFiniteLatLon(rxLat, rxLon)) return Infinity;
   const mPerLat = 110574;
   const mPerLon = 111320 * Math.cos(txLat * Math.PI / 180);
   const dLat = (rxLat - txLat) * mPerLat;
-  const dLon = (rxLon - txLon) * mPerLon;
+  const dLon = _shortestDeltaLonDeg(rxLon, txLon) * mPerLon;
   return Math.sqrt(dLat * dLat + dLon * dLon);
 }
 
 export function fsplBaseDb(freqMHz) {
-  return 20 * Math.log10(freqMHz * 1e6) - 147.55;
+  const freq = Number(freqMHz);
+  if (!Number.isFinite(freq) || freq <= 0) return Infinity;
+  return 20 * Math.log10(freq * 1e6) - 147.55;
 }
 
 export function ensureProfileBuffers(maxSamples = DEFAULT_PROFILE_MAX_SAMPLES) {
@@ -65,8 +68,19 @@ export function computeSignalToPoint({
   profileMaxSamples = DEFAULT_PROFILE_MAX_SAMPLES,
   profileBuffers = null,
 }) {
+  if (!tx || typeof tx !== 'object') return _noCoverageResult(Infinity);
   const dist = distM ?? flatDistanceM(tx.lat, tx.lon, rxLat, rxLon);
   const base = fsplBase ?? fsplBaseDb(tx.freq);
+  if (!_hasFiniteLatLon(tx?.lat, tx?.lon)
+    || !_hasFiniteLatLon(rxLat, rxLon)
+    || !Number.isFinite(dist)
+    || !Number.isFinite(base)
+    || !Number.isFinite(Number(tx?.power))
+    || !Number.isFinite(Number(tx?.height))
+    || !Number.isFinite(Number(tx?.freq))
+    || Number(tx.freq) <= 0) {
+    return _noCoverageResult(dist);
+  }
   const txToRxBearing = bearingDeg(tx.lat, tx.lon, rxLat, rxLon);
   const rxToTxBearing = bearingDeg(rxLat, rxLon, tx.lat, tx.lon);
   const txPatternOffset = antennaPatternOffsetDb(tx.pattern ?? 'omni', tx.azimuthDeg ?? 0, txToRxBearing);
@@ -96,7 +110,7 @@ export function computeSignalToPoint({
       rxPower -= foliageLossDb(
         profileLats, profileLons, profile, tx.height, rxHeight,
         foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
-        foliage.tileIndex, dist, foliageLossPerM, tx.freq
+        foliage.tileIndex, dist, foliageLossPerM, tx.freq, foliage.holes
       );
     }
 
@@ -104,10 +118,33 @@ export function computeSignalToPoint({
       rxPower -= buildingLossDb(
         profileLats, profileLons, profile, tx.height, rxHeight,
         buildings.polygons, buildings.bboxes, buildings.heights,
-        buildings.tileIndex, dist, buildingLossPerM
+        buildings.tileIndex, dist, buildingLossPerM, buildings.holes
       );
     }
   }
 
   return { rxPower, distM: dist, los, txPatternOffset, rxPatternOffset, effectiveTxGain, effectiveRxGain };
+}
+
+function _hasFiniteLatLon(lat, lon) {
+  return Number.isFinite(Number(lat))
+    && Number.isFinite(Number(lon))
+    && Number(lat) >= -90
+    && Number(lat) <= 90;
+}
+
+function _shortestDeltaLonDeg(a, b) {
+  return ((Number(a) - Number(b) + 540) % 360) - 180;
+}
+
+function _noCoverageResult(dist) {
+  return {
+    rxPower: -200,
+    distM: Number.isFinite(dist) ? dist : Infinity,
+    los: null,
+    txPatternOffset: 0,
+    rxPatternOffset: 0,
+    effectiveTxGain: 0,
+    effectiveRxGain: 0,
+  };
 }

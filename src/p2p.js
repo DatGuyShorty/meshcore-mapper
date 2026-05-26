@@ -294,6 +294,9 @@ function _renderBudget(result) {
     const val = color === null ? v : `<span style="color:${color}">${v}</span>`;
     return `<tr><td class="p2p-key">${k}</td><td class="p2p-val">${val}</td></tr>`;
   }).join('');
+  const warningHtml = result.warnings?.length
+    ? `<div class="status-line warning">${result.warnings.map(escHtml).join('<br>')}</div>`
+    : '';
 
   const container = document.getElementById('p2p-results');
   container.innerHTML = `
@@ -302,6 +305,7 @@ function _renderBudget(result) {
       <button class="p2p-inner-tab" data-target="p2p-tab-profile">Profile</button>
     </div>
     <div id="p2p-tab-budget" class="p2p-inner-panel">
+      ${warningHtml}
       <table class="p2p-table"><tbody>${tbody}</tbody></table>
     </div>
     <div id="p2p-tab-profile" class="p2p-inner-panel hidden">

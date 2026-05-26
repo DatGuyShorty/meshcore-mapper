@@ -18,6 +18,15 @@ describe('coverage grid helpers', () => {
     expect(union.lonMax).toBeGreaterThan(b.lonMin);
   });
 
+  it('keeps coverage bounds finite near the poles', () => {
+    const bbox = coverageBbox({ lat: 90, lon: 18 }, 10);
+
+    expect(bbox.latMax).toBe(90);
+    expect(bbox.latMin).toBeLessThan(90);
+    expect(bbox.lonMin).toBe(-180);
+    expect(bbox.lonMax).toBe(180);
+  });
+
   it('builds elevation grid points in row-major north-to-south order', () => {
     const points = buildElevationGridPoints({
       latMin: 10,

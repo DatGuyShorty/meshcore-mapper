@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildFoliageOverpassQuery,
   classifyFoliageTags,
+  foliageLossDb,
 } from '../../src/foliage.js';
 
 describe('foliage blocker extraction helpers', () => {
@@ -105,6 +106,28 @@ describe('foliage blocker extraction helpers', () => {
     expect(query).toContain('["natural"="grassland"]');
     expect(query).toContain('["natural"="tree_row"]');
     expect(query).toContain('["barrier"="hedge"]');
+    expect(query).toContain('node["barrier"="hedge"]');
     expect(query).toContain('["natural"="mangrove"]');
+  });
+
+  it('preserves multipolygon holes when computing foliage loss', () => {
+    const profileLats = new Float64Array([2, 2]);
+    const profileLons = new Float64Array([-1, 5]);
+    const profileElevs = new Float32Array([0, 0]);
+    const outer = [[0, 0], [0, 4], [4, 4], [4, 0], [0, 0]];
+    const inner = [[1, 1], [1, 3], [3, 3], [3, 1], [1, 1]];
+    const bbox = { latMin: 0, latMax: 4, lonMin: 0, lonMax: 4 };
+
+    const solidLoss = foliageLossDb(
+      profileLats, profileLons, profileElevs,
+      1, 1, [outer], [bbox], [20], [1], null, 600, 0.5, 868
+    );
+    const holeLoss = foliageLossDb(
+      profileLats, profileLons, profileElevs,
+      1, 1, [outer], [bbox], [20], [1], null, 600, 0.5, 868, [[inner]]
+    );
+
+    expect(holeLoss).toBeGreaterThan(0);
+    expect(holeLoss).toBeLessThan(solidLoss);
   });
 });

@@ -89,6 +89,8 @@ describe('3D terrain model helpers', () => {
     expect(mesh.minElevation).toBe(100);
     expect(mesh.maxElevation).toBe(180);
     expect(sampleTerrainElevation(48.005, 18.01, { bounds, elevations, res: 3 })).toBeCloseTo(140);
+    expect(sampleTerrainElevation(48.2, 17.5, { bounds, elevations, res: 3 })).toBeCloseTo(100);
+    expect(sampleTerrainElevation(47.8, 18.5, { bounds, elevations, res: 3 })).toBeCloseTo(180);
   });
 
   it('filters 3D nodes to the viewport with an optional pad', () => {

@@ -1,5 +1,23 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const cudaCoverageProgressHandlers = new WeakMap();
+const cudaOptimizerProgressHandlers = new WeakMap();
+
+function onPayloadOnly(channel, handler, handlers) {
+  if (typeof handler !== 'function') return;
+  const wrapped = (_event, payload) => handler(payload);
+  handlers.set(handler, wrapped);
+  ipcRenderer.on(channel, wrapped);
+}
+
+function offPayloadOnly(channel, handler, handlers) {
+  if (typeof handler !== 'function') return;
+  const wrapped = handlers.get(handler);
+  if (!wrapped) return;
+  ipcRenderer.off(channel, wrapped);
+  handlers.delete(handler);
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   saveFile:    (jsonStr) => ipcRenderer.invoke('save-file', jsonStr),
   openFile:    ()        => ipcRenderer.invoke('open-file'),
@@ -26,20 +44,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cudaOptimizerCompute:  (payload) => ipcRenderer.invoke('cuda-optimizer-compute', payload),
   cudaOptimizerCancel:   ()        => ipcRenderer.invoke('cuda-optimizer-cancel'),
   onCudaCoverageProgress: (handler) => {
-    if (typeof handler !== 'function') return;
-    ipcRenderer.on('cuda-coverage-progress', handler);
+    onPayloadOnly('cuda-coverage-progress', handler, cudaCoverageProgressHandlers);
   },
   offCudaCoverageProgress: (handler) => {
-    if (typeof handler !== 'function') return;
-    ipcRenderer.off('cuda-coverage-progress', handler);
+    offPayloadOnly('cuda-coverage-progress', handler, cudaCoverageProgressHandlers);
   },
   onCudaOptimizerProgress: (handler) => {
-    if (typeof handler !== 'function') return;
-    ipcRenderer.on('cuda-optimizer-progress', handler);
+    onPayloadOnly('cuda-optimizer-progress', handler, cudaOptimizerProgressHandlers);
   },
   offCudaOptimizerProgress: (handler) => {
-    if (typeof handler !== 'function') return;
-    ipcRenderer.off('cuda-optimizer-progress', handler);
+    offPayloadOnly('cuda-optimizer-progress', handler, cudaOptimizerProgressHandlers);
   },
   saveScreenshot:        ()        => ipcRenderer.invoke('save-screenshot'),
   wsRepeatersLoad:  ()     => ipcRenderer.invoke('ws-repeaters-load'),

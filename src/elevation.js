@@ -4,6 +4,7 @@
  * Cache is keyed on lat/lon rounded to 4 decimal places (~11m precision).
  */
 import { scheduledFetch } from './requestScheduler.js';
+import { normalizeLon } from './osmGeometry.js';
 
 const ELEVATION_APIS = [
   {
@@ -64,7 +65,6 @@ function sleep(ms, signal) {
   });
 }
 const round4 = v => Math.round(v * 1e4) / 1e4;
-const round6 = v => Math.round(v * 1e6) / 1e6;
 
 const _elevMem = new Map();
 const ELEV_MEM_MAX = 500_000;
@@ -109,8 +109,9 @@ function _demTileMemSet(k, v) {
 
 function _latLonToTilePoint(lat, lon, z) {
   const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
+  const wrappedLon = normalizeLon(lon) ?? 0;
   const n = 2 ** z;
-  const x = n * ((lon + 180) / 360);
+  const x = n * ((wrappedLon + 180) / 360);
   const latRad = clampedLat * Math.PI / 180;
   const y = n * (1 - (Math.log(Math.tan(latRad) + (1 / Math.cos(latRad))) / Math.PI)) / 2;
 
@@ -526,8 +527,8 @@ export async function fetchElevationsFromTiles(points, stats = null, options = {
 
   // Build work items, checking in-memory cache first.
   const items = points.map((p, i) => {
-    const lat = round6(p.latitude);
-    const lon = round6(p.longitude);
+    const lat = round4(p.latitude);
+    const lon = round4(normalizeLon(p.longitude) ?? p.longitude);
     const key = _key(lat, lon);
     const cached = _elevMem.get(key);
     if (cached !== undefined) {
@@ -718,6 +719,10 @@ async function _fetchFromSingleAPI(api, points, stats, signal) {
 }
 
 function _fillNulls(results, points) {
+  const missingCount = results.filter(value => value === null).length;
+  if (missingCount > 0) {
+    console.warn(`[elevation] ${missingCount}/${results.length} API elevation result(s) were null; using nearest available fallback values.`);
+  }
   let last = null;
   for (let i = 0; i < results.length; i++) {
     if (results[i] !== null) last = results[i];

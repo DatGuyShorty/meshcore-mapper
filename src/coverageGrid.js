@@ -1,11 +1,22 @@
+import { clampLat } from './osmGeometry.js';
+
 export function coverageBbox(rep, radiusKm) {
   const degPerKmLat = 1 / 110.574;
-  const degPerKmLon = 1 / (111.320 * Math.cos(rep.lat * Math.PI / 180));
+  const lat = clampLat(rep.lat) ?? 0;
+  const lon = Number(rep.lon);
+  const radius = Number.isFinite(Number(radiusKm)) && Number(radiusKm) > 0 ? Number(radiusKm) : 0;
+  const latMin = clampLat(lat - radius * degPerKmLat);
+  const latMax = clampLat(lat + radius * degPerKmLat);
+  const cosLat = Math.cos(lat * Math.PI / 180);
+  if (!Number.isFinite(lon) || Math.abs(cosLat) < 1e-6) {
+    return { latMin, latMax, lonMin: -180, lonMax: 180 };
+  }
+  const degPerKmLon = 1 / (111.320 * cosLat);
   return {
-    latMin: rep.lat - radiusKm * degPerKmLat,
-    latMax: rep.lat + radiusKm * degPerKmLat,
-    lonMin: rep.lon - radiusKm * degPerKmLon,
-    lonMax: rep.lon + radiusKm * degPerKmLon,
+    latMin,
+    latMax,
+    lonMin: lon - radius * degPerKmLon,
+    lonMax: lon + radius * degPerKmLon,
   };
 }
 
