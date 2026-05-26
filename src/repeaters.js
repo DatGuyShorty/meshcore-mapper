@@ -390,8 +390,16 @@ export function cancelPlacing() {
 }
 
 function setEditMode(id) {
-  editingId = id;
   const r = state.repeaters.find(x => x.id === id);
+  if (!r) {
+    // Stale UI interaction (e.g. context menu retained after the repeater was
+    // removed). Reset edit state and bail; throwing here used to surface as a
+    // confusing "Cannot read properties of undefined" error in DevTools.
+    console.warn(`[repeaters] setEditMode: no repeater with id=${id}`);
+    clearEditMode();
+    return;
+  }
+  editingId = id;
   document.getElementById('repeater-name').value   = r.name;
   document.getElementById('repeater-lat').value    = r.lat;
   document.getElementById('repeater-lon').value    = r.lon;

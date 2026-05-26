@@ -72,6 +72,10 @@ Last reviewed: May 2026.
 | M5 | Tile URL templates owned by `map.js`, not Leaflet's private `_url` | `src/map.js` — new `baseLayerSpecs` map; `getActiveBaseLayerInfo()` reads from it; `mapTileTexture.js` no longer depends on Leaflet internals |
 | T5 | URL guard helpers extracted + tested | `src/main/urlGuards.js` (`isSafeExternalUrl`, `isSameDocument`) + `tests/unit/urlGuards.test.js`; consumed by `src/main/window.js` |
 | T6 | WS payload clamping + URL normalisation under unit test | `tests/unit/repeaterRows.test.js` — +17 unit tests covering length caps, null preservation, scheme upgrades, rejection of `file:`/`javascript:` |
+| B9 | `setEditMode` no longer throws on stale ids | `src/repeaters.js` — early return + `clearEditMode()` if the repeater was removed before the UI got the click |
+| B10 | `cudaCoverage` tolerates stray non-JSON stdout | `src/main/cudaCoverage.js` — new `_consumePythonLines` helper logs strays and resolves with the last valid JSON result; the helper used to reject the whole job on a single bad trailing line |
+| Q1 | `_fillNulls` returns interpolation stats | `src/elevation.js` — `{ filledFromNeighbour, defaultedToZero }` returned and tracked on the per-fetch `stats` object; sets up future user-facing data-quality reporting |
+| T7 | Defensive code under unit test | `tests/unit/elevation.test.js` (+2 tests for fill stats) and new `tests/unit/cudaCoverageLineParser.test.js` (+5 tests for stdout parsing) |
 | B1–B4 | Bug fixes (gain, foliage clear, multi-repeater cache, preset stale) | Various |
 | A1–A3 | Architecture fixes (globals→delegation, storage key migration, elevation fallback) | Various |
 | P1–P11 | Performance (pre-alloc, spatial index, flat-Earth dist, FSPL hoist, λ cache, typed arrays, batch SQL) | Various |

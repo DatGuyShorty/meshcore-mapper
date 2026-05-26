@@ -19,7 +19,7 @@ This file collects the potential bugs discovered during the current review of th
 
 ## Elevation / path sampling
 - `src/elevation.js`: `fetchElevationsFromTiles()` bypasses the point DB entirely, which is a design choice but means point cache reuse is not leveraged for large raster queries.
-- `src/elevation.js`: `_fillNulls()` silently forward/backfills missing API elevation results, which can mask data gaps and produce incorrect terrain values.
+- `src/elevation.js`: `_fillNulls()` silently forward/backfills missing API elevation results, which can mask data gaps and produce incorrect terrain values. *Partial mitigation:* now returns `{ filledFromNeighbour, defaultedToZero }` and increments `stats.elevationFilledFromNeighbour` / `stats.elevationDefaultedToZero` so callers can surface the count; user-facing summary still needs to display it.
 
 ## Coverage / rendering
 - `src/coverage.js`: obstacle fetch failures are logged and skipped, but there is no strong user-facing signal that foliage/building losses were omitted from the coverage result.
@@ -31,8 +31,8 @@ This file collects the potential bugs discovered during the current review of th
 ## Miscellaneous
 - `src/linkBudget.js`: fallback noise/SNR values are derived from `result.effectiveSens` when certain metadata is missing, which may produce misleading link-budget outputs instead of failing earlier.
 - `src/repeaters.js`: `_wsKeyForRow()` may collapse distinct live feed rows into the same key when rows share the same coordinates and lack identifiers; `normalizeWsRepeaterSnapshot()` does count and report the collisions but rows are still dropped.
-- `src/repeaters.js`: `setEditMode()` assumes a repeater exists and can throw if called with an invalid ID, which can happen during stale UI interactions.
-- `src/main/cudaCoverage.js`: Python CUDA helper stdout parsing is brittle; any stray non-JSON output can cause the backend to fail even when the helper otherwise completes successfully.
+- ~~`src/repeaters.js`: `setEditMode()` assumes a repeater exists and can throw if called with an invalid ID, which can happen during stale UI interactions.~~ **Fixed** — early return with `clearEditMode()` and a warning; UI no longer crashes on stale edit clicks.
+- ~~`src/main/cudaCoverage.js`: Python CUDA helper stdout parsing is brittle; any stray non-JSON output can cause the backend to fail even when the helper otherwise completes successfully.~~ **Fixed** — extracted `_consumePythonLines()` that tolerates stray non-JSON lines, logs them via `console.warn`, and resolves with the last valid JSON message rather than rejecting the whole job. Covered by `tests/unit/cudaCoverageLineParser.test.js`.
 
 ## Electron hardening (security review 2026-05-26)
 

@@ -714,28 +714,52 @@ async function _fetchFromSingleAPI(api, points, stats, signal) {
     console.debug(`[elevation] ${api.name}: fetched ${Math.min(i + api.maxBatch, points.length) - i} points`);
   }
 
-  _fillNulls(results, points);
+  const fillStats = _fillNulls(results, points);
+  if (stats && (fillStats.filledFromNeighbour || fillStats.defaultedToZero)) {
+    _metric(stats, 'elevationFilledFromNeighbour', fillStats.filledFromNeighbour);
+    _metric(stats, 'elevationDefaultedToZero', fillStats.defaultedToZero);
+  }
   return results;
 }
 
+/**
+ * Forward-then-back-fill missing API elevation values so the returned array
+ * has no nulls. Returns the count of values that were filled from a
+ * neighbour vs defaulted to zero, so callers can surface data-quality info
+ * to the user.
+ *
+ * @returns {{ filledFromNeighbour: number, defaultedToZero: number }}
+ */
 export function _fillNulls(results, points) {
   const missingCount = results.filter(value => value === null).length;
   if (missingCount > 0) {
     console.warn(`[elevation] ${missingCount}/${results.length} API elevation result(s) were null; using nearest available fallback values.`);
   }
+
+  let filledFromNeighbour = 0;
+  let defaultedToZero = 0;
+
   let last = null;
   for (let i = 0; i < results.length; i++) {
     if (results[i] !== null) last = results[i];
-    else if (last !== null) results[i] = last;
+    else if (last !== null) {
+      results[i] = last;
+      filledFromNeighbour++;
+    }
   }
 
   last = null;
   for (let i = results.length - 1; i >= 0; i--) {
     if (results[i] !== null) last = results[i];
-    else if (last !== null) results[i] = last;
-    else {
+    else if (last !== null) {
+      results[i] = last;
+      filledFromNeighbour++;
+    } else {
       results[i] = 0;
+      defaultedToZero++;
       console.warn(`[elevation] no elevation data at ${points[i]?.latitude},${points[i]?.longitude} - defaulting to 0 m`);
     }
   }
+
+  return { filledFromNeighbour, defaultedToZero };
 }
