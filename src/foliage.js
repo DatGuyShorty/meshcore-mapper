@@ -227,8 +227,9 @@ export function buildFoliageOverpassQuery(bbox) {
   ].join('');
   // Request relation bodies (members) first, then fetch geometries so
   // relation elements include a non-null `members` array while still
-  // returning geometry for ways.
-  return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});(._;>>;);out body; (._;>;);out geom tags;`;
+  // returning geometry for ways. Use the canonical sequence: out body
+  // followed by recursive expansion and an out geom for member geometries.
+  return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});out body; (._;>;);out geom tags;`;
 }
 
 function _polygonCentroid(ring) {
