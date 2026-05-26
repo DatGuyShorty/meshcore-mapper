@@ -111,14 +111,27 @@ meshcore-mapper/
 
 Each phase: **green `npm run check` at start, green at end.** No phase is allowed to leave the app broken between merges.
 
-### Phase 0 — toolchain (1–2 days, low risk)
+### Phase 0a — TypeScript as a static checker (DONE)
 
-- Add `typescript`, `@types/node`, `vite`, `vite-electron-plugin` (or `electron-vite`) as dev deps.
-- `tsconfig.json` with `allowJs: true`, `checkJs: false` initially, `strict: true` for `.ts` files.
+- `typescript@^6` + `@types/node` added as devDeps.
+- `tsconfig.json`: `strict: true`, `allowJs: true`, `checkJs: false`, `noEmit: true`. Files opt in to checking with `// @ts-check`.
+- `npm run typecheck` runs `tsc -p tsconfig.json` over `src/` + entry scripts.
+- `npm run check` now gates on typecheck (`syntax → lint → typecheck → test → audit → smoke`).
+- Files annotated under `// @ts-check` with JSDoc types so far:
+  - `src/repeaterRows.js` — config + WS row helpers, length clamping, URL normaliser
+  - `src/radioMetrics.js` — LoRa modem metrics
+  - `src/main/urlGuards.js` — `isSafeExternalUrl`, `isSameDocument`
+  - `src/coverageGrid.js` — `coverageBbox`, `unionBbox`, `elevationGridShape`, `buildElevationGridPoints`
+- No source files moved to `.ts` yet; that's Phase 0b once the bundler is in place. Adding `// @ts-check` to additional modules is incremental and risk-free.
+
+### Phase 0b — Vite bundler (next)
+
+- Add `vite`, `electron-vite` (or `vite-electron-plugin`) as devDeps.
 - Vite dev server replaces `<script type="module">` loading. Production build bundles renderer + preload separately.
+- Once Vite is in, port `src/repeaterRows.js` → `src/core/wsNormalize.ts` as the smallest example to prove the pipeline. Vite resolves `.ts` natively; Vitest already does.
 - ESLint config: add `@typescript-eslint`, `eslint-plugin-boundaries` (initially permissive; rules tighten per phase).
 
-**Verification:** existing `npm test`, `npm run lint`, `npm run smoke` all pass against the Vite build. Electron launches identically.
+**Verification:** existing `npm test`, `npm run lint`, `npm run typecheck`, `npm run smoke` all pass against the Vite build. Electron launches identically.
 
 ### Phase 1 — port pure core to TS (3–5 days, low risk)
 

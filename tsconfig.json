@@ -1,0 +1,36 @@
+{
+  "// description": "Phase 0 of REWRITE.md: TypeScript as a static checker over the existing JS codebase. No emission yet — `tsc` runs as a CI gate via `npm run typecheck`. Files opt into checking by adding `// @ts-check` at the top. As modules are migrated to .ts in later phases, this config will tighten.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": false,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "types": ["node"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"]
+  },
+  "include": [
+    "src/**/*.js",
+    "src/**/*.ts",
+    "main.js",
+    "preload.js",
+    "app.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "vendor",
+    "scripts/meshcore_cuda",
+    "test-results",
+    "tests"
+  ]
+}

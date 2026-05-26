@@ -28,9 +28,10 @@ Compute        -> Python CUDA helper or JS Web Workers
 - `requirements-cuda.txt` lists Python CUDA helper dependencies.
 - `npm run syntax` validates JS syntax.
 - `npm run lint` runs ESLint.
+- `npm run typecheck` runs TypeScript (`tsc -p tsconfig.json`) over the existing JS via `// @ts-check` + JSDoc. No emit; this is a static-checker gate, not a build step.
 - `npm test` runs Vitest unit tests.
 - `npm run smoke` runs Playwright smoke tests.
-- `npm run check` executes syntax, lint, tests, audit, and smoke.
+- `npm run check` executes syntax, lint, typecheck, tests, audit, and smoke.
 
 ## Major modules
 

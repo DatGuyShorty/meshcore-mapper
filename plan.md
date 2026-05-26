@@ -76,6 +76,8 @@ Last reviewed: May 2026.
 | B10 | `cudaCoverage` tolerates stray non-JSON stdout | `src/main/cudaCoverage.js` — new `_consumePythonLines` helper logs strays and resolves with the last valid JSON result; the helper used to reject the whole job on a single bad trailing line |
 | Q1 | `_fillNulls` returns interpolation stats | `src/elevation.js` — `{ filledFromNeighbour, defaultedToZero }` returned and tracked on the per-fetch `stats` object; sets up future user-facing data-quality reporting |
 | T7 | Defensive code under unit test | `tests/unit/elevation.test.js` (+2 tests for fill stats) and new `tests/unit/cudaCoverageLineParser.test.js` (+5 tests for stdout parsing) |
+| TS1 | Phase 0a of `REWRITE.md` — TypeScript as static checker | `tsconfig.json` (`strict`, `allowJs`, `checkJs: false`, `noEmit`), `npm run typecheck` script, `npm run check` now includes typecheck |
+| TS2 | Pure modules opt into `// @ts-check` with JSDoc types | `src/repeaterRows.js`, `src/radioMetrics.js`, `src/main/urlGuards.js`, `src/coverageGrid.js` |
 | B1–B4 | Bug fixes (gain, foliage clear, multi-repeater cache, preset stale) | Various |
 | A1–A3 | Architecture fixes (globals→delegation, storage key migration, elevation fallback) | Various |
 | P1–P11 | Performance (pre-alloc, spatial index, flat-Earth dist, FSPL hoist, λ cache, typed arrays, batch SQL) | Various |

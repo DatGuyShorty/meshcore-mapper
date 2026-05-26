@@ -1,32 +1,65 @@
+// @ts-check
+/**
+ * Pure helpers for parsing config files and normalising WebSocket live-feed
+ * payloads. No DOM, no Leaflet, no Electron — safe to import from anywhere.
+ * Type-checked under `npm run typecheck`.
+ *
+ * @typedef {Object} ConfigRepeater
+ * @property {string} name
+ * @property {number} lat
+ * @property {number} lon
+ * @property {number} height
+ * @property {number} power
+ * @property {number} freq
+ * @property {number} gain
+ */
+
+/**
+ * Parse a value into a finite number; returns `null` if it isn't finite.
+ * @param {unknown} value
+ * @returns {number | null}
+ */
 export function parseFiniteNumber(value) {
-  const n = Number.parseFloat(value);
+  const n = Number.parseFloat(/** @type {string} */ (value));
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Strict lat/lon validity: both must be finite numbers within range.
+ * @param {unknown} lat
+ * @param {unknown} lon
+ * @returns {boolean}
+ */
 export function isValidLatLon(lat, lon) {
   return Number.isFinite(lat)
     && Number.isFinite(lon)
-    && lat >= -90
-    && lat <= 90
-    && lon >= -180
-    && lon <= 180;
+    && /** @type {number} */ (lat) >= -90
+    && /** @type {number} */ (lat) <= 90
+    && /** @type {number} */ (lon) >= -180
+    && /** @type {number} */ (lon) <= 180;
 }
 
+/**
+ * @param {unknown} row
+ * @param {string} [fallbackName]
+ * @returns {ConfigRepeater | null}
+ */
 export function parseConfigRepeater(row, fallbackName = 'Unnamed') {
-  const lat = parseFiniteNumber(row?.lat);
-  const lon = parseFiniteNumber(row?.lon);
-  const height = parseFiniteNumber(row?.height);
-  const power = parseFiniteNumber(row?.power);
-  const freq = parseFiniteNumber(row?.freq);
-  const gain = parseFiniteNumber(row?.gain) ?? 2;
+  const r = /** @type {Record<string, unknown>} */ (row ?? {});
+  const lat = parseFiniteNumber(r.lat);
+  const lon = parseFiniteNumber(r.lon);
+  const height = parseFiniteNumber(r.height);
+  const power = parseFiniteNumber(r.power);
+  const freq = parseFiniteNumber(r.freq);
+  const gain = parseFiniteNumber(r.gain) ?? 2;
 
   if (!isValidLatLon(lat, lon)) return null;
-  if (!Number.isFinite(height) || !Number.isFinite(power) || !Number.isFinite(freq) || freq <= 0) return null;
+  if (height === null || power === null || freq === null || freq <= 0) return null;
 
   return {
-    name: String(row?.name || fallbackName),
-    lat,
-    lon,
+    name: String(r.name || fallbackName),
+    lat: /** @type {number} */ (lat),
+    lon: /** @type {number} */ (lon),
     height,
     power,
     freq,
@@ -34,9 +67,15 @@ export function parseConfigRepeater(row, fallbackName = 'Unnamed') {
   };
 }
 
+/**
+ * @param {unknown} rows
+ * @returns {ConfigRepeater[]}
+ */
 export function parseConfigRepeaters(rows) {
   if (!Array.isArray(rows)) return [];
-  return rows.map(row => parseConfigRepeater(row)).filter(Boolean);
+  return rows
+    .map(row => parseConfigRepeater(row))
+    .filter(/** @returns {row is ConfigRepeater} */ row => row !== null);
 }
 
 /**
@@ -45,8 +84,8 @@ export function parseConfigRepeaters(rows) {
  * isn't an `http(s)`/`ws(s)` URL so the caller can surface a clear error
  * instead of letting `new WebSocket()` throw with an opaque scheme message.
  *
- * @param {string} rawUrl
- * @returns {string|null}
+ * @param {unknown} rawUrl
+ * @returns {string | null}
  */
 export function normalizeWsUrl(rawUrl) {
   if (typeof rawUrl !== 'string') return null;
@@ -61,14 +100,22 @@ export function normalizeWsUrl(rawUrl) {
   return `${wsScheme}://${rest}`;
 }
 
+/**
+ * Derive a stable string key for a live-feed row. Prefers explicit
+ * `wsKey` / `short` / `id` / `name`; falls back to rounded coordinates
+ * if no identifier is present.
+ * @param {unknown} row
+ * @returns {string}
+ */
 export function wsKeyForRow(row) {
-  const rawKey = row?.wsKey ?? row?.short ?? row?.id ?? row?.name;
+  const r = /** @type {Record<string, unknown>} */ (row ?? {});
+  const rawKey = r.wsKey ?? r.short ?? r.id ?? r.name;
   if (rawKey !== undefined && rawKey !== null && String(rawKey).trim()) {
     return String(rawKey);
   }
-  const lat = parseFiniteNumber(row?.lat);
-  const lon = parseFiniteNumber(row?.lon);
-  return `${Number.isFinite(lat) ? lat.toFixed(5) : 'nan'}:${Number.isFinite(lon) ? lon.toFixed(5) : 'nan'}`;
+  const lat = parseFiniteNumber(r.lat);
+  const lon = parseFiniteNumber(r.lon);
+  return `${lat !== null ? lat.toFixed(5) : 'nan'}:${lon !== null ? lon.toFixed(5) : 'nan'}`;
 }
 
 // Caps mirror src/main/ipcHandlers.js#_safeWsRow so the in-memory state and
@@ -78,15 +125,40 @@ const WS_SHORT_MAX = 80;
 const WS_LAST_SEEN_MAX = 80;
 const WS_KEY_MAX = 160;
 
+/**
+ * @template T
+ * @param {T} value
+ * @param {number} max
+ * @returns {T | string}
+ */
 function _clamp(value, max) {
   if (value === undefined || value === null) return value;
   return String(value).slice(0, max);
 }
 
+/**
+ * @typedef {Object} WsSnapshotResult
+ * @property {boolean} ok
+ * @property {boolean} explicitClear
+ * @property {any[]} rows
+ * @property {Set<string>} keys
+ * @property {number} invalidCount
+ * @property {number} duplicateCount
+ */
+
+/**
+ * Normalise a payload received from the live-feed WebSocket.
+ * Validates lat/lon, dedupes by `wsKey`, clamps string fields to the
+ * same caps used by the DB-side `_safeWsRow` so a pathological feed
+ * cannot freeze the renderer before the persistence layer's clamp fires.
+ * @param {unknown} data
+ * @returns {WsSnapshotResult}
+ */
 export function normalizeWsRepeaterSnapshot(data) {
-  const explicitClear = data?.clear === true || data?.clearWsRepeaters === true;
+  const d = /** @type {Record<string, unknown>} */ (data ?? {});
+  const explicitClear = d.clear === true || d.clearWsRepeaters === true;
   const list = Array.isArray(data) ? data
-    : Array.isArray(data?.payload) ? data.payload
+    : Array.isArray(d.payload) ? d.payload
     : explicitClear ? []
     : null;
 
