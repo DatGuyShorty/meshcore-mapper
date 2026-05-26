@@ -1,4 +1,10 @@
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
+import { LORA_REQUIRED_SNR_DB } from './radioMetrics.js';
+
+// Fallback used when a coverage result was computed before noise/SNR metadata
+// existed on the payload. SF11 (-17.5 dB required SNR) is the default LoRa
+// modem we assume in the rest of the UI when no preset is selected.
+const FALLBACK_REQUIRED_SNR_DB = LORA_REQUIRED_SNR_DB[11];
 
 function _lon(latlng) {
   return Number.isFinite(latlng?.lng) ? latlng.lng : latlng?.lon;
@@ -50,7 +56,7 @@ export function inspectCoverageAtPoint(latlng, coverageResults, { limit = 4 } = 
 
     const noiseFloorDbm = Number.isFinite(result.noiseFloorDbm)
       ? result.noiseFloorDbm
-      : result.effectiveSens + 17.5;
+      : result.effectiveSens - FALLBACK_REQUIRED_SNR_DB;
     const requiredSnrDb = Number.isFinite(result.requiredSnrWithMarginDb)
       ? result.requiredSnrWithMarginDb
       : result.effectiveSens - noiseFloorDbm;

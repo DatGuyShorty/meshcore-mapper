@@ -27,8 +27,6 @@ This file collects the potential bugs discovered during the current review of th
 ## 3D terrain / visualization
 - `src/map3d.js`: switching off 3D mode leaves the renderer, scene, and resize observer alive, which can retain stale state and keep hidden resources active.
 - `src/map3d.js`: `_createMirroredMapTexture()` builds a full tile request list for viewport bounds even when the final texture is downscaled, causing unnecessary tile loads for large, low-zoom views.
-- `src/mapTileTexture.js`: `tileTextureLayout()` does not handle antimeridian-crossing bounds, so bounds spanning the ±180° meridian can yield incorrect tile ranges or layout dimensions.
-- `src/terrain3dModel.js`: `sampleTerrainElevation()` does not clamp interpolation weights for out-of-bounds coordinates, allowing extrapolated elevations when sampling slightly outside the terrain grid.
 
 ## Miscellaneous
 - `src/linkBudget.js`: fallback noise/SNR values are derived from `result.effectiveSens` when certain metadata is missing, which may produce misleading link-budget outputs instead of failing earlier.
@@ -55,6 +53,10 @@ This file collects the potential bugs discovered during the current review of th
 - `src/linkBudget.js`: endpoint coordinates are validated up front; invalid lat/lng causes an immediate, descriptive error instead of NaN cascading through the budget.
 - `src/coverageBackend.js` / `src/optimizerBackend.js`: duplicated `_hasObstacleHoles` helper extracted to `src/osmGeometry.js#obstacleLayerHasHoles`.
 - `src/pathfinder.js`: obstacle bounding box now spans only nodes reachable from the source within the hop radius, avoiding unrelated foliage/building tile fetches.
+- `src/terrain3dModel.js`: `sampleTerrainElevation()` now clamps row/col fractions through `clampedGridFractions`, so out-of-bounds lat/lon snaps to the nearest grid edge instead of extrapolating.
+- `src/mapTileTexture.js`: `tileTextureLayout()` adds `worldPx` to the SE corner when the bounds cross the antimeridian, producing the correct pixel-space layout.
+- `src/coveragePoint.js`: removed the magic `+ 17.5` fallback for noise-floor estimation; the constant now comes from `radioMetrics.LORA_REQUIRED_SNR_DB[11]`.
+- Repo hygiene: `lora-config.json` (user-exported config), `test-results/.last-run.json` (Playwright artefact), and the in-history `node_modules/` (173 MB binary) are untracked; `.gitignore` covers all three plus `cache.db*` siblings and `.pr-body.md`. `node_modules/` was also stripped from history with `git filter-repo` so GitHub will accept pushes.
 - `src/settings.js`: barrier layer controls are now included in persisted map-layer settings.
 
 ## Documentation / summary inconsistencies

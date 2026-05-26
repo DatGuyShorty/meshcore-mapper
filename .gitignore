@@ -7,3 +7,17 @@ yarn-error.log*
 Thumbs.db
 __pycache__/
 *.py[cod]
+
+# Runtime caches and user-exported configs
+cache.db
+cache.db-journal
+cache.db-wal
+cache.db-shm
+lora-config.json
+
+# Playwright artefacts
+test-results/
+playwright-report/
+
+# Local agent / PR scratch files
+.pr-body.md
