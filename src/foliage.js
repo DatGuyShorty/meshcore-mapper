@@ -27,8 +27,8 @@ const OVERPASS_MIRRORS = [
 
 // Tile-based cache: snap to a fixed 0.25° grid so nearby repeaters reuse the same data.
 // Old 'v3:' per-repeater exact-bbox keys become unreachable (stale but harmless).
-const CACHE_V_OSM = 'fv9:';
-const CACHE_V_DERIVED = 'fv10:'; // canopy heights prefer DSM-DEM derivation
+const CACHE_V_OSM = 'fv13:';  // incremented: super-relation recursion + multipolygon assembly fallback
+const CACHE_V_DERIVED = 'fv14:'; // incremented: super-relation recursion + multipolygon assembly fallback + canopy heights prefer DSM-DEM derivation
 const FOLIAGE_TILE_CONCURRENCY = 3;
 
 function _abortError() {
@@ -225,7 +225,7 @@ export function buildFoliageOverpassQuery(bbox) {
     `way["barrier"="hedge"]${bbox};`,
     `way["natural"="tree_row"]${bbox};`,
   ].join('');
-  return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});out geom tags;`;
+  return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});(._;>>;);out geom tags;`;
 }
 
 function _polygonCentroid(ring) {
@@ -423,6 +423,26 @@ async function _fetchFoliageTile(tile, {
         }
       } else if (Array.isArray(el.geometry) && el.geometry.length >= 3) {
         addRing(el.geometry.map(n => [n.lat, n.lon]), classification, baseFeatureId);
+      } else {
+        // Fallback: render each outer-role member way individually when ring
+        // assembly fails (e.g., fragmented members, sub-relation members the
+        // assembler can't traverse). Inner-role members are skipped so holes
+        // don't get rendered as forest. Geometry comes from inline `member.geometry`
+        // or from any way captured into `elementGeom` via the deep recursion.
+        let mi = 0;
+        let rendered = 0;
+        for (const member of el.members) {
+          const role = String(member?.role || 'outer').trim().toLowerCase();
+          if (role === 'inner') continue;
+          const geometry = memberGeometry(member);
+          if (!geometry || geometry.length < 3) continue;
+          const ring = geometry.map(n => [n.lat, n.lon]);
+          addRing(ring, classification, `${baseFeatureId}:member:${mi++}`);
+          rendered++;
+        }
+        if (rendered === 0) {
+          console.warn(`[foliage] relation ${el.id} (${classification.kind}) produced no renderable rings (${el.members.length} member(s))`);
+        }
       }
     } else if (el.type === 'node' && Number.isFinite(el.lat) && Number.isFinite(el.lon)) {
       const diameterM = classification.linearWidthM || 6;

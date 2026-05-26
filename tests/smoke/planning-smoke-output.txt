@@ -1,0 +1,83 @@
+
+Running 2 tests using 1 worker
+
+  x  1 tests\smoke\planning-smoke.spec.cjs:3:1 › opens planning tab and enables optimizer after drawing a search area (14.8s)
+  x  2 tests\smoke\planning-smoke.spec.cjs:27:1 › adds a repeater node and confirms it appears in the list (15.3s)
+
+
+  1) tests\smoke\planning-smoke.spec.cjs:3:1 › opens planning tab and enables optimizer after drawing a search area 
+
+    Error: Process failed to launch!
+
+    Error: electron.launch: Process failed to launch!
+    Call log:
+    [2m  - <launching> "C:\Users\darkk\Desktop\meshcore-mapper\node_modules\electron\dist\electron.exe" "-r" "C:\Users\darkk\Desktop\meshcore-mapper\node_modules\playwright-core\lib\server\electron\loader.js" "--inspect=0" "--remote-debugging-port=0" "."[22m
+    [2m  - <launched> pid=3539668[22m
+    [2m  - [pid=3539668][err] C:\Users\darkk\Desktop\meshcore-mapper\node_modules\electron\dist\electron.exe: bad option: --remote-debugging-port=0[22m
+    [2m  - [pid=3539668] <kill>[22m
+    [2m  - [pid=3539668] <will force kill>[22m
+    [2m  - [pid=3539668] taskkill stderr: ERROR: The process "3539668" not found.[22m
+    [2m  - [pid=3539668] <process did exit: exitCode=9, signal=null>[22m
+    [2m  - [pid=3539668] starting temporary directories cleanup[22m
+    [2m  - [pid=3539668] finished temporary directories cleanup[22m
+
+
+      2 |
+      3 | test('opens planning tab and enables optimizer after drawing a search area', async () => {
+    > 4 |   const app = await electron.launch({ args: ['.'], ignoreDefaultArgs: ['--remote-debugging-port=0'] });
+        |               ^
+      5 |   try {
+      6 |     const page = await app.firstWindow();
+      7 |     await page.setViewportSize({ width: 1280, height: 800 });
+        at C:\Users\darkk\Desktop\meshcore-mapper\tests\smoke\planning-smoke.spec.cjs:4:15
+
+    Error Context: test-results\planning-smoke-opens-plann-b1adf-after-drawing-a-search-area\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\planning-smoke-opens-plann-b1adf-after-drawing-a-search-area\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\planning-smoke-opens-plann-b1adf-after-drawing-a-search-area\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests\smoke\planning-smoke.spec.cjs:27:1 › adds a repeater node and confirms it appears in the list 
+
+    Error: Process failed to launch!
+
+    Error: electron.launch: Process failed to launch!
+    Call log:
+    [2m  - <launching> "C:\Users\darkk\Desktop\meshcore-mapper\node_modules\electron\dist\electron.exe" "-r" "C:\Users\darkk\Desktop\meshcore-mapper\node_modules\playwright-core\lib\server\electron\loader.js" "--inspect=0" "--remote-debugging-port=0" "."[22m
+    [2m  - <launched> pid=3543500[22m
+    [2m  - [pid=3543500][err] C:\Users\darkk\Desktop\meshcore-mapper\node_modules\electron\dist\electron.exe: bad option: --remote-debugging-port=0[22m
+    [2m  - [pid=3543500] <kill>[22m
+    [2m  - [pid=3543500] <will force kill>[22m
+    [2m  - [pid=3543500] taskkill stderr: ERROR: The process "3543500" not found.[22m
+    [2m  - [pid=3543500] <process did exit: exitCode=9, signal=null>[22m
+    [2m  - [pid=3543500] starting temporary directories cleanup[22m
+    [2m  - [pid=3543500] finished temporary directories cleanup[22m
+
+
+      26 |
+      27 | test('adds a repeater node and confirms it appears in the list', async () => {
+    > 28 |   const app = await electron.launch({ args: ['.'], ignoreDefaultArgs: ['--remote-debugging-port=0'] });
+         |               ^
+      29 |   try {
+      30 |     const page = await app.firstWindow();
+      31 |     await page.setViewportSize({ width: 1280, height: 800 });
+        at C:\Users\darkk\Desktop\meshcore-mapper\tests\smoke\planning-smoke.spec.cjs:28:15
+
+    Error Context: test-results\planning-smoke-adds-a-repe-48bec-irms-it-appears-in-the-list\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\planning-smoke-adds-a-repe-48bec-irms-it-appears-in-the-list\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\planning-smoke-adds-a-repe-48bec-irms-it-appears-in-the-list\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    tests\smoke\planning-smoke.spec.cjs:3:1 › opens planning tab and enables optimizer after drawing a search area 
+    tests\smoke\planning-smoke.spec.cjs:27:1 › adds a repeater node and confirms it appears in the list 
+

@@ -2,20 +2,20 @@ import { map, state } from './map.js';
 import { inspectCoverageAtPoint } from './coveragePoint.js';
 import { escHtml } from './ui.js';
 
-function _fmtDb(v) {
+export function _fmtDb(v) {
   const sign = v >= 0 ? '+' : '';
   return `${sign}${v.toFixed(1)} dB`;
 }
 
-function _fmtDbm(v) {
+export function _fmtDbm(v) {
   return `${v.toFixed(1)} dBm`;
 }
 
-function _fmtDistance(m) {
+export function _fmtDistance(m) {
   return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
 }
 
-function _coverageRow(row) {
+export function _coverageRow(row) {
   const ok = row.margin >= 0;
   const los = row.los
     ? (row.los.geometricLos ? 'LoS clear' : 'LoS blocked')
@@ -34,7 +34,7 @@ function _coverageRow(row) {
   </div>`;
 }
 
-function _popupContent(latlng) {
+export function _popupContent(latlng) {
   const rows = inspectCoverageAtPoint(latlng, state.coverageResults);
   const hasCoverage = state.coverageResults.length > 0;
   const coords = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
@@ -54,7 +54,7 @@ function _popupContent(latlng) {
   </div>`;
 }
 
-function _shouldIgnoreMapClick(event) {
+export function _shouldIgnoreMapClick(event) {
   if (event.originalEvent?._meshcoreHandled) return true;
   return map.getContainer().style.cursor === 'crosshair';
 }

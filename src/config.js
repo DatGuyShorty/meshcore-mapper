@@ -21,7 +21,7 @@ const STORAGE_KEY = 'meshcoreMapper_settings';
 const LEGACY_KEY = 'loraMapper_settings';
 let _cacheWarmAbort = null;
 
-function gatherSettings() {
+export function gatherSettings() {
   const s = {};
   for (const id of SETTINGS_IDS) {
     const el = document.getElementById(id);
@@ -31,7 +31,7 @@ function gatherSettings() {
   return s;
 }
 
-function applySettings(s, { notify = false } = {}) {
+export function applySettings(s, { notify = false } = {}) {
   for (const id of SETTINGS_IDS) {
     if (!(id in s)) continue;
     const el = document.getElementById(id);
@@ -39,11 +39,11 @@ function applySettings(s, { notify = false } = {}) {
   }
 }
 
-function persistSettings() {
+export function persistSettings() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(gatherSettings())); } catch {}
 }
 
-function restoreSettings() {
+export function restoreSettings() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
     if (raw) applySettings(JSON.parse(raw));
@@ -120,7 +120,7 @@ async function loadConfig() {
   }
 }
 
-async function refreshCacheStats() {
+export async function refreshCacheStats() {
   try {
     const s = await window.electronAPI.cacheGetStats();
     document.getElementById('cache-stats').textContent =
@@ -191,7 +191,7 @@ function cancelCacheWarm() {
   _cacheWarmAbort?.abort();
 }
 
-function _viewportGridPoints(latMin, latMax, lonMin, lonMax, res) {
+export function _viewportGridPoints(latMin, latMax, lonMin, lonMax, res) {
   const points = [];
   for (let r = 0; r < res; r++) {
     const rf = res > 1 ? r / (res - 1) : 0;
@@ -206,7 +206,7 @@ function _viewportGridPoints(latMin, latMax, lonMin, lonMax, res) {
   return points;
 }
 
-async function runConfirmedAction(btnId, message, action, doneMsg) {
+export async function runConfirmedAction(btnId, message, action, doneMsg) {
   if (!confirmAction(message)) return;
   setButtonBusy(btnId, true, 'Clearing...');
   try {

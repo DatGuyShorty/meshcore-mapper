@@ -32,13 +32,13 @@ function _setStatus(msg, kind = 'info') {
   setInlineStatus('layer-status', msg, kind);
 }
 
-function _opacityFromSlider(id, fallback) {
+export function _opacityFromSlider(id, fallback) {
   const value = parseFloat(document.getElementById(id)?.value);
   const pct = Number.isFinite(value) ? value : fallback * 100;
   return Math.max(0, Math.min(1, pct / 100));
 }
 
-function _outlineOpacity(fillOpacity, boost) {
+export function _outlineOpacity(fillOpacity, boost) {
   if (fillOpacity <= 0) return 0;
   return Math.min(1, fillOpacity + boost);
 }
@@ -64,7 +64,7 @@ const FOLIAGE_COLORS = {
   hedge: '#86efac',
 };
 
-function _foliageStyle(kind = 'forest') {
+export function _foliageStyle(kind = 'forest') {
   const fillOpacity = _opacityFromSlider('foliage-opacity', DEFAULT_FOLIAGE_OPACITY);
   const fillColor = FOLIAGE_COLORS[kind] || FOLIAGE_COLORS.forest;
   return {
@@ -78,7 +78,7 @@ function _foliageStyle(kind = 'forest') {
   };
 }
 
-function _buildingStyle(fillColor) {
+export function _buildingStyle(fillColor) {
   const fillOpacity = _opacityFromSlider('building-opacity', DEFAULT_BUILDING_OPACITY);
   return {
     color: '#6b7280',
@@ -86,6 +86,19 @@ function _buildingStyle(fillColor) {
     opacity: _outlineOpacity(fillOpacity, 0.25),
     fill: true,
     fillColor,
+    fillOpacity,
+    interactive: false,
+  };
+}
+
+export function _barrierStyle() {
+  const fillOpacity = _opacityFromSlider('barrier-opacity', DEFAULT_BARRIER_OPACITY);
+  return {
+    color: '#f97316',
+    weight: 1.2,
+    opacity: _outlineOpacity(fillOpacity, 0.4),
+    fill: true,
+    fillColor: '#fb923c',
     fillOpacity,
     interactive: false,
   };
@@ -99,19 +112,6 @@ function _applyBuildingOpacity() {
   const fillOpacity = _opacityFromSlider('building-opacity', DEFAULT_BUILDING_OPACITY);
   const opacity = _outlineOpacity(fillOpacity, 0.25);
   state.buildingLayers.forEach(layer => layer.setStyle({ opacity, fillOpacity }));
-}
-
-function _barrierStyle() {
-  const fillOpacity = _opacityFromSlider('barrier-opacity', DEFAULT_BARRIER_OPACITY);
-  return {
-    color: '#f97316',
-    weight: 1.2,
-    opacity: _outlineOpacity(fillOpacity, 0.4),
-    fill: true,
-    fillColor: '#fb923c',
-    fillOpacity,
-    interactive: false,
-  };
 }
 
 function _applyBarrierOpacity() {

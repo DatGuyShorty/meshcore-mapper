@@ -84,7 +84,7 @@ function _demKey(source, z, x, y) {
   return `${source}:${z}:${x}:${y}`;
 }
 
-function _toUint8Array(value) {
+export function _toUint8Array(value) {
   if (!value) return null;
   if (value instanceof Uint8Array) return value;
   if (Array.isArray(value)) return Uint8Array.from(value);
@@ -107,7 +107,7 @@ function _demTileMemSet(k, v) {
   _demTileMem.set(k, v);
 }
 
-function _latLonToTilePoint(lat, lon, z) {
+export function _latLonToTilePoint(lat, lon, z) {
   const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
   const wrappedLon = normalizeLon(lon) ?? 0;
   const n = 2 ** z;
@@ -126,7 +126,7 @@ function _webMercatorPixelMeters(lat, z) {
   return 156543.034 * Math.cos(lat * Math.PI / 180) / (2 ** z);
 }
 
-function _estimatePointSpacingM(points) {
+export function _estimatePointSpacingM(points) {
   if (!points || points.length < 2) return 0;
   let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
   for (const p of points) {
@@ -147,7 +147,7 @@ function _estimatePointSpacingM(points) {
   return Math.max(widthM, heightM) / Math.max(1, side - 1);
 }
 
-function _chooseDemTileZoom(points, options = {}) {
+export function _chooseDemTileZoom(points, options = {}) {
   const explicit = Number(options.demTileZoom);
   if (Number.isFinite(explicit)) {
     return Math.max(DEM_TILE_MIN_ZOOM, Math.min(DEM_TILE_MAX_ZOOM, Math.round(explicit)));
@@ -202,7 +202,7 @@ function _sampleTerrariumPixel(tile, x, y) {
   return (r * 256 + g + b / 256) - 32768;
 }
 
-function _sampleTerrariumElevation(tile, px, py) {
+export function _sampleTerrariumElevation(tile, px, py) {
   const x = Math.max(0, Math.min(tile.width - 1, px));
   const y = Math.max(0, Math.min(tile.height - 1, py));
   const x0 = Math.floor(x);
@@ -718,7 +718,7 @@ async function _fetchFromSingleAPI(api, points, stats, signal) {
   return results;
 }
 
-function _fillNulls(results, points) {
+export function _fillNulls(results, points) {
   const missingCount = results.filter(value => value === null).length;
   if (missingCount > 0) {
     console.warn(`[elevation] ${missingCount}/${results.length} API elevation result(s) were null; using nearest available fallback values.`);

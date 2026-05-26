@@ -3,6 +3,7 @@ import {
   buildFoliageOverpassQuery,
   classifyFoliageTags,
   foliageLossDb,
+  weissbergerFoliageLossDb,
 } from '../../src/foliage.js';
 
 describe('foliage blocker extraction helpers', () => {
@@ -129,5 +130,18 @@ describe('foliage blocker extraction helpers', () => {
 
     expect(holeLoss).toBeGreaterThan(0);
     expect(holeLoss).toBeLessThan(solidLoss);
+  });
+
+  it('returns zero for foliage loss when depth is invalid or negative', () => {
+    expect(weissbergerFoliageLossDb(868, 0)).toBe(0);
+    expect(weissbergerFoliageLossDb(868, -5)).toBe(0);
+    expect(weissbergerFoliageLossDb(undefined, 10)).toBeGreaterThan(0);
+  });
+
+  it('uses explicit canopy height values from tags and clamps extremes', () => {
+    const classification = classifyFoliageTags({ natural: 'wood', height: '120 m' });
+    expect(classification.canopyHeight).toBe(80);
+    const small = classifyFoliageTags({ natural: 'wood', height: '0.1 m' });
+    expect(small.canopyHeight).toBeGreaterThanOrEqual(0.3);
   });
 });
