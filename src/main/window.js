@@ -1,5 +1,6 @@
 const path = require('path');
 const { shell } = require('electron');
+const { isSafeExternalUrl, isSameDocument } = require('./urlGuards');
 
 function createWindow(BrowserWindow, appRoot) {
   const win = new BrowserWindow({
@@ -21,7 +22,7 @@ function createWindow(BrowserWindow, appRoot) {
   // Route any window.open() / target="_blank" through the OS browser
   // instead of opening a new Electron BrowserWindow.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (_isSafeExternalUrl(url)) shell.openExternal(url);
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
 
@@ -30,9 +31,9 @@ function createWindow(BrowserWindow, appRoot) {
   // allowed; external links open in the OS browser; everything else is
   // denied.
   win.webContents.on('will-navigate', (event, url) => {
-    if (_isSameDocument(url, win.webContents.getURL())) return;
+    if (isSameDocument(url, win.webContents.getURL())) return;
     event.preventDefault();
-    if (_isSafeExternalUrl(url)) shell.openExternal(url);
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
   });
 
   win.webContents.on('before-input-event', (_event, input) => {
@@ -42,27 +43,6 @@ function createWindow(BrowserWindow, appRoot) {
   });
 
   return win;
-}
-
-function _isSafeExternalUrl(url) {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-function _isSameDocument(targetUrl, currentUrl) {
-  try {
-    const target = new URL(targetUrl);
-    const current = new URL(currentUrl);
-    return target.protocol === current.protocol
-      && target.host === current.host
-      && target.pathname === current.pathname;
-  } catch {
-    return false;
-  }
 }
 
 module.exports = { createWindow };

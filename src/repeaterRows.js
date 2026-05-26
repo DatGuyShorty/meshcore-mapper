@@ -39,6 +39,28 @@ export function parseConfigRepeaters(rows) {
   return rows.map(row => parseConfigRepeater(row)).filter(Boolean);
 }
 
+/**
+ * Validate and rewrite a user-entered live-feed URL to a `ws://` / `wss://`
+ * URL suitable for `new WebSocket(...)`. Returns `null` for anything that
+ * isn't an `http(s)`/`ws(s)` URL so the caller can surface a clear error
+ * instead of letting `new WebSocket()` throw with an opaque scheme message.
+ *
+ * @param {string} rawUrl
+ * @returns {string|null}
+ */
+export function normalizeWsUrl(rawUrl) {
+  if (typeof rawUrl !== 'string') return null;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  // Match scheme insensitively; only allow ws/wss/http/https.
+  const m = /^(wss?|https?):\/\//i.exec(trimmed);
+  if (!m) return null;
+  const scheme = m[1].toLowerCase();
+  const rest = trimmed.slice(m[0].length);
+  const wsScheme = scheme === 'https' || scheme === 'wss' ? 'wss' : 'ws';
+  return `${wsScheme}://${rest}`;
+}
+
 export function wsKeyForRow(row) {
   const rawKey = row?.wsKey ?? row?.short ?? row?.id ?? row?.name;
   if (rawKey !== undefined && rawKey !== null && String(rawKey).trim()) {

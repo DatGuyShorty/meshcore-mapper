@@ -67,6 +67,11 @@ Last reviewed: May 2026.
 | T3 | Multi-step smoke test uses Clear button instead of completing a two-click pick | `tests/smoke/workflow-smoke.spec.cjs:298–306` — the original `map.click()` × 2 path was brittle vs persisted map centre/zoom from prior tests; the completion path is exercised by other tests |
 | T4 | Opt-in renderer console capture in smoke harness | `tests/smoke/electron-app.js` — `SMOKE_VERBOSE=1` pipes renderer console + page errors to stdout for diagnosis |
 | D1 | Rewrite/maintainability plan | New `REWRITE.md` — phased TS migration, layered modules, typed IPC contract, component framework path, CUDA streaming bridge |
+| M2 | WS URL scheme validated upfront | `normalizeWsUrl()` in `src/repeaterRows.js` rejects non-(ws/wss/http/https) URLs with a clear status message; `connectLiveFeed()` in `src/repeaters.js` uses it |
+| M3 | `sql.js` no-op WAL pragmas annotated | `src/main/cacheDb.js` — comment explains the pragmas have no effect on the in-memory engine; kept for parity with a future native sqlite backend |
+| M5 | Tile URL templates owned by `map.js`, not Leaflet's private `_url` | `src/map.js` — new `baseLayerSpecs` map; `getActiveBaseLayerInfo()` reads from it; `mapTileTexture.js` no longer depends on Leaflet internals |
+| T5 | URL guard helpers extracted + tested | `src/main/urlGuards.js` (`isSafeExternalUrl`, `isSameDocument`) + `tests/unit/urlGuards.test.js`; consumed by `src/main/window.js` |
+| T6 | WS payload clamping + URL normalisation under unit test | `tests/unit/repeaterRows.test.js` — +17 unit tests covering length caps, null preservation, scheme upgrades, rejection of `file:`/`javascript:` |
 | B1–B4 | Bug fixes (gain, foliage clear, multi-repeater cache, preset stale) | Various |
 | A1–A3 | Architecture fixes (globals→delegation, storage key migration, elevation fallback) | Various |
 | P1–P11 | Performance (pre-alloc, spatial index, flat-Earth dist, FSPL hoist, λ cache, typed arrays, batch SQL) | Various |

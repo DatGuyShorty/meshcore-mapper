@@ -58,10 +58,13 @@ describe('map module helpers', () => {
   });
 
   it('returns active base layer info for the default map layer', () => {
+    void baseLayer; // mocked Leaflet layer is still required for module init
     const info = mapModule.getActiveBaseLayerInfo();
     expect(info.name).toBe('Streets (OSM)');
-    expect(info.url).toBe(baseLayer._url);
-    expect(info.options).toEqual(baseLayer.options);
+    // getActiveBaseLayerInfo() now reads from our own spec map rather than
+    // Leaflet's private layer._url, so it returns the real tile URL.
+    expect(info.url).toBe('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    expect(info.options).toMatchObject({ maxZoom: 19 });
   });
 
   it('clears coverage overlay tiles and revokes blob URLs', () => {

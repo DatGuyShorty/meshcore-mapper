@@ -7,7 +7,7 @@ import { confirmAction, escHtml, setStatus } from './ui.js';
 import { handleRepeaterClick, startPickingFrom } from './p2p.js';
 import { runCoverageAnalysis } from './coverage.js';
 import { handlePathNodePick } from './pathfinderUI.js';
-import { normalizeWsRepeaterSnapshot, wsKeyForRow } from './repeaterRows.js';
+import { normalizeWsRepeaterSnapshot, normalizeWsUrl, wsKeyForRow } from './repeaterRows.js';
 
 const PALETTE = [
   '#61dafb', '#4ade80', '#fb923c', '#f472b6',
@@ -252,7 +252,12 @@ function _syncWsRepeaters(data) {
 
 export function connectLiveFeed(url) {
   disconnectLiveFeed();
-  const wsUrl = url.replace(/^http(s?)/, 'ws$1');
+  const wsUrl = normalizeWsUrl(url);
+  if (!wsUrl) {
+    _setWsStatus('error');
+    setStatus('Live feed URL must start with ws://, wss://, http://, or https://.');
+    return;
+  }
   _setWsStatus('connecting');
   _ws = new WebSocket(wsUrl);
   _ws.onopen  = () => {

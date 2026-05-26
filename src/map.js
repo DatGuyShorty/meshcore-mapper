@@ -12,31 +12,47 @@ export const map = L.map('map', {
 
 let _activeBaseLayerName = 'Streets (OSM)';
 
-const baseLayers = {
-  'Streets (OSM)': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-  }),
-  'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles © Esri — Source: Esri, Maxar, GeoEye, Earthstar Geographics',
-    maxZoom: 19,
-  }),
-  'Terrain': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://opentopomap.org/">OpenTopoMap</a> (CC-BY-SA)',
-    maxZoom: 17,
-  }),
+// Track the URL template + options for each layer ourselves so callers don't
+// depend on Leaflet's private `_url` field — that's undocumented API and has
+// renamed between major Leaflet versions.
+const baseLayerSpecs = {
+  'Streets (OSM)': {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    },
+  },
+  'Satellite': {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    options: {
+      attribution: 'Tiles © Esri — Source: Esri, Maxar, GeoEye, Earthstar Geographics',
+      maxZoom: 19,
+    },
+  },
+  'Terrain': {
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    options: {
+      attribution: '© <a href="https://opentopomap.org/">OpenTopoMap</a> (CC-BY-SA)',
+      maxZoom: 17,
+    },
+  },
 };
+
+const baseLayers = Object.fromEntries(
+  Object.entries(baseLayerSpecs).map(([name, spec]) => [name, L.tileLayer(spec.url, spec.options)])
+);
 
 baseLayers['Streets (OSM)'].addTo(map);
 L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
 map.on('baselayerchange', e => { _activeBaseLayerName = e.name || _activeBaseLayerName; });
 
 export function getActiveBaseLayerInfo() {
-  const layer = baseLayers[_activeBaseLayerName] || baseLayers['Streets (OSM)'];
+  const spec = baseLayerSpecs[_activeBaseLayerName] || baseLayerSpecs['Streets (OSM)'];
   return {
     name: _activeBaseLayerName,
-    url: layer._url,
-    options: { ...layer.options },
+    url: spec.url,
+    options: { ...spec.options },
   };
 }
 

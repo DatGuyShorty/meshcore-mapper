@@ -41,6 +41,10 @@ This file collects the potential bugs discovered during the current review of th
 - `index.html`: no Content-Security-Policy — fixed; meta CSP locks `default-src` to `'self'`, allowlists the OSM/Esri/OpenTopoMap tile hosts, the OpenElevation/OpenTopoData/Overpass APIs, and `ws:`/`wss:` for the WebSocket live feed. The only inline `<script>` retained is the three.js importmap, allowed via a `sha256-...` hash in `script-src` (no `'unsafe-inline'`).
 - `index.html`: tab-switch + sidebar-resize IIFE extracted from inline `<script>` to new file `src/shellInit.js` so the renderer no longer needs `script-src 'unsafe-inline'`.
 - `src/repeaterRows.js`: `normalizeWsRepeaterSnapshot()` now clamps `name`/`short`/`last_seen`/`wsKey` lengths to mirror `_safeWsRow()` in `src/main/ipcHandlers.js`, so a pathological WebSocket payload cannot freeze the renderer before reaching the DB clamp.
+- `src/repeaters.js`: `connectLiveFeed()` previously accepted any URL string and let the `WebSocket` constructor reject unsupported schemes with an opaque error. New `normalizeWsUrl()` in `src/repeaterRows.js` validates and rewrites `http(s)`→`ws(s)` upfront, surfacing a clear status when the user types `ftp://`, `file://`, `javascript:`, or schemeless input.
+- `src/main/cacheDb.js`: the `PRAGMA journal_mode=WAL` / `PRAGMA synchronous=NORMAL` calls have no effect on `sql.js`'s in-memory engine. Now annotated in code so readers don't assume they're load-bearing.
+- `src/map.js`: `getActiveBaseLayerInfo()` previously reached into Leaflet's private `layer._url`. New `baseLayerSpecs` map owns the URL template + options, and `getActiveBaseLayerInfo()` reads from it. Removes a fragile dependency on Leaflet internals.
+- `src/main/window.js`: URL safety helpers (`isSafeExternalUrl`, `isSameDocument`) extracted to new `src/main/urlGuards.js` so they can be unit-tested without Electron.
 
 ## Resolved in current cleanup pass
 - `src/foliage.js`: large same-id multipolygon fragments from different OSM tiles could be deduped away; fixed by geometry-aware dedupe and shared OSM geometry helpers.
