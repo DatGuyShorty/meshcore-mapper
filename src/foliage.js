@@ -225,7 +225,10 @@ export function buildFoliageOverpassQuery(bbox) {
     `way["barrier"="hedge"]${bbox};`,
     `way["natural"="tree_row"]${bbox};`,
   ].join('');
-  return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});(._;>>;);out geom tags;`;
+  // Request relation bodies (members) first, then fetch geometries so
+  // relation elements include a non-null `members` array while still
+  // returning geometry for ways.
+  return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});(._;>>;);out body; (._;>;);out geom tags;`;
 }
 
 function _polygonCentroid(ring) {

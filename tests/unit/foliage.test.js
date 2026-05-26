@@ -111,6 +111,13 @@ describe('foliage blocker extraction helpers', () => {
     expect(query).toContain('["natural"="mangrove"]');
   });
 
+  it('requests relation bodies before geometries', () => {
+    const query = buildFoliageOverpassQuery('(1,2,3,4)');
+    // Ensure the query includes an 'out body' step so relation.members are returned
+    // before requesting geometries for member ways/nodes.
+    expect(query).toMatch(/out body/i);
+  });
+
   it('preserves multipolygon holes when computing foliage loss', () => {
     const profileLats = new Float64Array([2, 2]);
     const profileLons = new Float64Array([-1, 5]);
