@@ -37,7 +37,8 @@ Compute        -> Python CUDA helper or JS Web Workers
 ### App shell
 
 - `app.js` — renderer entry point that initializes feature modules in a fixed startup order and awaits preset loading.
-- `index.html` — tabbed sidebar UI with dedicated panels for Nodes, Map, Coverage, Planning, and Settings.
+- `index.html` — tabbed sidebar UI with dedicated panels for Nodes, Map, Coverage, Planning, and Settings; declares the renderer Content-Security-Policy and the `three` importmap.
+- `src/shellInit.js` — non-module shell script that wires tab switching, sidebar collapse, and sidebar resize; extracted from inline `<script>` so the renderer can run under a strict CSP without `'unsafe-inline'`.
 - `style.css` — dark app theme, context menus, status indicators, tab panels, and mobile-friendly button layout.
 - `src/ui.js` — status bar, progress overlay, cancellation handlers, button busy states, and shared DOM utilities.
 - `src/map.js` — central Leaflet map instance, shared application state, coverage/obstacle layer management, marker and tile cleanup.
@@ -114,8 +115,9 @@ Compute        -> Python CUDA helper or JS Web Workers
 
 - `src/main/cacheDb.js` — manages `cache.db` with `sql.js` (in-memory WASM SQLite), full `db.export()` writes debounced 2 s, and integrity checking on load. (WAL/synchronous pragmas are set but have no effect on the in-memory database.)
 - `src/main/ipcHandlers.js` — IPC for file save/open, presets, screenshots, SQLite cache lookup/store, cache stats, purge operations, and WebSocket node persistence.
-- `src/main/window.js` — creates the Electron browser window, loads `index.html`, and wires F12 DevTools toggle.
+- `src/main/window.js` — creates the Electron browser window with `sandbox: true`, `contextIsolation: true`, and `nodeIntegration: false`; loads `index.html`; intercepts `window.open()` and in-place navigation so external links route through `shell.openExternal`; wires F12 DevTools toggle.
 - `src/main/cudaCoverage.js` — Python CUDA probe/compute/optimizer IPC, temp-file payload orchestration, payload validation, cancellation, and progress events.
+- `main.js` — Electron entry; installs a strict `setPermissionRequestHandler` / `setPermissionCheckHandler` allowlist (`geolocation` only) before creating the window.
 - `preload.js` — exposes `window.electronAPI` for file I/O, cache access, CUDA compute, progress subscriptions, screenshot export, and WS persistence.
 - `scripts/cuda_coverage.py` — Python entrypoint for the `meshcore_cuda` helper package.
 - `scripts/meshcore_cuda/engine.py` — CUDA backend implementation using CuPy, obstacle packing, kernel launch, and progress reporting.
@@ -235,3 +237,10 @@ Compute        -> Python CUDA helper or JS Web Workers
 - The app is designed to separate DOM/UI code from physics and compute logic.
 - CUDA support is optional and gracefully falls back to CPU workers.
 - `presets.yaml` is the main external configuration source for hardware/modem presets.
+
+## Renderer security posture
+
+- `index.html` declares a strict Content-Security-Policy meta tag: `default-src 'self'`, with explicit allowlists for tile hosts (`*.tile.openstreetmap.org`, `server.arcgisonline.com`, `*.tile.opentopomap.org`), elevation/OSM APIs (`api.opentopodata.org`, `api.open-elevation.com`, `overpass-api.de`, `overpass.kumi.systems`), Mapzen DEM tiles (`s3.amazonaws.com`), and `ws:`/`wss:` for the WebSocket live feed. Inline styles are allowed (Leaflet); inline scripts are not.
+- The BrowserWindow runs with `sandbox: true` in addition to `contextIsolation: true` and `nodeIntegration: false`.
+- Permission requests are denied by default; only `geolocation` is allowed (one-time use in `src/map.js`).
+- Untrusted WebSocket payload fields are length-clamped at the message boundary in `src/repeaterRows.js` before being persisted or rendered.

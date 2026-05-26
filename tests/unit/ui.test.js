@@ -67,7 +67,7 @@ describe('ui helper utilities', () => {
 
     globalThis.document = {
       getElementById,
-      createElement(tag) {
+      createElement(_tag) {
         return createFakeElement('');
       },
       querySelector(selector) {

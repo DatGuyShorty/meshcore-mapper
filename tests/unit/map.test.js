@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 let originalL;
 let originalDocument;
 let originalLocalStorage;
-let originalNavigator;
+let _originalNavigator;
 
-function createFakeLayer(name) {
+function createFakeLayer(_name) {
   return {
     _blobUrl: null,
     _repeaterId: null,
@@ -24,7 +24,7 @@ describe('map module helpers', () => {
     originalL = globalThis.L;
     originalDocument = globalThis.document;
     originalLocalStorage = globalThis.localStorage;
-    originalNavigator = globalThis.navigator;
+    _originalNavigator = globalThis.navigator;
 
     baseLayer = { _url: 'https://test/{z}/{x}/{y}.png', options: { attribution: 'test' } };
     fakeMap = {

@@ -34,6 +34,14 @@ This file collects the potential bugs discovered during the current review of th
 - `src/repeaters.js`: `setEditMode()` assumes a repeater exists and can throw if called with an invalid ID, which can happen during stale UI interactions.
 - `src/main/cudaCoverage.js`: Python CUDA helper stdout parsing is brittle; any stray non-JSON output can cause the backend to fail even when the helper otherwise completes successfully.
 
+## Electron hardening (security review 2026-05-26)
+
+- `src/main/window.js`: BrowserWindow had no `setWindowOpenHandler` or `will-navigate` handler — fixed; external links route through `shell.openExternal`, in-place cross-document navigation is blocked, same-document hash/pathname changes still allowed. `sandbox: true` added to `webPreferences`.
+- `main.js`: no `setPermissionRequestHandler` / `setPermissionCheckHandler` — fixed; only `geolocation` is allowed (used once on first launch by `src/map.js`), everything else is denied.
+- `index.html`: no Content-Security-Policy — fixed; meta CSP locks `default-src` to `'self'`, allowlists the OSM/Esri/OpenTopoMap tile hosts, the OpenElevation/OpenTopoData/Overpass APIs, and `ws:`/`wss:` for the WebSocket live feed. The only inline `<script>` retained is the three.js importmap, allowed via a `sha256-...` hash in `script-src` (no `'unsafe-inline'`).
+- `index.html`: tab-switch + sidebar-resize IIFE extracted from inline `<script>` to new file `src/shellInit.js` so the renderer no longer needs `script-src 'unsafe-inline'`.
+- `src/repeaterRows.js`: `normalizeWsRepeaterSnapshot()` now clamps `name`/`short`/`last_seen`/`wsKey` lengths to mirror `_safeWsRow()` in `src/main/ipcHandlers.js`, so a pathological WebSocket payload cannot freeze the renderer before reaching the DB clamp.
+
 ## Resolved in current cleanup pass
 - `src/foliage.js`: large same-id multipolygon fragments from different OSM tiles could be deduped away; fixed by geometry-aware dedupe and shared OSM geometry helpers.
 - `src/foliage.js`: node-based hedges are now queried.

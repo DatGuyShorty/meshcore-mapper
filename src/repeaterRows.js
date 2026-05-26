@@ -49,6 +49,18 @@ export function wsKeyForRow(row) {
   return `${Number.isFinite(lat) ? lat.toFixed(5) : 'nan'}:${Number.isFinite(lon) ? lon.toFixed(5) : 'nan'}`;
 }
 
+// Caps mirror src/main/ipcHandlers.js#_safeWsRow so the in-memory state and
+// the persisted DB row never disagree on length.
+const WS_NAME_MAX = 120;
+const WS_SHORT_MAX = 80;
+const WS_LAST_SEEN_MAX = 80;
+const WS_KEY_MAX = 160;
+
+function _clamp(value, max) {
+  if (value === undefined || value === null) return value;
+  return String(value).slice(0, max);
+}
+
 export function normalizeWsRepeaterSnapshot(data) {
   const explicitClear = data?.clear === true || data?.clearWsRepeaters === true;
   const list = Array.isArray(data) ? data
@@ -79,13 +91,23 @@ export function normalizeWsRepeaterSnapshot(data) {
       invalidCount++;
       continue;
     }
-    const key = wsKeyForRow(row);
+    const rawKey = wsKeyForRow(row);
+    const key = _clamp(rawKey, WS_KEY_MAX);
     if (keys.has(key)) {
       duplicateCount++;
       continue;
     }
     keys.add(key);
-    rows.push({ ...row, lat, lon, wsKey: key });
+    rows.push({
+      ...row,
+      name: row?.name === undefined || row?.name === null ? row?.name : _clamp(row.name, WS_NAME_MAX),
+      short: row?.short === undefined || row?.short === null ? row?.short : _clamp(row.short, WS_SHORT_MAX),
+      last_seen: row?.last_seen === undefined || row?.last_seen === null ? row?.last_seen : _clamp(row.last_seen, WS_LAST_SEEN_MAX),
+      lastSeen: row?.lastSeen === undefined || row?.lastSeen === null ? row?.lastSeen : _clamp(row.lastSeen, WS_LAST_SEEN_MAX),
+      lat,
+      lon,
+      wsKey: key,
+    });
   }
 
   return {

@@ -54,6 +54,19 @@ Last reviewed: May 2026.
 
 | ID | What | How |
 |----|------|-----|
+| S1 | CSP meta tag in renderer | `index.html` `<meta http-equiv="Content-Security-Policy">` allowlisting tile/API/WS hosts; inline importmap allowed via SHA-256 hash, no `'unsafe-inline'` |
+| S2 | `setWindowOpenHandler` + `will-navigate` | `src/main/window.js` — external links go through `shell.openExternal`, cross-document navigation blocked, same-document hash/path changes preserved; `sandbox: true` added |
+| S3 | `setPermissionRequestHandler` + `setPermissionCheckHandler` | `main.js` — only `geolocation` allowed, used once on first launch by `src/map.js` |
+| S4 | WS payload length clamping in renderer | `src/repeaterRows.js#normalizeWsRepeaterSnapshot` mirrors `_safeWsRow` caps (name 120, short/lastSeen 80, key 160) |
+| S5 | Inline shell-init script extracted to file | New `src/shellInit.js`; `index.html` `<script>` block removed |
+| C1 | `app.js` concatenated import split onto two lines | `app.js:12` |
+| C2 | Stray `60` between section headers removed from `AGENTS.md` | `AGENTS.md:48` |
+| C3 | `tests/` lint warnings (6 unused vars) renamed to `_`-prefixed | `tests/unit/map.test.js`, `tests/unit/mapAdapter.test.js`, `tests/unit/ui.test.js` |
+| T1 | Playwright per-test timeout raised from 30s → 180s | `playwright.config.cjs` — coverage compute on a fresh terrain cache takes ~80s, so the 30s test timeout could never let inner 120s `expect` calls fire |
+| T2 | Coverage smoke test now checks "≥1 image layer" instead of "exactly 1" | `tests/smoke/workflow-smoke.spec.cjs:187` — large grids render across multiple 1024px tiles; the strict `toHaveCount(1)` assertion failed for any radius/zoom producing >1024 cells |
+| T3 | Multi-step smoke test uses Clear button instead of completing a two-click pick | `tests/smoke/workflow-smoke.spec.cjs:298–306` — the original `map.click()` × 2 path was brittle vs persisted map centre/zoom from prior tests; the completion path is exercised by other tests |
+| T4 | Opt-in renderer console capture in smoke harness | `tests/smoke/electron-app.js` — `SMOKE_VERBOSE=1` pipes renderer console + page errors to stdout for diagnosis |
+| D1 | Rewrite/maintainability plan | New `REWRITE.md` — phased TS migration, layered modules, typed IPC contract, component framework path, CUDA streaming bridge |
 | B1–B4 | Bug fixes (gain, foliage clear, multi-repeater cache, preset stale) | Various |
 | A1–A3 | Architecture fixes (globals→delegation, storage key migration, elevation fallback) | Various |
 | P1–P11 | Performance (pre-alloc, spatial index, flat-Earth dist, FSPL hoist, λ cache, typed arrays, batch SQL) | Various |
