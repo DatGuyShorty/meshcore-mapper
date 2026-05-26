@@ -122,6 +122,11 @@ Each phase: **green `npm run check` at start, green at end.** No phase is allowe
   - `src/radioMetrics.js` — LoRa modem metrics
   - `src/main/urlGuards.js` — `isSafeExternalUrl`, `isSameDocument`
   - `src/coverageGrid.js` — `coverageBbox`, `unionBbox`, `elevationGridShape`, `buildElevationGridPoints`
+  - `src/coveragePoint.js` — `inspectCoverageAtPoint`
+  - `src/signalModel.js` — `computeSignalToPoint`, `flatDistanceM`, `fsplBaseDb`, profile buffers
+  - `src/propagation.js` — physics core: haversine, FSPL, Deygout, checkLoS, polygon-segment intervals, bilinear elev, shadow fading
+  - `src/linkBudget.js` — P2P link budget calculation, Monte Carlo
+  - `src/terrainProfileView.js` — `drawTerrainProfile` (annotated for cross-file inference; full `@ts-check` deferred)
 - No source files moved to `.ts` yet; that's Phase 0b once the bundler is in place. Adding `// @ts-check` to additional modules is incremental and risk-free.
 
 ### Phase 0b — Vite bundler (next)

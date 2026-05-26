@@ -45,6 +45,19 @@ function _candidatesAtPoint(lat, lon, tileIndex, count) {
   return tileIndex.tiles[r * TILE_N16 + c];
 }
 
+/**
+ * Render the terrain LoS profile as an inline SVG string.
+ * @param {ArrayLike<number>} elevs
+ * @param {number} txElev
+ * @param {number} rxElev
+ * @param {number} txHeight
+ * @param {number} rxHeight
+ * @param {number} distM
+ * @param {number} freqMHz
+ * @param {ArrayLike<number> | null} [vegH]
+ * @param {ArrayLike<number> | null} [bldH]
+ * @returns {string}
+ */
 export function drawTerrainProfile(elevs, txElev, rxElev, txHeight, rxHeight, distM, freqMHz, vegH = null, bldH = null) {
   const W = 240, H = 105;
   const n = elevs.length;

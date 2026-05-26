@@ -1,9 +1,78 @@
+// @ts-check
 import { fetchElevations } from './elevation.js';
 import { fetchFoliage, foliageLossDb } from './foliage.js';
 import { fetchBuildings, buildingLossDb } from './buildings.js';
 import { antennaPatternOffsetDb, bearingDeg, checkLoS, fspl, haversine, profileSampleCount, shadowFadingDb } from './propagation.js';
 import { drawTerrainProfile, sampleObstacleHeights } from './terrainProfileView.js';
 
+/**
+ * @typedef {Object} P2PEndpoint
+ * @property {number} lat
+ * @property {number} lng
+ *
+ * @typedef {Object} P2PSettings
+ * @property {number} txHeight
+ * @property {number} rxHeight
+ * @property {number} txPower
+ * @property {number} txGain
+ * @property {number} rxGain
+ * @property {string} [antennaPattern]
+ * @property {number} [txAzimuthDeg]
+ * @property {number} [rxAzimuthDeg]
+ * @property {number} freqMHz
+ * @property {number} rxSens
+ * @property {number} [fadeMargin]
+ * @property {boolean} [useFoliage]
+ * @property {boolean} [useBuildings]
+ * @property {boolean} [useLos]
+ * @property {boolean} [useFresnel]
+ * @property {boolean} [deriveObstacleHeights]
+ * @property {number} [foliageLossPerM]
+ * @property {number} [buildingLossPerM]
+ * @property {number} [profileTargetSpacingM]
+ * @property {number} [profileMaxSamples]
+ * @property {number} [shadowFadingSigmaDb]
+ * @property {boolean} [shadowFadingStochastic]
+ * @property {number} [shadowFadingTrials]
+ *
+ * @typedef {Object} MonteCarloResult
+ * @property {true} enabled
+ * @property {number} trials
+ * @property {number} outageProbability
+ * @property {number} marginP05
+ * @property {number} marginP50
+ * @property {number} marginP95
+ *
+ * @typedef {Object} LinkBudgetResult
+ * @property {number} distM
+ * @property {number} sampleCount
+ * @property {number} pathLoss
+ * @property {number} diffractionLoss
+ * @property {number} foliageLoss
+ * @property {number} buildingLoss
+ * @property {number} shadowFadingLoss
+ * @property {number} totalPathLoss
+ * @property {number} rxPower
+ * @property {number} margin
+ * @property {number} requiredRx
+ * @property {number} fadeMargin
+ * @property {number} txEirp
+ * @property {number} txPatternOffset
+ * @property {number} rxPatternOffset
+ * @property {number} effectiveTxGain
+ * @property {number} effectiveRxGain
+ * @property {import('./propagation.js').CheckLoSResult} geoResult
+ * @property {import('./propagation.js').CheckLoSResult} fresnelResult
+ * @property {MonteCarloResult | null} monteCarlo
+ * @property {string} profileSvg
+ * @property {string[]} warnings
+ * @property {string[]} _calcLog
+ */
+
+/**
+ * @param {number[]} values
+ * @param {number} q
+ */
 function _quantile(values, q) {
   if (!values.length) return 0;
   const idx = (values.length - 1) * q;
@@ -14,6 +83,19 @@ function _quantile(values, q) {
   return values[lo] + (values[hi] - values[lo]) * t;
 }
 
+/**
+ * @param {Object} args
+ * @param {number} args.trials
+ * @param {number} args.sigma
+ * @param {string} args.baseSeed
+ * @param {number} args.txPower
+ * @param {number} args.effectiveTxGain
+ * @param {number} args.effectiveRxGain
+ * @param {number} args.pathLoss
+ * @param {number} args.totalExtras
+ * @param {number} args.requiredRx
+ * @returns {MonteCarloResult}
+ */
 function _computeMonteCarlo({
   trials,
   sigma,
@@ -25,6 +107,7 @@ function _computeMonteCarlo({
   totalExtras,
   requiredRx,
 }) {
+  /** @type {number[]} */
   const margins = new Array(trials);
   let outages = 0;
   for (let i = 0; i < trials; i++) {
@@ -45,27 +128,42 @@ function _computeMonteCarlo({
   };
 }
 
+/**
+ * @param {unknown} p
+ * @returns {p is P2PEndpoint}
+ */
 function _isValidEndpoint(p) {
-  if (!p) return false;
-  const lat = Number(p.lat);
-  const lng = Number(p.lng);
+  if (!p || typeof p !== 'object') return false;
+  const obj = /** @type {Record<string, unknown>} */ (p);
+  const lat = Number(obj.lat);
+  const lng = Number(obj.lng);
   return Number.isFinite(lat) && Number.isFinite(lng)
     && lat >= -90 && lat <= 90
     && lng >= -180 && lng <= 180;
 }
 
+/**
+ * @param {P2PEndpoint} pointA
+ * @param {P2PEndpoint} pointB
+ * @param {P2PSettings} settings
+ * @param {{ signal?: AbortSignal | null }} [options]
+ * @returns {Promise<LinkBudgetResult>}
+ */
 export async function calculateLinkBudget(pointA, pointB, settings, { signal = null } = {}) {
   if (!_isValidEndpoint(pointA) || !_isValidEndpoint(pointB)) {
     throw new Error('calculateLinkBudget requires endpoints with finite lat in [-90,90] and lng in [-180,180]');
   }
   const startTime = performance.now();
+  /** @type {string[]} */
   const log = [];
+  /** @param {string} msg */
   const step = (msg) => {
     const elapsed = (performance.now() - startTime).toFixed(1);
     const entry = `[${elapsed}ms] ${msg}`;
     console.log(`[p2p] ${entry}`);
     log.push(entry);
   };
+  /** @type {string[]} */
   const warnings = [];
 
   step('Settings: ' + JSON.stringify({
@@ -171,7 +269,8 @@ export async function calculateLinkBudget(pointA, pointB, settings, { signal = n
   const buildingLoss = buildings
     ? buildingLossDb(profileLats, profileLons, elevs, settings.txHeight, settings.rxHeight,
         buildings.polygons, buildings.bboxes, buildings.heights,
-        buildings.tileIndex, distM, settings.buildingLossPerM, buildings.holes)
+        buildings.tileIndex, distM, settings.buildingLossPerM,
+        /** @type {any} */ (buildings).holes)
     : 0;
   step(`Building loss: ${buildingLoss.toFixed(1)} dB`);
 
@@ -187,8 +286,8 @@ export async function calculateLinkBudget(pointA, pointB, settings, { signal = n
   const shadowFading = shadowFadingDb(settings.shadowFadingSigmaDb ?? 0, shadowSeed);
   const txToRxBearing = bearingDeg(pointA.lat, pointA.lng, pointB.lat, pointB.lng);
   const rxToTxBearing = bearingDeg(pointB.lat, pointB.lng, pointA.lat, pointA.lng);
-  const txPatternOffset = antennaPatternOffsetDb(settings.antennaPattern, settings.txAzimuthDeg, txToRxBearing);
-  const rxPatternOffset = antennaPatternOffsetDb(settings.antennaPattern, settings.rxAzimuthDeg, rxToTxBearing);
+  const txPatternOffset = antennaPatternOffsetDb(settings.antennaPattern ?? 'omni', settings.txAzimuthDeg ?? 0, txToRxBearing);
+  const rxPatternOffset = antennaPatternOffsetDb(settings.antennaPattern ?? 'omni', settings.rxAzimuthDeg ?? 0, rxToTxBearing);
   const effectiveTxGain = settings.txGain + txPatternOffset;
   const effectiveRxGain = settings.rxGain + rxPatternOffset;
   step(`Path loss: ${pathLoss.toFixed(1)} dB, Total extra loss: ${totalExtras.toFixed(1)} dB, Shadow fading: ${shadowFading.toFixed(1)} dB`);

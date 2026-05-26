@@ -78,6 +78,7 @@ Last reviewed: May 2026.
 | T7 | Defensive code under unit test | `tests/unit/elevation.test.js` (+2 tests for fill stats) and new `tests/unit/cudaCoverageLineParser.test.js` (+5 tests for stdout parsing) |
 | TS1 | Phase 0a of `REWRITE.md` — TypeScript as static checker | `tsconfig.json` (`strict`, `allowJs`, `checkJs: false`, `noEmit`), `npm run typecheck` script, `npm run check` now includes typecheck |
 | TS2 | Pure modules opt into `// @ts-check` with JSDoc types | `src/repeaterRows.js`, `src/radioMetrics.js`, `src/main/urlGuards.js`, `src/coverageGrid.js` |
+| TS3 | Physics + link-budget surface under `// @ts-check` | `src/coveragePoint.js`, `src/signalModel.js`, `src/propagation.js`, `src/linkBudget.js`. `src/terrainProfileView.js` exports annotated for cross-file inference |
 | B1–B4 | Bug fixes (gain, foliage clear, multi-repeater cache, preset stale) | Various |
 | A1–A3 | Architecture fixes (globals→delegation, storage key migration, elevation fallback) | Various |
 | P1–P11 | Performance (pre-alloc, spatial index, flat-Earth dist, FSPL hoist, λ cache, typed arrays, batch SQL) | Various |
