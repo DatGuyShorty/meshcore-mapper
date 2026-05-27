@@ -79,6 +79,8 @@ Last reviewed: May 2026.
 | TS1 | Phase 0a of `REWRITE.md` — TypeScript as static checker | `tsconfig.json` (`strict`, `allowJs`, `checkJs: false`, `noEmit`), `npm run typecheck` script, `npm run check` now includes typecheck |
 | TS2 | Pure modules opt into `// @ts-check` with JSDoc types | `src/repeaterRows.js`, `src/radioMetrics.js`, `src/main/urlGuards.js`, `src/coverageGrid.js` |
 | TS3 | Physics + link-budget surface under `// @ts-check` | `src/coveragePoint.js`, `src/signalModel.js`, `src/propagation.js`, `src/linkBudget.js`. `src/terrainProfileView.js` exports annotated for cross-file inference |
+| TS4 | OSM geometry + foliage + buildings + elevation under `// @ts-check` | `src/osmGeometry.js`, `src/buildings.js`, `src/foliage.js`, `src/elevation.js`, `src/osmTilePipeline.js`. `signalModel.js` casts dropped now that callees are typed |
+| TS5 | Ambient `window.electronAPI` types | New `src/types/global.d.ts` describing the `preload.js` contextBridge surface so renderer IPC calls are type-checked |
 | B1–B4 | Bug fixes (gain, foliage clear, multi-repeater cache, preset stale) | Various |
 | A1–A3 | Architecture fixes (globals→delegation, storage key migration, elevation fallback) | Various |
 | P1–P11 | Performance (pre-alloc, spatial index, flat-Earth dist, FSPL hoist, λ cache, typed arrays, batch SQL) | Various |

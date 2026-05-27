@@ -1,14 +1,43 @@
+// @ts-check
+/**
+ * Pure OSM/geometry helpers used by foliage, buildings, elevation, coverage.
+ * No DOM, no network, no Electron.
+ *
+ * @typedef {[number, number]} LatLonPair    First element latitude, second longitude.
+ * @typedef {LatLonPair[]}     Ring          Polygon ring (>=3 vertices, optionally closed by repeating first point).
+ *
+ * @typedef {Object} Bbox
+ * @property {number} latMin
+ * @property {number} latMax
+ * @property {number} lonMin
+ * @property {number} lonMax
+ *
+ * @typedef {Bbox & { crossesAntimeridian: boolean, fullWorldLon: boolean }} NormalizedBbox
+ *
+ * @typedef {Bbox & { la: number, lo: number, key: string }} TileDescriptor
+ */
+
 export const M_PER_LAT = 110574;
 export const M_PER_LON = 111320;
 
 export const TILE_SIZE_DEG = 0.25;
 
+/**
+ * Clamp latitude to [-90, 90]. Returns `null` if the input isn't finite.
+ * @param {unknown} lat
+ * @returns {number | null}
+ */
 export function clampLat(lat) {
   const n = Number(lat);
   if (!Number.isFinite(n)) return null;
   return Math.max(-90, Math.min(90, n));
 }
 
+/**
+ * Wrap longitude into [-180, 180]. Returns `null` for non-finite input.
+ * @param {unknown} lon
+ * @returns {number | null}
+ */
 export function normalizeLon(lon) {
   const n = Number(lon);
   if (!Number.isFinite(n)) return null;
@@ -17,6 +46,11 @@ export function normalizeLon(lon) {
   return wrapped;
 }
 
+/**
+ * @param {unknown} lat
+ * @param {unknown} lon
+ * @returns {boolean}
+ */
 export function isFiniteLatLon(lat, lon) {
   return Number.isFinite(Number(lat))
     && Number.isFinite(Number(lon))
@@ -26,6 +60,15 @@ export function isFiniteLatLon(lat, lon) {
     && Number(lon) <= 180;
 }
 
+/**
+ * Normalise a bbox and report whether it crosses the antimeridian. Returns
+ * `null` for inverted or non-finite input.
+ * @param {unknown} latMin
+ * @param {unknown} latMax
+ * @param {unknown} lonMin
+ * @param {unknown} lonMax
+ * @returns {NormalizedBbox | null}
+ */
 export function normalizeBbox(latMin, latMax, lonMin, lonMax) {
   const south = clampLat(Math.min(Number(latMin), Number(latMax)));
   const north = clampLat(Math.max(Number(latMin), Number(latMax)));
@@ -50,6 +93,11 @@ export function normalizeBbox(latMin, latMax, lonMin, lonMax) {
   };
 }
 
+/**
+ * Split a bbox into one or two non-antimeridian-crossing sub-bboxes.
+ * @param {{ latMin: unknown, latMax: unknown, lonMin: unknown, lonMax: unknown } | null | undefined} bbox
+ * @returns {Bbox[]}
+ */
 export function splitAntimeridianBbox(bbox) {
   const normalized = normalizeBbox(bbox?.latMin, bbox?.latMax, bbox?.lonMin, bbox?.lonMax);
   if (!normalized) return [];
@@ -63,7 +111,18 @@ export function splitAntimeridianBbox(bbox) {
   return [{ latMin, latMax, lonMin, lonMax }];
 }
 
+/**
+ * Enumerate tile descriptors covering a bbox at the given grid size.
+ * @param {unknown} latMin
+ * @param {unknown} latMax
+ * @param {unknown} lonMin
+ * @param {unknown} lonMax
+ * @param {string} [cacheVersion]
+ * @param {number} [tileSize]
+ * @returns {TileDescriptor[]}
+ */
 export function tileDescriptorsForBbox(latMin, latMax, lonMin, lonMax, cacheVersion = '', tileSize = TILE_SIZE_DEG) {
+  /** @type {TileDescriptor[]} */
   const descriptors = [];
   for (const part of splitAntimeridianBbox({ latMin, latMax, lonMin, lonMax })) {
     for (let la = Math.floor(part.latMin / tileSize) * tileSize; la < part.latMax; la += tileSize) {
@@ -89,16 +148,33 @@ export function tileDescriptorsForBbox(latMin, latMax, lonMin, lonMax, cacheVers
   return descriptors;
 }
 
+/**
+ * Format a bbox as the `(south,west,north,east)` literal that Overpass QL
+ * expects.
+ * @param {Bbox} tile
+ * @returns {string}
+ */
 export function overpassBboxString(tile) {
   return `(${tile.latMin.toFixed(4)},${tile.lonMin.toFixed(4)},${tile.latMax.toFixed(4)},${tile.lonMax.toFixed(4)})`;
 }
 
+/**
+ * Clamp a value into [0, 1]. Returns `0` for non-finite input.
+ * @param {unknown} value
+ * @returns {number}
+ */
 export function clampUnit(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
 }
 
+/**
+ * @param {number} lat
+ * @param {number} lon
+ * @param {Bbox} bounds
+ * @returns {{ row: number, col: number }}
+ */
 export function clampedGridFractions(lat, lon, bounds) {
   const latSpan = bounds.latMax - bounds.latMin;
   const lonSpan = bounds.lonMax - bounds.lonMin;
@@ -109,10 +185,15 @@ export function clampedGridFractions(lat, lon, bounds) {
   };
 }
 
+/** @param {LatLonPair} pt */
 function _coordKey(pt) {
   return `${pt[0].toFixed(8)},${pt[1].toFixed(8)}`;
 }
 
+/**
+ * @param {number} hash
+ * @param {number} value
+ */
 function _hashInt(hash, value) {
   let v = value | 0;
   for (let i = 0; i < 4; i++) {
@@ -122,6 +203,10 @@ function _hashInt(hash, value) {
   return hash >>> 0;
 }
 
+/**
+ * @param {unknown} ring
+ * @returns {boolean}
+ */
 export function isClosedRing(ring) {
   if (!Array.isArray(ring) || ring.length < 4) return false;
   const first = ring[0];
@@ -129,6 +214,11 @@ export function isClosedRing(ring) {
   return !!first && !!last && first[0] === last[0] && first[1] === last[1];
 }
 
+/**
+ * Axis-aligned bounding box of a polygon ring.
+ * @param {Ring} ring
+ * @returns {Bbox}
+ */
 export function ringBBox(ring) {
   let latMin = Infinity;
   let latMax = -Infinity;
@@ -143,6 +233,14 @@ export function ringBBox(ring) {
   return { latMin, latMax, lonMin, lonMax };
 }
 
+/**
+ * Stable id for an OSM feature that lacks one of its own; combines the ring
+ * shape + bbox so disjoint features can't collide.
+ * @param {string} prefix
+ * @param {Ring | null | undefined} ring
+ * @param {Bbox | null | undefined} [bbox]
+ * @returns {string}
+ */
 export function fallbackFeatureId(prefix, ring, bbox) {
   if (bbox) {
     return `${prefix}:bb:${bbox.latMin.toFixed(6)}:${bbox.latMax.toFixed(6)}:${bbox.lonMin.toFixed(6)}:${bbox.lonMax.toFixed(6)}:${ring?.length ?? 0}`;
@@ -154,6 +252,14 @@ export function fallbackFeatureId(prefix, ring, bbox) {
   return `${prefix}:rg:${ring.length}:${first[0].toFixed(6)}:${first[1].toFixed(6)}:${mid[0].toFixed(6)}:${mid[1].toFixed(6)}:${last[0].toFixed(6)}:${last[1].toFixed(6)}`;
 }
 
+/**
+ * Hash a polygon ring's geometry to a stable short string. Used by
+ * `featureDedupeKey` to detect the same OSM feature arriving via different
+ * tiles or fragments.
+ * @param {Ring | null | undefined} ring
+ * @param {Bbox | null} [bbox]
+ * @returns {string}
+ */
 export function ringFingerprint(ring, bbox = null) {
   let hash = 2166136261;
   hash = _hashInt(hash, ring?.length ?? 0);
@@ -171,13 +277,27 @@ export function ringFingerprint(ring, bbox = null) {
   return `${ring?.length ?? 0}:${(hash >>> 0).toString(16)}`;
 }
 
+/**
+ * @param {string | number | null | undefined} id
+ * @param {Ring | null | undefined} ring
+ * @param {Bbox | null} [bbox]
+ * @returns {string}
+ */
 export function featureDedupeKey(id, ring, bbox = null) {
   return `${id ?? ''}|${ringFingerprint(ring, bbox)}`;
 }
 
+/**
+ * Synthesise polygon corridors of a given width around each segment of a
+ * polyline. Used to treat barriers (walls, fences) as obstacle polygons.
+ * @param {Ring | null | undefined} ring
+ * @param {number} widthM
+ * @returns {Ring[]}
+ */
 export function lineCorridorRings(ring, widthM) {
   if (!Array.isArray(ring) || ring.length < 2 || !Number.isFinite(widthM) || widthM <= 0) return [];
   const half = widthM / 2;
+  /** @type {Ring[]} */
   const out = [];
   for (let i = 0; i < ring.length - 1; i++) {
     const [lat1, lon1] = ring[i];
@@ -192,20 +312,30 @@ export function lineCorridorRings(ring, widthM) {
     const ny = dx / len;
     const dLat = (ny * half) / M_PER_LAT;
     const dLon = (nx * half) / lonScale;
-    out.push([
+    out.push(/** @type {Ring} */ ([
       [lat1 + dLat, lon1 + dLon],
       [lat2 + dLat, lon2 + dLon],
       [lat2 - dLat, lon2 - dLon],
       [lat1 - dLat, lon1 - dLon],
-    ]);
+    ]));
   }
   return out;
 }
 
+/**
+ * Build a regular n-gon ring around (lat, lon) approximating a circle of
+ * the given diameter. Used for OSM `node` features that need a polygon.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {number} diameterM
+ * @param {number} [sides]
+ * @returns {Ring}
+ */
 export function pointCircleRing(lat, lon, diameterM, sides = 12) {
   const radius = Math.max(0.5, diameterM / 2);
   const latScale = 1 / M_PER_LAT;
   const lonScale = 1 / Math.max(1e-6, M_PER_LON * Math.cos(lat * Math.PI / 180));
+  /** @type {Ring} */
   const ring = [];
   for (let i = 0; i < sides; i++) {
     const theta = (i / sides) * 2 * Math.PI;
@@ -218,9 +348,18 @@ export function pointCircleRing(lat, lon, diameterM, sides = 12) {
   return ring;
 }
 
+/**
+ * Stitch a list of open polyline segments into closed rings by joining
+ * matching endpoints. Used to assemble OSM relation `outer` / `inner`
+ * members into multipolygon rings.
+ * @param {Ring[]} segments
+ * @returns {Ring[]}
+ */
 export function assembleRings(segments) {
   if (!Array.isArray(segments) || segments.length === 0) return [];
+  /** @type {Ring[]} */
   const pending = [];
+  /** @type {Ring[]} */
   const rings = [];
 
   for (const segment of segments) {
@@ -234,7 +373,9 @@ export function assembleRings(segments) {
   }
 
   while (pending.length > 0) {
-    let ring = pending.shift();
+    // `pending.length > 0` so shift() returns a Ring; TS can't narrow the
+    // type past `Array.shift()`'s declared `T | undefined`.
+    let ring = /** @type {Ring} */ (pending.shift());
     let extended = true;
 
     while (extended) {
@@ -283,14 +424,28 @@ export function assembleRings(segments) {
   return rings;
 }
 
+/**
+ * @typedef {{ role?: string }} OsmRelationMember
+ * @typedef {(member: OsmRelationMember) => Array<{ lat: number, lon: number }> | null | undefined} MemberGeometry
+ */
+
+/**
+ * Build outer + inner ring sets from an OSM multipolygon relation's members.
+ * @param {OsmRelationMember[] | null | undefined} members
+ * @param {MemberGeometry} memberGeometry
+ * @returns {{ outers: Ring[], holes: Ring[] }}
+ */
 export function assembleMultipolygon(members, memberGeometry) {
+  /** @type {Ring[]} */
   const outerSegments = [];
+  /** @type {Ring[]} */
   const innerSegments = [];
   for (const member of members ?? []) {
     const role = String(member?.role || 'outer').trim().toLowerCase();
     const geometry = memberGeometry(member);
     if (!geometry || geometry.length < 2) continue;
-    const ring = geometry.map(n => [n.lat, n.lon]);
+    /** @type {Ring} */
+    const ring = geometry.map(n => /** @type {LatLonPair} */ ([n.lat, n.lon]));
     if (role === 'inner') innerSegments.push(ring);
     else outerSegments.push(ring);
   }
@@ -300,6 +455,11 @@ export function assembleMultipolygon(members, memberGeometry) {
   };
 }
 
+/**
+ * @param {Ring} outer
+ * @param {Ring[]} holes
+ * @returns {Ring[]}
+ */
 export function holeCandidatesForOuter(outer, holes) {
   if (!Array.isArray(holes) || !holes.length) return [];
   const outerBb = ringBBox(outer);
@@ -316,8 +476,10 @@ export function holeCandidatesForOuter(outer, holes) {
  * Whether an obstacle payload (foliage or buildings) contains any multipolygon holes.
  * CUDA backends currently can't subtract holes from polygon traversal intervals, so
  * payloads with holes must fall back to the CPU pipeline.
+ * @param {{ holes?: unknown } | null | undefined} layer
+ * @returns {boolean}
  */
 export function obstacleLayerHasHoles(layer) {
   return Array.isArray(layer?.holes)
-    && layer.holes.some(polyHoles => Array.isArray(polyHoles) && polyHoles.length > 0);
+    && layer.holes.some((/** @type {unknown} */ polyHoles) => Array.isArray(polyHoles) && polyHoles.length > 0);
 }

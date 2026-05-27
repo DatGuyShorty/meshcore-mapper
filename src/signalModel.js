@@ -224,15 +224,10 @@ export function computeSignalToPoint({
     }
 
     if (foliage) {
-      // foliageLossDb / buildingLossDb (in foliage.js / buildings.js) use the
-      // height/factor arrays via plain index access, so both Float32Array and
-      // number[] work at runtime — TS just doesn't know that yet. Cast away
-      // until those modules opt into @ts-check.
       rxPower -= foliageLossDb(
         profileLats, profileLons, profile, tx.height, rxHeight,
         foliage.polygons, foliage.bboxes,
-        /** @type {number[]} */ (/** @type {unknown} */ (foliage.canopyHeights ?? [])),
-        /** @type {number[]} */ (/** @type {unknown} */ (foliage.factors ?? [])),
+        foliage.canopyHeights ?? [], foliage.factors ?? [],
         foliage.tileIndex, dist, foliageLossPerM, tx.freq, foliage.holes
       );
     }
@@ -241,7 +236,7 @@ export function computeSignalToPoint({
       rxPower -= buildingLossDb(
         profileLats, profileLons, profile, tx.height, rxHeight,
         buildings.polygons, buildings.bboxes,
-        /** @type {number[]} */ (/** @type {unknown} */ (buildings.heights ?? [])),
+        buildings.heights ?? [],
         buildings.tileIndex, dist, buildingLossPerM, buildings.holes
       );
     }

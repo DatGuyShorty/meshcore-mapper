@@ -126,7 +126,13 @@ Each phase: **green `npm run check` at start, green at end.** No phase is allowe
   - `src/signalModel.js` — `computeSignalToPoint`, `flatDistanceM`, `fsplBaseDb`, profile buffers
   - `src/propagation.js` — physics core: haversine, FSPL, Deygout, checkLoS, polygon-segment intervals, bilinear elev, shadow fading
   - `src/linkBudget.js` — P2P link budget calculation, Monte Carlo
+  - `src/osmGeometry.js` — polygon math, multipolygon assembly, ring fingerprints, tile descriptors
+  - `src/buildings.js` — OSM building fetch + `buildingLossDb`, height inference, structure classification
+  - `src/foliage.js` — OSM vegetation fetch + `foliageLossDb`, Weissberger model, canopy classification
+  - `src/elevation.js` — DEM tile pipeline, OpenElevation/OpenTopoData API, null-fill stats, Terrarium decode
+  - `src/osmTilePipeline.js` — generic tile fetch worker pool
   - `src/terrainProfileView.js` — `drawTerrainProfile` (annotated for cross-file inference; full `@ts-check` deferred)
+- New `src/types/global.d.ts` ambient declaration: shape of `window.electronAPI` (the `preload.js` contextBridge surface), so renderer code type-checks IPC calls.
 - No source files moved to `.ts` yet; that's Phase 0b once the bundler is in place. Adding `// @ts-check` to additional modules is incremental and risk-free.
 
 ### Phase 0b — Vite bundler (next)

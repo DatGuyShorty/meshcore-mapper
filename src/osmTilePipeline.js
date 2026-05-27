@@ -1,10 +1,23 @@
+// @ts-check
+/**
+ * @template TTile, TData
+ * @param {TTile[]} tiles
+ * @param {Object} opts
+ * @param {AbortSignal | null} [opts.signal]
+ * @param {number} [opts.tileConcurrency]
+ * @param {(tile: TTile) => Promise<TData | null | undefined>} opts.loadTile
+ * @param {((p: { completed: number, total: number }) => void) | null} [opts.onProgress]
+ * @param {((err: any, tile: TTile) => void) | null} [opts.onTileError]
+ * @returns {Promise<Array<{ tile: TTile, data: TData }>>}
+ */
 export async function fetchOsmTileBatch(tiles, {
   signal = null,
   tileConcurrency = 3,
   loadTile,
   onProgress = null,
   onTileError = null,
-} = {}) {
+} = /** @type {any} */ ({})) {
+  /** @type {Array<{ tile: TTile, data: TData }>} */
   const results = [];
   let completed = 0;
   let nextIdx = 0;
@@ -23,7 +36,8 @@ export async function fetchOsmTileBatch(tiles, {
       try {
         const data = await loadTile(tile);
         if (data) results.push({ tile, data });
-      } catch (err) {
+      } catch (rawErr) {
+        const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
         if (err?.cancelled || err?.name === 'AbortError') throw err;
         onTileError?.(err, tile);
       }
@@ -38,7 +52,7 @@ export async function fetchOsmTileBatch(tiles, {
 }
 
 function _abortError() {
-  const err = new Error('Cancelled');
+  const err = /** @type {Error & { cancelled?: boolean }} */ (new Error('Cancelled'));
   err.name = 'AbortError';
   err.cancelled = true;
   return err;

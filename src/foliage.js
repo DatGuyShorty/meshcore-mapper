@@ -1,7 +1,21 @@
+// @ts-check
 /**
  * foliage.js — Fetch vegetation polygons from OpenStreetMap (via Overpass API)
  * and compute additional signal attenuation from forest traversal.
  * Exports: fetchFoliage, foliageLossDb
+ *
+ * @typedef {import('./osmGeometry.js').Ring} Ring
+ * @typedef {import('./osmGeometry.js').Bbox} Bbox
+ *
+ * @typedef {{ tiles: number[][], latMin: number, latSpan: number, lonMin: number, lonSpan: number } | null} FoliageTileIndex
+ *
+ * @typedef {Object} FoliagePayload
+ * @property {Ring[]} polygons
+ * @property {Bbox[]} bboxes
+ * @property {number[]} canopyHeights
+ * @property {number[]} factors
+ * @property {Ring[][]} holes
+ * @property {FoliageTileIndex} tileIndex
  */
 import { earthBulgeM, segmentPolygonIntervalsWithHoles } from './propagation.js';
 import { fetchDatasetElevations } from './elevation.js';
@@ -32,16 +46,22 @@ const CACHE_V_DERIVED = 'fv14:'; // incremented: super-relation recursion + mult
 const FOLIAGE_TILE_CONCURRENCY = 3;
 
 function _abortError() {
-  const err = new Error('Cancelled');
+  const err = /** @type {Error & { cancelled?: boolean }} */ (new Error('Cancelled'));
   err.name = 'AbortError';
   err.cancelled = true;
   return err;
 }
 
+/** @param {AbortSignal | null | undefined} signal */
 function _throwIfAborted(signal) {
   if (signal?.aborted) throw _abortError();
 }
 
+/**
+ * @param {number} ms
+ * @param {AbortSignal | null | undefined} signal
+ * @returns {Promise<void>}
+ */
 function _sleep(ms, signal) {
   _throwIfAborted(signal);
   return new Promise((resolve, reject) => {
@@ -59,7 +79,14 @@ function _sleep(ms, signal) {
   });
 }
 
-/** Return 0.25° tile descriptors covering the given bbox. */
+/**
+ * Return 0.25° tile descriptors covering the given bbox.
+ * @param {unknown} latMin
+ * @param {unknown} latMax
+ * @param {unknown} lonMin
+ * @param {unknown} lonMax
+ * @param {string} cacheVersion
+ */
 function _tilesForBbox(latMin, latMax, lonMin, lonMax, cacheVersion) {
   return tileDescriptorsForBbox(latMin, latMax, lonMin, lonMax, cacheVersion);
 }
@@ -111,9 +138,11 @@ const FOLIAGE_FACTORS = {
 };
 
 // B3: multi-entry in-memory cache (LRU-capped at 8 entries)
+/** @type {Map<string, any>} */
 const _memCache    = new Map();
 const MEM_CACHE_MAX = 8;
 
+/** @param {unknown} value */
 function _parseOsmLengthMeters(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : null;
@@ -127,10 +156,24 @@ function _parseOsmLengthMeters(value) {
   return numeric;
 }
 
+/** @typedef {Record<string, unknown>} OsmTags */
+
+/**
+ * @param {OsmTags} tags
+ * @param {string} name
+ * @returns {string}
+ */
 function _tagValue(tags, name) {
   return String(tags?.[name] ?? '').trim().toLowerCase();
 }
 
+/**
+ * Decide whether an OSM feature is foliage; if so return the kind,
+ * canopy height, loss-factor multiplier, and (for linear features) the
+ * corridor width.
+ * @param {OsmTags} [tags]
+ * @returns {{ kind: string, factor: number, canopyHeight: number, linearWidthM: number | null } | null}
+ */
 export function classifyFoliageTags(tags = {}) {
   const landuse = _tagValue(tags, 'landuse');
   const landcover = _tagValue(tags, 'landcover');
@@ -138,7 +181,9 @@ export function classifyFoliageTags(tags = {}) {
   const leisure = _tagValue(tags, 'leisure');
   const barrier = _tagValue(tags, 'barrier');
   const wetland = _tagValue(tags, 'wetland');
+  /** @type {string | null} */
   let kind = null;
+  /** @type {number | null} */
   let linearWidthM = null;
 
   if (landuse === 'forest' || landcover === 'forest' || landcover === 'trees' || landcover === 'wood' || landcover === 'tree_cover') kind = 'forest';
@@ -173,17 +218,25 @@ export function classifyFoliageTags(tags = {}) {
 
   if (!kind) return null;
   const explicitHeight = _parseOsmLengthMeters(tags.height || tags.est_height || tags['trees:height']);
+  const canopies = /** @type {Record<string, number>} */ (CANOPY_HEIGHTS);
+  const factors = /** @type {Record<string, number>} */ (FOLIAGE_FACTORS);
   const canopyHeight = explicitHeight !== null
     ? Math.max(0.3, Math.min(80, explicitHeight))
-    : (CANOPY_HEIGHTS[kind] ?? 10);
+    : (canopies[kind] ?? 10);
   return {
     kind,
-    factor: FOLIAGE_FACTORS[kind] ?? 1,
+    factor: factors[kind] ?? 1,
     canopyHeight,
     linearWidthM,
   };
 }
 
+/**
+ * Build the Overpass QL query string for foliage in a single tile bbox.
+ * `>>;` pulls in recursive relation members so multi-tier multipolygons assemble.
+ * @param {string} bbox pre-formatted `(south,west,north,east)` literal
+ * @returns {string}
+ */
 export function buildFoliageOverpassQuery(bbox) {
   const areaFilters = [
     ['landuse', 'forest'],
@@ -228,6 +281,7 @@ export function buildFoliageOverpassQuery(bbox) {
   return `[out:json][timeout:60];(${areaFilters}${nodeFilters}${linearFilters});(._;>>;);out geom tags;`;
 }
 
+/** @param {Ring | null | undefined} ring */
 function _polygonCentroid(ring) {
   if (!ring?.length) return null;
   let lat = 0;
@@ -239,6 +293,14 @@ function _polygonCentroid(ring) {
   return { latitude: lat / ring.length, longitude: lon / ring.length };
 }
 
+/**
+ * @param {Ring[]} polygons
+ * @param {number[]} fallbackHeights
+ * @param {AbortSignal | null | undefined} signal
+ * @param {number | undefined} datasetBatchConcurrency
+ * @param {number} [sampleLimit]
+ * @returns {Promise<number[]>}
+ */
 async function _deriveCanopyFromDsmMinusDem(polygons, fallbackHeights, signal, datasetBatchConcurrency, sampleLimit = 0) {
   if (!polygons.length) return fallbackHeights;
 
@@ -261,7 +323,7 @@ async function _deriveCanopyFromDsmMinusDem(polygons, fallbackHeights, signal, d
   const centroids = sampled.map(s => s.centroid);
 
   try {
-    const fetchOpts = { signal, batchConcurrency: datasetBatchConcurrency };
+    const fetchOpts = { signal: signal ?? undefined, batchConcurrency: datasetBatchConcurrency };
     const [dem, dsm] = await Promise.all([
       fetchDatasetElevations(centroids, 'srtm30m', null, fetchOpts),
       fetchDatasetElevations(centroids, 'aster30m', null, fetchOpts),
@@ -277,7 +339,8 @@ async function _deriveCanopyFromDsmMinusDem(polygons, fallbackHeights, signal, d
     }
     console.info(`[foliage] DSM-DEM canopy applied for ${applied}/${sampled.length} polygons (sampled from ${derived.length})`);
     return derived;
-  } catch (err) {
+  } catch (rawErr) {
+    const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
     if (err?.cancelled || err?.name === 'AbortError') throw err;
     console.warn('[foliage] DSM-DEM canopy derivation failed, using defaults:', err.message);
     return fallbackHeights;
@@ -288,10 +351,19 @@ async function _deriveCanopyFromDsmMinusDem(polygons, fallbackHeights, signal, d
  * P2: Build a simple tile-grid spatial index for fast polygon lookup.
  * Returns null if there are no polygons.
  */
+/**
+ * @param {Ring[]} polygons
+ * @param {Bbox[]} bboxes
+ * @param {number} latMin
+ * @param {number} latMax
+ * @param {number} lonMin
+ * @param {number} lonMax
+ */
 function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
   if (polygons.length === 0) return null;
   const latSpan = (latMax - latMin) || 1;
   const lonSpan = (lonMax - lonMin) || 1;
+  /** @type {number[][]} */
   const tiles = Array.from({ length: TILE_N * TILE_N }, () => []);
   for (let pi = 0; pi < bboxes.length; pi++) {
     const bb   = bboxes[pi];
@@ -309,6 +381,13 @@ function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
 /**
  * Fetch one 0.25° tile of foliage polygons (mem-cache → SQLite → Overpass).
  * Tiles are shared across all repeaters — cached once, reused for every coverage run in the area.
+ * @param {import('./osmGeometry.js').TileDescriptor} tile
+ * @param {Object} [options]
+ * @param {AbortSignal | null} [options.signal]
+ * @param {number} [options.datasetBatchConcurrency]
+ * @param {boolean} [options.deriveObstacleHeights]
+ * @param {number} [options.derivationSampleLimit]
+ * @returns {Promise<any>}
  */
 async function _fetchFoliageTile(tile, {
   signal = null,
@@ -325,7 +404,7 @@ async function _fetchFoliageTile(tile, {
   const sqlCached = await window.electronAPI.cacheFoliageLookup(key);
   if (sqlCached) {
     console.debug(`[foliage] SQLite hit tile ${key} — ${sqlCached.polygons.length} polygon(s)`);
-    if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
+    if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(/** @type {string} */ (_memCache.keys().next().value));
     _memCache.set(key, sqlCached);
     return sqlCached;
   }
@@ -334,7 +413,10 @@ async function _fetchFoliageTile(tile, {
   const bbox = overpassBboxString(tile);
   const query = buildFoliageOverpassQuery(bbox);
 
-  let res = null, lastErr = null;
+  /** @type {Response | null} */
+  let res = null;
+  /** @type {Error | null} */
+  let lastErr = null;
   for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 2; attempt++) {
     _throwIfAborted(signal);
     const base = OVERPASS_MIRRORS[attempt % OVERPASS_MIRRORS.length];
@@ -358,10 +440,11 @@ async function _fetchFoliageTile(tile, {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) throw _abortError();
-      lastErr = err;
+      lastErr = /** @type {Error} */ (err);
       continue;
     }
     signal?.removeEventListener('abort', onAbort);
+    if (!res) continue;
     if (res.status === 429 || res.status === 406 || res.status >= 500) { res = null; continue; }
     break;
   }
@@ -369,20 +452,35 @@ async function _fetchFoliageTile(tile, {
   if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
 
   const data = await res.json();
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [], holes = [];
+  /** @type {Ring[]} */ const polygons = [];
+  /** @type {Bbox[]} */ const bboxes = [];
+  /** @type {number[]} */ const factors = [];
+  /** @type {number[]} */ const canopyHeights = [];
+  /** @type {string[]} */ const ids = [];
+  /** @type {string[]} */ const kinds = [];
+  /** @type {Ring[][]} */ const holes = [];
+  /** @type {Set<string>} */
   const seenFeatureIds = new Set();
+  /** @type {Map<string, Array<{ lat: number, lon: number }>>} */
   const elementGeom = new Map();
   for (const el of data.elements) {
     if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2) {
       elementGeom.set(`way:${el.id}`, el.geometry);
     }
   }
+  /** @param {any} member */
   const memberGeometry = (member) => {
     if (!member || typeof member.type !== 'string') return null;
     if (Array.isArray(member.geometry) && member.geometry.length >= 2) return member.geometry;
     return elementGeom.get(`${member.type}:${member.ref}`) ?? null;
   };
 
+  /**
+   * @param {Ring} ring
+   * @param {{ kind: string, factor: number, canopyHeight: number, linearWidthM: number | null }} classification
+   * @param {string} featureId
+   * @param {Ring[]} [ringHoles]
+   */
   const addRing = (ring, classification, featureId, ringHoles = []) => {
     if (ring.length < 3) return;
     const bbox = ringBBox(ring);
@@ -404,7 +502,8 @@ async function _fetchFoliageTile(tile, {
     if (!classification) continue;
     const baseFeatureId = `${el.type}:${el.id ?? 'na'}`;
     if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
-      const ring = el.geometry.map(n => [n.lat, n.lon]);
+      /** @type {Ring} */
+      const ring = el.geometry.map((/** @type {{lat:number,lon:number}} */ n) => /** @type {[number,number]} */ ([n.lat, n.lon]));
       if (classification.linearWidthM && !_isClosedRing(ring) && String(el.tags?.area || '').toLowerCase() !== 'yes') {
         const corridors = _lineCorridorRings(ring, classification.linearWidthM);
         for (let ci = 0; ci < corridors.length; ci++) {
@@ -422,7 +521,7 @@ async function _fetchFoliageTile(tile, {
           addRing(ring, classification, `${baseFeatureId}:outer:${ri}`, holeCandidatesForOuter(ring, multi.holes));
         }
       } else if (Array.isArray(el.geometry) && el.geometry.length >= 3) {
-        addRing(el.geometry.map(n => [n.lat, n.lon]), classification, baseFeatureId);
+        addRing(el.geometry.map((/** @type {{lat:number,lon:number}} */ n) => /** @type {[number,number]} */ ([n.lat, n.lon])), classification, baseFeatureId);
       } else {
         // Fallback: render each outer-role member way individually when ring
         // assembly fails (e.g., fragmented members, sub-relation members the
@@ -436,7 +535,8 @@ async function _fetchFoliageTile(tile, {
           if (role === 'inner') continue;
           const geometry = memberGeometry(member);
           if (!geometry || geometry.length < 3) continue;
-          const ring = geometry.map(n => [n.lat, n.lon]);
+          /** @type {Ring} */
+          const ring = geometry.map((/** @type {{lat:number,lon:number}} */ n) => /** @type {[number,number]} */ ([n.lat, n.lon]));
           addRing(ring, classification, `${baseFeatureId}:member:${mi++}`);
           rendered++;
         }
@@ -461,12 +561,27 @@ async function _fetchFoliageTile(tile, {
     : canopyHeights;
   console.info(`[foliage] tile ${key}: ${polygons.length} polygon(s)`);
   const tileData = { polygons, bboxes, factors, canopyHeights: derivedCanopyHeights, ids, kinds, holes };
-  if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
+  if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(/** @type {string} */ (_memCache.keys().next().value));
   _memCache.set(key, tileData);
   await window.electronAPI.cacheFoliageStore(key, tileData);
   return tileData;
 }
 
+/**
+ * Fetch foliage polygons within a bounding box.
+ * @param {number} latMin
+ * @param {number} latMax
+ * @param {number} lonMin
+ * @param {number} lonMax
+ * @param {Object} [options]
+ * @param {AbortSignal | null} [options.signal]
+ * @param {((p: { source: string, completed: number, total: number }) => void) | null} [options.onProgress]
+ * @param {number} [options.tileConcurrency]
+ * @param {number} [options.datasetBatchConcurrency]
+ * @param {boolean} [options.deriveObstacleHeights]
+ * @param {number} [options.derivationSampleLimit]
+ * @returns {Promise<FoliagePayload & { ids: string[], kinds: string[] }>}
+ */
 export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {}) {
   const {
     signal = null,
@@ -479,7 +594,14 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
   _throwIfAborted(signal);
   const cacheVersion = deriveObstacleHeights ? CACHE_V_DERIVED : CACHE_V_OSM;
   const tiles = _tilesForBbox(latMin, latMax, lonMin, lonMax, cacheVersion);
-  const polygons = [], bboxes = [], factors = [], canopyHeights = [], ids = [], kinds = [], holes = [];
+  /** @type {Ring[]} */ const polygons = [];
+  /** @type {Bbox[]} */ const bboxes = [];
+  /** @type {number[]} */ const factors = [];
+  /** @type {number[]} */ const canopyHeights = [];
+  /** @type {string[]} */ const ids = [];
+  /** @type {string[]} */ const kinds = [];
+  /** @type {Ring[][]} */ const holes = [];
+  /** @type {Set<string>} */
   const seenMerged = new Set();
   const tileResults = await fetchOsmTileBatch(tiles, {
     signal,
@@ -517,14 +639,31 @@ export async function fetchFoliage(latMin, latMax, lonMin, lonMax, options = {})
   return { polygons, bboxes, factors, canopyHeights, ids, kinds, holes, tileIndex };
 }
 
+/**
+ * Weissberger-style vegetation attenuation cap for long forest paths.
+ * @param {unknown} freqMHz
+ * @param {unknown} depthM
+ * @returns {number}
+ */
 export function weissbergerFoliageLossDb(freqMHz, depthM) {
-  if (!Number.isFinite(depthM) || depthM <= 0) return 0;
+  const depth = Number(depthM);
+  if (!Number.isFinite(depth) || depth <= 0) return 0;
   const fGHz = Math.max(0.1, (Number(freqMHz) || 868) / 1000);
-  const d = Math.min(400, Math.max(0, depthM));
+  const d = Math.min(400, Math.max(0, depth));
   if (d <= 14) return 0.45 * (fGHz ** 0.284) * d;
   return 1.33 * (fGHz ** 0.284) * (d ** 0.588);
 }
 
+/**
+ * @param {FoliageTileIndex} tileIndex
+ * @param {Bbox[]} bboxes
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {number} polygonCount
+ * @returns {Iterable<number>}
+ */
 function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCount) {
   const latLo = Math.min(lat1, lat2), latHi = Math.max(lat1, lat2);
   const lonLo = Math.min(lon1, lon2), lonHi = Math.max(lon1, lon2);
@@ -537,6 +676,7 @@ function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCo
   const rMax = Math.max(0, Math.min(TILE_N - 1, Math.floor((latHi - tileIndex.latMin) / tileIndex.latSpan * TILE_N)));
   const cMin = Math.max(0, Math.min(TILE_N - 1, Math.floor((lonLo - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
   const cMax = Math.max(0, Math.min(TILE_N - 1, Math.floor((lonHi - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
+  /** @type {Set<number>} */
   const set = new Set();
   for (let r = Math.min(rMin, rMax); r <= Math.max(rMin, rMax); r++) {
     for (let c = Math.min(cMin, cMax); c <= Math.max(cMin, cMax); c++) {
@@ -555,18 +695,20 @@ function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCo
  * Height-aware: only attenuates the signal when the ray passes below the canopy top.
  * Uses the tile index (P2) to skip irrelevant polygons.
  *
- * @param {Float64Array} profileLats   - latitude of each profile sample
- * @param {Float64Array} profileLons   - longitude of each profile sample
- * @param {number[]|Float32Array}  profileElevs    - terrain elevation (m AMSL) at each sample
- * @param {number}  txAntH      - TX antenna height above ground (m)
- * @param {number}  rxAntH      - RX antenna height above ground (m)
- * @param {Array<Array<[number,number]>>} polygons
- * @param {Array}   bboxes
- * @param {number[]} canopyHeights  - canopy height (m above terrain) per polygon
- * @param {number[]} factors        - loss multiplier per polygon
- * @param {object|null} tileIndex
+ * @param {ArrayLike<number>} profileLats
+ * @param {ArrayLike<number>} profileLons
+ * @param {ArrayLike<number>} profileElevs    terrain elevation (m AMSL) at each sample
+ * @param {number}  txAntH      TX antenna height above ground (m)
+ * @param {number}  rxAntH      RX antenna height above ground (m)
+ * @param {Ring[]} polygons
+ * @param {Bbox[]}   bboxes
+ * @param {ArrayLike<number>} canopyHeights  canopy height (m above terrain) per polygon
+ * @param {ArrayLike<number>} factors        loss multiplier per polygon
+ * @param {FoliageTileIndex} tileIndex
  * @param {number}  totalDistM
- * @param {number}  lossPerMeterDb
+ * @param {number}  [lossPerMeterDb]
+ * @param {number}  [freqMHz]
+ * @param {Ring[][]} [holes]
  * @returns {number} total foliage loss in dB
  */
 export function foliageLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH, polygons, bboxes, canopyHeights, factors, tileIndex, totalDistM, lossPerMeterDb = 0.3, freqMHz = 868, holes = []) {
