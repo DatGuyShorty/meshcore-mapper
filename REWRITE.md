@@ -131,6 +131,11 @@ Each phase: **green `npm run check` at start, green at end.** No phase is allowe
   - `src/foliage.js` — OSM vegetation fetch + `foliageLossDb`, Weissberger model, canopy classification
   - `src/elevation.js` — DEM tile pipeline, OpenElevation/OpenTopoData API, null-fill stats, Terrarium decode
   - `src/osmTilePipeline.js` — generic tile fetch worker pool
+  - `src/requestScheduler.js` — per-host fetch queues with abort + timeout
+  - `src/scenarios.js` — coverage-tab preset application
+  - `src/signalOverlay.js` — RSSI / SNR / margin gradient + colorize
+  - `src/optimizer.js` — greedy best-N repeater placement search
+  - `src/pathfinder.js` — radius-limited multi-hop relay path search
   - `src/terrainProfileView.js` — `drawTerrainProfile` (annotated for cross-file inference; full `@ts-check` deferred)
 - New `src/types/global.d.ts` ambient declaration: shape of `window.electronAPI` (the `preload.js` contextBridge surface), so renderer code type-checks IPC calls.
 - No source files moved to `.ts` yet; that's Phase 0b once the bundler is in place. Adding `// @ts-check` to additional modules is incremental and risk-free.

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * pathfinder.js — Best relay path search through the repeater network.
  *
@@ -11,6 +12,48 @@
  *   2. All terrain profile samples for every candidate edge, in a single batch.
  *
  * Exports: findBestPath
+ *
+ * @typedef {Object} RelayNode
+ * @property {string | number} id
+ * @property {string} [name]
+ * @property {number} lat
+ * @property {number} lon
+ * @property {number} height
+ * @property {number} power
+ * @property {number} freq
+ * @property {number} gain
+ * @property {string} [pattern]
+ * @property {number} [azimuthDeg]
+ *
+ * @typedef {import('./signalModel.js').ObstacleSet} ObstacleSet
+ *
+ * @typedef {Object} LinkScenario
+ * @property {ObstacleSet | null} foliage
+ * @property {ObstacleSet | null} buildings
+ * @property {number} foliageLossPerM
+ * @property {number} buildingLossPerM
+ *
+ * @typedef {Object} PathfinderScenario
+ * @property {AbortSignal | null} [signal]
+ * @property {((line: string) => void) | null} [onLog]
+ * @property {((pct: number, msg: string) => void) | null} [onProgress]
+ * @property {number} [pathHopRadiusKm]
+ * @property {boolean} [useFoliage]
+ * @property {boolean} [useBuildings]
+ * @property {boolean} [deriveObstacleHeights]
+ * @property {number} [foliageLossPerM]
+ * @property {number} [buildingLossPerM]
+ *
+ * @typedef {Object} PathStep
+ * @property {RelayNode} node
+ * @property {number | null} incomingMargin
+ *
+ * @typedef {Object} PathResult
+ * @property {PathStep[]} path
+ * @property {number} bottleneck
+ * @property {number} numHops
+ * @property {number[]} edgeDistances
+ * @property {number[]} edgeRxPowers
  */
 import { fetchElevations } from './elevation.js';
 import { fetchFoliage, foliageLossDb } from './foliage.js';
@@ -24,8 +67,13 @@ const DEFAULT_HOP_RADIUS_KM = 25;
 
 /**
  * Build profile sample-point array from node A to node B.
+ * @param {RelayNode} a
+ * @param {RelayNode} b
+ * @param {number} samples
+ * @returns {Array<{ latitude: number, longitude: number }>}
  */
 function _profilePoints(a, b, samples) {
+  /** @type {Array<{ latitude: number, longitude: number }>} */
   const pts = [];
   for (let i = 0; i < samples; i++) {
     const t = i / (samples - 1);
@@ -37,6 +85,7 @@ function _profilePoints(a, b, samples) {
   return pts;
 }
 
+/** @param {RelayNode[]} nodes */
 function _nodesBbox(nodes) {
   const PAD = 0.003;
   let latMin = Infinity, latMax = -Infinity, lonMin = Infinity, lonMax = -Infinity;
@@ -56,15 +105,22 @@ function _nodesBbox(nodes) {
 
 /** Nodes that appear as either endpoint of any candidate edge — i.e. nodes that
  *  could possibly lie on a relay path. Isolated nodes outside hop radius of
- *  everyone are skipped so we don't fetch obstacles for them. */
+ *  everyone are skipped so we don't fetch obstacles for them.
+ *  @param {RelayNode[]} nodes
+ *  @param {Array<{ i: number, j: number }>} edges
+ *  @returns {RelayNode[]}
+ */
 function _nodesInEdges(nodes, edges) {
+  /** @type {Set<number>} */
   const idxSet = new Set();
   for (const { i, j } of edges) { idxSet.add(i); idxSet.add(j); }
+  /** @type {RelayNode[]} */
   const out = [];
   for (const idx of idxSet) out.push(nodes[idx]);
   return out;
 }
 
+/** @param {Array<{ latitude: number, longitude: number }>} points */
 function _profileCoordArrays(points) {
   const lats = new Float64Array(points.length);
   const lons = new Float64Array(points.length);
@@ -75,18 +131,31 @@ function _profileCoordArrays(points) {
   return { lats, lons };
 }
 
+/** @param {Float64Array} src */
 function _reverseFloat64(src) {
   const out = new Float64Array(src.length);
   for (let i = 0; i < src.length; i++) out[i] = src[src.length - 1 - i];
   return out;
 }
 
+/**
+ * @param {number} candidateMargin
+ * @param {number} candidateHops
+ * @param {number} currentMargin
+ * @param {number} currentHops
+ */
 function _isBetterScore(candidateMargin, candidateHops, currentMargin, currentHops) {
   if (candidateMargin > currentMargin) return true;
   if (candidateMargin < currentMargin) return false;
   return candidateHops < currentHops;
 }
 
+/**
+ * @param {number[]} frontier
+ * @param {Float32Array} bestMargin
+ * @param {Int32Array} bestHops
+ * @returns {number}
+ */
 function _bestFrontierIndex(frontier, bestMargin, bestHops) {
   let bestPos = 0;
   for (let i = 1; i < frontier.length; i++) {
@@ -101,11 +170,18 @@ function _bestFrontierIndex(frontier, bestMargin, bestHops) {
 
 /**
  * Link margin (dB) when node txNode transmits to rxNode.
- * rxGain  — RX antenna gain, dBi (assumed same for all RX nodes)
- * rxSens  — required RX level, dBm, including any requested fade margin
- * profile — pre-fetched elevation array
- * txElev  — ground elevation at txNode (m AMSL)
- * rxElev  — ground elevation at rxNode (m AMSL)
+ * @param {RelayNode} txNode
+ * @param {number} txElev   ground elevation at txNode (m AMSL)
+ * @param {RelayNode} rxNode
+ * @param {number} rxElev   ground elevation at rxNode (m AMSL)
+ * @param {number[]} profile  pre-fetched elevation array
+ * @param {Float64Array} profileLats
+ * @param {Float64Array} profileLons
+ * @param {number} rxGain   RX antenna gain dBi, fallback when rxNode.gain isn't finite
+ * @param {number} rxSens   required RX level dBm, including fade margin
+ * @param {boolean} useFresnel
+ * @param {LinkScenario} scenario
+ * @returns {number}
  */
 function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profileLons, rxGain, rxSens, useFresnel, scenario) {
   const distM = haversine(txNode.lat, txNode.lon, rxNode.lat, rxNode.lon);
@@ -116,7 +192,7 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
     ? foliageLossDb(
         profileLats, profileLons, profile, txNode.height, rxNode.height,
         scenario.foliage.polygons, scenario.foliage.bboxes,
-        scenario.foliage.canopyHeights, scenario.foliage.factors,
+        scenario.foliage.canopyHeights ?? [], scenario.foliage.factors ?? [],
         scenario.foliage.tileIndex, distM, scenario.foliageLossPerM, txNode.freq, scenario.foliage.holes
       )
     : 0;
@@ -124,7 +200,7 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
     ? buildingLossDb(
         profileLats, profileLons, profile, txNode.height, rxNode.height,
         scenario.buildings.polygons, scenario.buildings.bboxes,
-        scenario.buildings.heights, scenario.buildings.tileIndex,
+        scenario.buildings.heights ?? [], scenario.buildings.tileIndex,
         distM, scenario.buildingLossPerM, scenario.buildings.holes
       )
     : 0;
@@ -139,23 +215,18 @@ function _linkMargin(txNode, txElev, rxNode, rxElev, profile, profileLats, profi
 
 /**
  * Find the best relay path between two nodes in the given node array.
- *
- * @param {Array<{id, name, lat, lon, height, power, freq, gain}>} nodes  — all candidate nodes
- * @param {number}  fromId     — source node id
- * @param {number}  toId       — destination node id
- * @param {number}  rxSens     — required receiver level dBm, including fade margin
- * @param {number}  rxGain     — RX antenna gain dBi (applied to all hops)
- * @param {boolean} useFresnel - use Fresnel clearance for the returned LoS flag
- * @returns {Promise<{
- *   path: Array<{node, incomingMargin: number|null}>,
- *   bottleneck: number,
- *   numHops: number,
- *   edgeDistances: number[],
- *   edgeRxPowers: number[],
- * } | null>}  null = no path found
+ * @param {RelayNode[]} nodes
+ * @param {string | number} fromId
+ * @param {string | number} toId
+ * @param {number} rxSens     required receiver level dBm, including fade margin
+ * @param {number} rxGain     RX antenna gain dBi (fallback when node.gain isn't finite)
+ * @param {boolean} useFresnel
+ * @param {PathfinderScenario} [scenario]
+ * @returns {Promise<PathResult | null>}  null = no path found
  */
 export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresnel, scenario = {}) {
   const t0 = performance.now();
+  /** @param {string} msg */
   const step = (msg) => {
     const elapsed = (performance.now() - t0).toFixed(1);
     if (typeof scenario.onLog === 'function') {
@@ -164,6 +235,10 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
     }
     console.info(`[pathfinder] [${elapsed}ms] ${msg}`);
   };
+  /**
+   * @param {number} pct
+   * @param {string} msg
+   */
   const progress = (pct, msg) => {
     if (typeof scenario.onProgress === 'function') scenario.onProgress(pct, msg);
   };
@@ -211,7 +286,9 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
   step(`Node elevations fetched (${nodeElevs.length})`);
 
   // ── 2. Build radius-limited candidate edges + batch all profile points ──
-  const edges = []; // { i, j, distM, samples, offset }
+  /** @type {Array<{ i: number, j: number, distM: number, samples: number, offset: number }>} */
+  const edges = [];
+  /** @type {Array<{ latitude: number, longitude: number }>} */
   const allProfilePts = [];
 
   for (let i = 0; i < n; i++) {
@@ -226,6 +303,7 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
   progress(36, `Built ${edges.length} candidate hop${edges.length !== 1 ? 's' : ''}.`);
   step(`Candidate hops within radius: ${edges.length}, profile points: ${allProfilePts.length}`);
 
+  /** @type {number[]} */
   let profileElevs = [];
   if (allProfilePts.length > 0) {
     progress(44, `Fetching terrain profiles for ${edges.length} hop${edges.length !== 1 ? 's' : ''}...`);
@@ -236,7 +314,9 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
 
   // ── 3. Build directed margin matrix ──
   // margin[i*n+j] = margin when node[i] TXs to node[j], -Inf if no usable edge
+  /** @type {ObstacleSet | null} */
   let foliage = null;
+  /** @type {ObstacleSet | null} */
   let buildings = null;
   if (scenario.useFoliage || scenario.useBuildings) {
     progress(64, 'Fetching relay obstacle layers...');
@@ -267,7 +347,7 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
               return null;
             })
         : Promise.resolve(null),
-    ]);
+    ]).then(([f, b]) => /** @type {[ObstacleSet | null, ObstacleSet | null]} */ ([f, b]));
     if (scenario.useFoliage && !foliage) progress(72, 'Warning: foliage loss requested but vegetation data was unavailable.');
     if (scenario.useBuildings && !buildings) progress(72, 'Warning: building loss requested but structure data was unavailable.');
     progress(72, 'Relay obstacle layers ready.');
@@ -280,6 +360,7 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
     buildingLossPerM: scenario.buildingLossPerM ?? 0.5,
   };
 
+  /** @type {Array<Array<{ idx: number, distM: number, margin: number }>>} */
   const adjacency = Array.from({ length: n }, () => []);
 
   for (const { i, j, distM, samples, offset } of edges) {
@@ -304,6 +385,7 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
   const prev = new Int32Array(n).fill(-1);
   const incomingMargin = new Float32Array(n).fill(-Infinity);
   const settled = new Uint8Array(n);
+  /** @type {number[]} */
   const frontier = [fromIdx];
   bestMargin[fromIdx] = Infinity;
   bestHops[fromIdx] = 0;
@@ -339,6 +421,7 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
   }
 
   // ── 5. Reconstruct path ──
+  /** @type {PathStep[]} */
   const path = [];
   let cur = toIdx;
   while (cur !== fromIdx) {
@@ -348,12 +431,14 @@ export async function findBestPath(nodes, fromId, toId, rxSens, rxGain, useFresn
   }
   path.unshift({ node: nodes[fromIdx], incomingMargin: null });
 
+  /** @type {number[]} */
   const edgeDistances = [];
+  /** @type {number[]} */
   const edgeRxPowers = [];
   for (let s = 1; s < path.length; s++) {
     const a = path[s - 1].node, b = path[s].node;
     edgeDistances.push(haversine(a.lat, a.lon, b.lat, b.lon));
-    edgeRxPowers.push(path[s].incomingMargin + rxSens);
+    edgeRxPowers.push((path[s].incomingMargin ?? 0) + rxSens);
   }
 
   progress(100, 'Relay path ready.');

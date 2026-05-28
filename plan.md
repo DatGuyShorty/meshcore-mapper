@@ -81,6 +81,7 @@ Last reviewed: May 2026.
 | TS3 | Physics + link-budget surface under `// @ts-check` | `src/coveragePoint.js`, `src/signalModel.js`, `src/propagation.js`, `src/linkBudget.js`. `src/terrainProfileView.js` exports annotated for cross-file inference |
 | TS4 | OSM geometry + foliage + buildings + elevation under `// @ts-check` | `src/osmGeometry.js`, `src/buildings.js`, `src/foliage.js`, `src/elevation.js`, `src/osmTilePipeline.js`. `signalModel.js` casts dropped now that callees are typed |
 | TS5 | Ambient `window.electronAPI` types | New `src/types/global.d.ts` describing the `preload.js` contextBridge surface so renderer IPC calls are type-checked |
+| TS6 | Pure-ish compute/IO helpers under `// @ts-check` | `src/requestScheduler.js`, `src/scenarios.js`, `src/signalOverlay.js`, `src/optimizer.js`, `src/pathfinder.js` |
 | B1–B4 | Bug fixes (gain, foliage clear, multi-repeater cache, preset stale) | Various |
 | A1–A3 | Architecture fixes (globals→delegation, storage key migration, elevation fallback) | Various |
 | P1–P11 | Performance (pre-alloc, spatial index, flat-Earth dist, FSPL hoist, λ cache, typed arrays, batch SQL) | Various |
