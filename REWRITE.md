@@ -136,7 +136,23 @@ Each phase: **green `npm run check` at start, green at end.** No phase is allowe
   - `src/signalOverlay.js` — RSSI / SNR / margin gradient + colorize
   - `src/optimizer.js` — greedy best-N repeater placement search
   - `src/pathfinder.js` — radius-limited multi-hop relay path search
+  - `src/ui.js` — shared UI utilities (progress, status, escape, busy buttons)
+  - `src/mapAdapter.js` — Leaflet viewport metrics + overlay tile add
+  - `src/mapContext.js` — map click context popup
+  - `src/devConsole.js` — in-app developer console log panel
+  - `src/settings.js` — coverage / P2P / optimizer settings getters
+  - `src/settingsPersistence.js` — generic localStorage round-trip helpers
+  - `src/presets.js` — hardware / modem / antenna preset loader
+  - `src/coverageWorker.js`, `src/optimizerWorker.js` — DedicatedWorkerGlobalScope compute workers
+  - `src/coverageWorkerPool.js` — CPU worker fan-out + transferable buffers
+  - `src/coverageBackend.js`, `src/optimizerBackend.js` — CUDA / CPU backend selection + cancellation
+  - `src/mapTileTexture.js` — composes a tile canvas texture for 3D terrain
+  - `src/terrain3dModel.js` — pure terrain mesh + projection helpers
   - `src/terrainProfileView.js` — `drawTerrainProfile` (annotated for cross-file inference; full `@ts-check` deferred)
+
+`tsconfig.json` switched from `module: NodeNext` to `module: ESNext` + `moduleResolution: bundler` + `moduleDetection: force` so renderer modules can use `import.meta.url` (for `new Worker(new URL(...), import.meta.url)`) without TS treating them as CommonJS.
+
+`src/types/global.d.ts` adds an ambient `const L: any;` so renderer modules that call into Leaflet via the global script tag type-check.
 - New `src/types/global.d.ts` ambient declaration: shape of `window.electronAPI` (the `preload.js` contextBridge surface), so renderer code type-checks IPC calls.
 - No source files moved to `.ts` yet; that's Phase 0b once the bundler is in place. Adding `// @ts-check` to additional modules is incremental and risk-free.
 

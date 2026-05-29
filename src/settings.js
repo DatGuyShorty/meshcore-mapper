@@ -1,3 +1,4 @@
+// @ts-check
 import { DEFAULT_PROFILE_MAX_SAMPLES, DEFAULT_PROFILE_TARGET_SPACING_M } from './signalModel.js';
 import { deriveRadioMetrics, selectedModemText } from './radioMetrics.js';
 
@@ -43,20 +44,37 @@ export const PERSISTED_SETTING_IDS = [
   ...WS_SETTING_IDS,
 ];
 
+/**
+ * @param {string} id
+ * @param {number} fallback
+ */
 function num(id, fallback) {
-  const value = parseFloat(document.getElementById(id)?.value);
+  const el = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
+  const value = parseFloat(el?.value ?? '');
   return Number.isFinite(value) ? value : fallback;
 }
 
+/**
+ * @param {string} id
+ * @param {number} fallback
+ */
 function intNum(id, fallback) {
-  const value = parseInt(document.getElementById(id)?.value, 10);
+  const el = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
+  const value = parseInt(el?.value ?? '', 10);
   return Number.isFinite(value) ? value : fallback;
 }
 
+/** @param {string} id */
 function checked(id) {
-  return Boolean(document.getElementById(id)?.checked);
+  return Boolean(/** @type {HTMLInputElement | null} */ (document.getElementById(id))?.checked);
 }
 
+/**
+ * @param {string} id
+ * @param {number} fallback
+ * @param {number} min
+ * @param {number} max
+ */
 function intClamped(id, fallback, min, max) {
   const value = intNum(id, fallback);
   return Math.max(min, Math.min(max, value));
@@ -80,9 +98,9 @@ export function getCoverageSettings() {
     qualityMult,
     diffractionModel: 'deygout',
     useDeygout: true,
-    scenarioProfile: document.getElementById('scenario-profile')?.value || 'balanced',
-    computeBackend: document.getElementById('compute-backend')?.value || 'auto',
-    deriveObstacleHeights: document.getElementById('obstacle-height-mode')?.value === 'dsm-dem',
+    scenarioProfile: /** @type {HTMLSelectElement | null} */ (document.getElementById('scenario-profile'))?.value || 'balanced',
+    computeBackend: /** @type {HTMLSelectElement | null} */ (document.getElementById('compute-backend'))?.value || 'auto',
+    deriveObstacleHeights: /** @type {HTMLSelectElement | null} */ (document.getElementById('obstacle-height-mode'))?.value === 'dsm-dem',
     useLos: checked('use-los'),
     useFresnel: checked('use-fresnel'),
     useFoliage: checked('use-foliage'),
@@ -106,7 +124,7 @@ export function getP2PSettings() {
     txPower: num('p2p-tx-power', 20),
     txGain: num('p2p-tx-gain', 2),
     rxGain: num('p2p-rx-gain', 2),
-    antennaPattern: document.getElementById('p2p-pattern')?.value || 'omni',
+    antennaPattern: /** @type {HTMLSelectElement | null} */ (document.getElementById('p2p-pattern'))?.value || 'omni',
     txAzimuthDeg: num('p2p-tx-azimuth', 0),
     rxAzimuthDeg: num('p2p-rx-azimuth', 180),
     freqMHz: num('p2p-freq', 869.525),
@@ -121,7 +139,7 @@ export function getP2PSettings() {
     foliageLossPerM: num('foliage-loss-per-m', 0.3),
     useBuildings: checked('use-buildings'),
     buildingLossPerM: num('building-loss-per-m', 0.5),
-    deriveObstacleHeights: document.getElementById('obstacle-height-mode')?.value === 'dsm-dem',
+    deriveObstacleHeights: /** @type {HTMLSelectElement | null} */ (document.getElementById('obstacle-height-mode'))?.value === 'dsm-dem',
     profileTargetSpacingM: 30,
     profileMaxSamples: 1024,
   };
@@ -148,7 +166,7 @@ export function getOptimizerSettings() {
       foliageLossPerM: num('foliage-loss-per-m', 0.3),
       useBuildings: checked('use-buildings'),
       buildingLossPerM: num('building-loss-per-m', 0.5),
-      deriveObstacleHeights: document.getElementById('obstacle-height-mode')?.value === 'dsm-dem',
+      deriveObstacleHeights: /** @type {HTMLSelectElement | null} */ (document.getElementById('obstacle-height-mode'))?.value === 'dsm-dem',
       candidateRes: intClamped('opt-candidate-res', 20, 1, 256),
       evalRes: 48,
       profileTargetSpacingM: 100,

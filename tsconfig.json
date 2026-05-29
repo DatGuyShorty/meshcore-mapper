@@ -2,8 +2,9 @@
   "// description": "Phase 0 of REWRITE.md: TypeScript as a static checker over the existing JS codebase. No emission yet — `tsc` runs as a CI gate via `npm run typecheck`. Files opt into checking by adding `// @ts-check` at the top. As modules are migrated to .ts in later phases, this config will tighten.",
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
     "allowJs": true,
     "checkJs": false,
     "noEmit": true,

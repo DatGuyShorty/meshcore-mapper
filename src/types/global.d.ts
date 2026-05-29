@@ -3,6 +3,14 @@
 // so this file describes the shape of those injected globals for `tsc`.
 
 declare global {
+  /**
+   * Leaflet is loaded as a global via `<script src="vendor/leaflet.js">`.
+   * Typed coarsely as `any` — we don't depend on @types/leaflet to avoid
+   * pulling in third-party types this early in the migration.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const L: any;
+
   /** Coarse shape of the IPC bridge installed by `preload.js`. */
   interface ElectronAPI {
     saveFile(jsonStr: string): Promise<void>;

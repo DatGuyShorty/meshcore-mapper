@@ -1,17 +1,34 @@
+// @ts-check
 import { obstacleLayerHasHoles } from './osmGeometry.js';
 
+/**
+ * @typedef {{ available: boolean, reason?: string, device?: string }} CudaProbeResult
+ * @typedef {{ cuda?: CudaProbeResult }} OptimizerCaps
+ */
+
+/** @type {CudaProbeResult | null} */
 let _cudaStatus = null;
 
+/**
+ * @param {string | null | undefined} preference
+ * @param {OptimizerCaps} [caps]
+ * @returns {Array<'cuda' | 'cpu'>}
+ */
 export function resolveOptimizerBackendOrder(preference, caps = {}) {
   const pref = preference || 'auto';
   if (pref === 'cuda') return ['cuda', 'cpu'];
   if (pref === 'cpu') return ['cpu'];
+  /** @type {Array<'cuda' | 'cpu'>} */
   const order = [];
   if (caps.cuda?.available) order.push('cuda');
   order.push('cpu');
   return order;
 }
 
+/**
+ * @param {Record<string, any>} data
+ * @param {{ backendPreference?: string, onProgress?: ((pct: number, msg: string) => void) | null, signal?: AbortSignal | null }} [opts]
+ */
 export async function runOptimizerBackend(data, {
   backendPreference = 'auto',
   onProgress = null,
@@ -19,6 +36,7 @@ export async function runOptimizerBackend(data, {
 } = {}) {
   const caps = await _getOptimizerCaps(backendPreference);
   const order = resolveOptimizerBackendOrder(backendPreference, caps);
+  /** @type {string[]} */
   const errors = [];
 
   for (const backend of order) {
@@ -43,7 +61,8 @@ export async function runOptimizerBackend(data, {
         stats: {},
         backend: 'cpu',
       };
-    } catch (err) {
+    } catch (rawErr) {
+      const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
       if (err?.name === 'AbortError' || err?.cancelled) throw err;
       errors.push(`${backend}: ${err?.message || err}`);
       console.warn(`[optimizer] ${backend} backend failed:`, err);
@@ -53,6 +72,10 @@ export async function runOptimizerBackend(data, {
   throw new Error(`All optimizer backends failed: ${errors.join('; ')}`);
 }
 
+/**
+ * @param {string} preference
+ * @returns {Promise<OptimizerCaps>}
+ */
 async function _getOptimizerCaps(preference) {
   if (preference === 'cpu') return { cuda: { available: false, reason: 'CPU backend selected' } };
   if (_cudaStatus) return { cuda: _cudaStatus };
@@ -62,12 +85,17 @@ async function _getOptimizerCaps(preference) {
   }
   try {
     _cudaStatus = await window.electronAPI.cudaCoverageProbe();
-  } catch (err) {
+  } catch (rawErr) {
+    const err = /** @type {Error} */ (rawErr);
     _cudaStatus = { available: false, reason: err?.message || 'Python CUDA probe failed' };
   }
   return { cuda: _cudaStatus };
 }
 
+/**
+ * @param {Record<string, any>} data
+ * @param {{ signal: AbortSignal | null, onProgress: ((pct: number, msg: string) => void) | null }} ctx
+ */
 async function _runCudaOptimizer(data, { signal, onProgress }) {
   if (!_cudaStatus?.available || !window.electronAPI?.cudaOptimizerCompute) {
     return { unsupported: true, message: _cudaStatus?.reason || 'Python CUDA optimizer unavailable' };
@@ -78,6 +106,7 @@ async function _runCudaOptimizer(data, { signal, onProgress }) {
 
   const cancelOnAbort = () => window.electronAPI.cudaOptimizerCancel?.().catch(() => {});
   signal?.addEventListener('abort', cancelOnAbort, { once: true });
+  /** @param {any} msg */
   const progressListener = (msg) => {
     const pct = Number(msg?.pct);
     if (!Number.isFinite(pct)) return;
@@ -107,6 +136,12 @@ async function _runCudaOptimizer(data, { signal, onProgress }) {
   }
 }
 
+/**
+ * @param {Record<string, any>} data
+ * @param {((pct: number, msg: string) => void) | null} onProgress
+ * @param {AbortSignal | null} signal
+ * @returns {Promise<any[]>}
+ */
 function _runOptimizerWorker(data, onProgress, signal) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(
@@ -118,7 +153,7 @@ function _runOptimizerWorker(data, onProgress, signal) {
       reject(_abortError());
     };
     signal?.addEventListener('abort', abort, { once: true });
-    worker.onmessage = ({ data: msg }) => {
+    worker.onmessage = (/** @type {MessageEvent<any>} */ { data: msg }) => {
       if (msg.type === 'progress') {
         onProgress?.(msg.pct, msg.msg);
       } else if (msg.type === 'done') {
@@ -137,12 +172,13 @@ function _runOptimizerWorker(data, onProgress, signal) {
 }
 
 function _abortError() {
-  const err = new Error('Cancelled');
+  const err = /** @type {Error & { cancelled?: boolean }} */ (new Error('Cancelled'));
   err.name = 'AbortError';
   err.cancelled = true;
   return err;
 }
 
+/** @param {string} stage */
 function _humanizeStage(stage) {
   return String(stage).replace(/[-_]/g, ' ');
 }
