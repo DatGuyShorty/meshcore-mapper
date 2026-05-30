@@ -1,12 +1,19 @@
+// @ts-check
 // Shell init — tab switching, sidebar toggle, sidebar resize.
 // Extracted from inline <script> in index.html so the renderer can run
 // under a strict CSP without `script-src 'unsafe-inline'`.
 (function () {
-  const app = document.getElementById('app');
+  const app = /** @type {HTMLElement | null} */ (document.getElementById('app'));
+  if (!app) return;
+  /** @type {NodeListOf<HTMLElement>} */
   const tabs = document.querySelectorAll('#tab-bar .tab-btn');
+  /** @type {NodeListOf<HTMLElement>} */
   const panels = document.querySelectorAll('.tab-panel');
-  const drawerTitle = document.getElementById('drawer-title');
+  const drawerTitleEl = document.getElementById('drawer-title');
   const toggleBtn = document.getElementById('btn-toggle-sidebar');
+  if (!drawerTitleEl || !toggleBtn) return;
+  const drawerTitle = drawerTitleEl;
+  /** @type {Record<string, string>} */
   const titles = {
     nodes: 'Nodes',
     map: 'Map Layers',
@@ -19,6 +26,7 @@
     setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
   };
 
+  /** @param {HTMLElement} btn */
   function selectTab(btn) {
     tabs.forEach(t => {
       t.classList.remove('active');
@@ -27,8 +35,9 @@
     panels.forEach(p => p.classList.add('hidden'));
     btn.classList.add('active');
     btn.setAttribute('aria-selected', 'true');
-    document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
-    drawerTitle.textContent = titles[btn.dataset.tab] || btn.textContent.trim();
+    const tabKey = btn.dataset.tab ?? '';
+    document.getElementById('tab-' + tabKey)?.classList.remove('hidden');
+    drawerTitle.textContent = titles[tabKey] || (btn.textContent ?? '').trim();
   }
 
   tabs.forEach(btn => {
@@ -45,14 +54,15 @@
 
 (function () {
   const handle = document.getElementById('sidebar-resizer');
-  const app = document.getElementById('app');
+  const app = /** @type {HTMLElement | null} */ (document.getElementById('app'));
+  if (!handle || !app) return;
   const storageKey = 'meshcoreMapper_sidebarWidth';
-  const savedWidth = parseInt(localStorage.getItem(storageKey), 10);
+  const savedWidth = parseInt(localStorage.getItem(storageKey) ?? '', 10);
   if (Number.isFinite(savedWidth)) {
     app.style.setProperty('--sidebar-w', Math.max(280, Math.min(620, savedWidth)) + 'px');
   }
   let dragging = false, startX = 0, startW = 0;
-  handle.addEventListener('mousedown', e => {
+  handle.addEventListener('mousedown', (/** @type {MouseEvent} */ e) => {
     if (app.classList.contains('sidebar-collapsed')) return;
     dragging = true; startX = e.clientX;
     startW = parseInt(getComputedStyle(app).getPropertyValue('--sidebar-w'), 10);
@@ -60,7 +70,7 @@
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   });
-  window.addEventListener('mousemove', e => {
+  window.addEventListener('mousemove', (/** @type {MouseEvent} */ e) => {
     if (!dragging) return;
     const w = Math.max(280, Math.min(620, startW + (e.clientX - startX)));
     app.style.setProperty('--sidebar-w', w + 'px');
@@ -71,6 +81,6 @@
     handle.classList.remove('dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    localStorage.setItem(storageKey, parseInt(getComputedStyle(app).getPropertyValue('--sidebar-w'), 10));
+    localStorage.setItem(storageKey, String(parseInt(getComputedStyle(app).getPropertyValue('--sidebar-w'), 10)));
   });
 })();

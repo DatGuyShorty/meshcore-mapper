@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * optimizerUI.js — Draw search area, run optimizer, display results.
  * Exports: init
@@ -17,28 +18,35 @@ import { getOptimizerSettings } from './settings.js';
 
 // Module-local interaction state
 let drawing     = false;
+/** @type {{ lat: number, lon: number } | null} */
 let corner1     = null;
+/** @type {any} */
 let areaRect    = null;
+/** @type {AbortController | null} */
 let _abortController = null;
+/** @type {any[]} */
 const resultMarkers = [];
 
 function clearResults() {
-  resultMarkers.forEach(m => map.removeLayer(m));
+  resultMarkers.forEach((m) => map.removeLayer(m));
   resultMarkers.length = 0;
-  document.getElementById('opt-results').innerHTML = '';
+  const ul = document.getElementById('opt-results');
+  if (ul) ul.innerHTML = '';
 }
 
 function clearArea() {
   if (areaRect) { map.removeLayer(areaRect); areaRect = null; }
   corner1 = null;
   drawing = false;
-  document.getElementById('draw-hint').classList.add('hidden');
-  document.getElementById('btn-optimize').disabled = true;
+  document.getElementById('draw-hint')?.classList.add('hidden');
+  const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-optimize'));
+  if (btn) btn.disabled = true;
   setInlineStatus('opt-status', 'Draw a search area to enable the optimizer.', 'info');
   map.getContainer().style.cursor = '';
   clearResults();
 }
 
+/** @param {number} rank */
 function makeSuggestedIcon(rank) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
     <circle cx="16" cy="16" r="14" fill="#facc15" stroke="#fff" stroke-width="2"/>
@@ -47,8 +55,13 @@ function makeSuggestedIcon(rank) {
   return L.divIcon({ html: svg, iconSize: [32, 32], iconAnchor: [16, 16], className: '' });
 }
 
+/**
+ * @param {Array<{ lat: number, lon: number, score: number, elevM: number }>} results
+ * @param {{ height: number, power: number, freq: number, gain?: number }} txParams
+ */
 function renderResults(results, txParams) {
   const ul = document.getElementById('opt-results');
+  if (!ul) return;
   results.forEach((r, i) => {
     const marker = L.marker([r.lat, r.lon], { icon: makeSuggestedIcon(i + 1), zIndexOffset: 500 })
       .addTo(map)
@@ -64,7 +77,7 @@ function renderResults(results, txParams) {
         <div class="ori-score">${(r.score * 100).toFixed(1)}% coverage, ${r.elevM.toFixed(0)} m elev</div>
       </div>
       <button class="ori-add" title="Add as repeater">+ Add</button>`;
-    li.querySelector('.ori-add').addEventListener('click', () => {
+    li.querySelector('.ori-add')?.addEventListener('click', () => {
       addRepeater(`Suggested ${i + 1}`, r.lat, r.lon, txParams.height, txParams.power, txParams.freq, txParams.gain);
     });
     ul.appendChild(li);
@@ -72,28 +85,32 @@ function renderResults(results, txParams) {
 }
 
 export function init() {
-  document.getElementById('btn-copy-to-opt').addEventListener('click', () => {
-    document.getElementById('opt-height').value = document.getElementById('repeater-height').value;
+  document.getElementById('btn-copy-to-opt')?.addEventListener('click', () => {
+    const heightInput = /** @type {HTMLInputElement | null} */ (document.getElementById('opt-height'));
+    const src = /** @type {HTMLInputElement | null} */ (document.getElementById('repeater-height'));
+    if (heightInput && src) heightInput.value = src.value;
     // F8: also copy power, freq, gain so the optimizer uses the same TX profile
     // (these don't have a dedicated opt-* input; they are read directly from the Nodes form at run time—
     //  so nothing extra to copy here; the optimizer already reads repeater-power/freq/gain at run time)
   });
 
-  document.getElementById('btn-draw-area').addEventListener('click', () => {
+  document.getElementById('btn-draw-area')?.addEventListener('click', () => {
     if (drawing) return;
     drawing = true;
     corner1 = null;
     cancelPlacing();
-    document.getElementById('draw-hint').classList.remove('hidden');
+    document.getElementById('draw-hint')?.classList.remove('hidden');
     setInlineStatus('opt-status', 'Draw mode active.', 'warning');
     map.getContainer().style.cursor = 'crosshair';
   });
 
-  document.getElementById('btn-clear-area').addEventListener('click', clearArea);
+  document.getElementById('btn-clear-area')?.addEventListener('click', clearArea);
 
   // Context-menu "Optimize Here" shortcut: build a search area around a specific repeater
-  document.addEventListener('map:optimize-here', ({ detail: { lat, lon } }) => {
-    const radiusKm = parseFloat(document.getElementById('analysis-radius').value) || 15;
+  document.addEventListener('map:optimize-here', (/** @type {any} */ ev) => {
+    const { lat, lon } = ev.detail ?? {};
+    const radiusInput = /** @type {HTMLInputElement | null} */ (document.getElementById('analysis-radius'));
+    const radiusKm = parseFloat(radiusInput?.value ?? '') || 15;
     const dLat = radiusKm / 110.574;
     const dLon = radiusKm / (111.320 * Math.cos(lat * Math.PI / 180));
     const bounds = [[lat - dLat, lon - dLon], [lat + dLat, lon + dLon]];
@@ -101,22 +118,25 @@ export function init() {
     areaRect = L.rectangle(bounds, { className: 'search-area-rect' }).addTo(map);
     corner1 = null;
     drawing = false;
-    document.getElementById('draw-hint').classList.add('hidden');
-    document.getElementById('btn-optimize').disabled = false;
+    document.getElementById('draw-hint')?.classList.add('hidden');
+    const optBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-optimize'));
+    if (optBtn) optBtn.disabled = false;
     setInlineStatus('opt-status', 'Search area ready.', 'success');
     clearResults();
     map.fitBounds(bounds, { padding: [40, 40] });
     setActiveTab('planning');
   });
 
-  map.on('click', (e) => {
+  map.on('click', (/** @type {any} */ e) => {
     if (!drawing) return;
     if (e.originalEvent) e.originalEvent._meshcoreHandled = true;
     cancelPlacing();
 
+    const drawHint = document.getElementById('draw-hint');
+
     if (!corner1) {
       corner1 = { lat: e.latlng.lat, lon: e.latlng.lng };
-      document.getElementById('draw-hint').textContent = 'Now click the opposite corner.';
+      if (drawHint) drawHint.textContent = 'Now click the opposite corner.';
       return;
     }
 
@@ -130,15 +150,16 @@ export function init() {
     areaRect = L.rectangle(bounds, { className: 'search-area-rect' }).addTo(map);
 
     drawing = false;
-    document.getElementById('draw-hint').classList.add('hidden');
-    document.getElementById('draw-hint').textContent = 'Click two opposite corners of the search area on the map.';
-    document.getElementById('btn-optimize').disabled = false;
+    drawHint?.classList.add('hidden');
+    if (drawHint) drawHint.textContent = 'Click two opposite corners of the search area on the map.';
+    const optBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-optimize'));
+    if (optBtn) optBtn.disabled = false;
     setInlineStatus('opt-status', 'Search area ready.', 'success');
     map.getContainer().style.cursor = '';
     clearResults();
   });
 
-  document.getElementById('btn-optimize').addEventListener('click', async () => {
+  document.getElementById('btn-optimize')?.addEventListener('click', async () => {
     if (!areaRect) return;
 
     const b = areaRect.getBounds();
@@ -153,8 +174,11 @@ export function init() {
       return;
     }
 
-    const { txParams, opts, nRepeaters } = getOptimizerSettings();
+    const { txParams, opts: optsBase, nRepeaters } = getOptimizerSettings();
+    /** @type {Record<string, any>} */
+    const opts = optsBase;
     const startTime = performance.now();
+    /** @param {string} msg */
     const step = (msg) => {
       const elapsed = (performance.now() - startTime).toFixed(1);
       console.info(`[optimizer] [${elapsed}ms] ${msg}`);
@@ -179,7 +203,8 @@ export function init() {
 
     clearResults();
     setButtonBusy('btn-optimize', true, 'Scoring...');
-    document.getElementById('btn-cancel-optimize').disabled = false;
+    const cancelBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-cancel-optimize'));
+    if (cancelBtn) cancelBtn.disabled = false;
     setInlineStatus('opt-status', 'Scoring candidate locations...', 'info');
     _abortController = new AbortController();
     setCancelHandler(() => _abortController?.abort());
@@ -238,7 +263,7 @@ export function init() {
       step('Running optimizer backend...');
       setProgress(20, 'Scoring candidate locations...');
 
-      const backendPreference = document.getElementById('compute-backend')?.value || 'auto';
+      const backendPreference = /** @type {HTMLSelectElement | null} */ (document.getElementById('compute-backend'))?.value || 'auto';
       const optimizerData = {
         evalPoints,
         evalElevs,
@@ -268,7 +293,8 @@ export function init() {
       step(`Optimization complete via ${backendLabel}, results=${results.length}, total=${(performance.now() - startTime).toFixed(1)}ms`);
       setStatus(`Optimizer found ${results.length} best location(s) via ${backendLabel}.`);
       setInlineStatus('opt-status', `Found ${results.length} best location${results.length !== 1 ? 's' : ''} via ${backendLabel}.`, 'success');
-    } catch (err) {
+    } catch (rawErr) {
+      const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
       hideProgress();
       if (err?.cancelled || err?.name === 'AbortError') {
         setStatus('Optimizer cancelled.');
@@ -282,9 +308,10 @@ export function init() {
       _abortController = null;
       setCancelHandler(null);
       setButtonBusy('btn-optimize', false);
-      document.getElementById('btn-cancel-optimize').disabled = true;
+      const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-cancel-optimize'));
+      if (btn) btn.disabled = true;
     }
   });
 
-  document.getElementById('btn-cancel-optimize').addEventListener('click', () => _abortController?.abort());
+  document.getElementById('btn-cancel-optimize')?.addEventListener('click', () => _abortController?.abort());
 }

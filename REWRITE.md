@@ -149,6 +149,16 @@ Each phase: **green `npm run check` at start, green at end.** No phase is allowe
   - `src/mapTileTexture.js` — composes a tile canvas texture for 3D terrain
   - `src/terrain3dModel.js` — pure terrain mesh + projection helpers
   - `src/terrainProfileView.js` — `drawTerrainProfile` (annotated for cross-file inference; full `@ts-check` deferred)
+  - `src/map.js` — Leaflet map singleton + shared `state` god-object
+  - `src/shellInit.js` — non-module shell script (tab switch + sidebar resize)
+  - `src/config.js` — save/load JSON config + cache management buttons
+  - `src/mapLayers.js` — foliage/buildings/barriers overlay layers
+  - `src/optimizerUI.js` — Planning-tab draw-area + run-optimizer controller
+  - `src/pathfinderUI.js` — Best Relay Path picker controller
+  - `src/repeaters.js` — Node CRUD, markers, WS live feed, context menu
+
+Remaining un-`@ts-check`ed (deferred to Phase 0b TS conversion):
+- `src/coverage.js`, `src/p2p.js`, `src/map3d.js` — heaviest DOM/Leaflet/Three surfaces. Each has dozens of implicit-any binding patterns that are friction to retrofit in JSDoc; better tackled by porting to `.ts` once the Vite bundler lands.
 
 `tsconfig.json` switched from `module: NodeNext` to `module: ESNext` + `moduleResolution: bundler` + `moduleDetection: force` so renderer modules can use `import.meta.url` (for `new Worker(new URL(...), import.meta.url)`) without TS treating them as CommonJS.
 

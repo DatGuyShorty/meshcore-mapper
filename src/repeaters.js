@@ -1,6 +1,26 @@
+// @ts-check
 /**
  * repeaters.js — Repeater CRUD, map markers, and placement UI.
  * Exports: addRepeater, removeRepeater, cancelPlacing, init
+ *
+ * @typedef {Object} Repeater
+ * @property {number} id
+ * @property {string} name
+ * @property {number} lat
+ * @property {number} lon
+ * @property {number} height
+ * @property {number} power
+ * @property {number} freq
+ * @property {number} gain
+ * @property {any} marker     Leaflet marker handle
+ * @property {string} color
+ * @property {boolean} visible
+ * @property {boolean} [fromWs]
+ * @property {string | null} [short]
+ * @property {string | null} [lastSeen]
+ * @property {string | null} [wsKey]
+ * @property {string} [pattern]
+ * @property {number} [azimuthDeg]
  */
 import { map, state, clearCoverageLayers } from './map.js';
 import { confirmAction, escHtml, setStatus } from './ui.js';
@@ -16,13 +36,17 @@ const PALETTE = [
 
 // Module-local interaction state
 let placingMode  = false;
+/** @type {number | null} */
 let editingId    = null; // null = add mode, number = ID being edited
+/** @type {any | null} */
 let _lastRemoved = null; // F5: single-level undo snapshot
 let _filterText  = '';
 let _sortMode    = 'name-az';
 
 // Context menu
+/** @type {HTMLDivElement | null} */
 let _ctxMenu     = null;
+/** @type {number | null} */
 let _ctxTargetId = null;
 
 function _initCtxMenu() {
@@ -42,36 +66,42 @@ function _initCtxMenu() {
     <div class="ctx-item ctx-danger" data-ctx="delete">Remove</div>
   `;
   document.body.append(_ctxMenu);
-  _ctxMenu.addEventListener('click', e => {
-    const item = e.target.closest('[data-ctx]');
+  _ctxMenu.addEventListener('click', (/** @type {MouseEvent} */ e) => {
+    const item = /** @type {HTMLElement | null} */ (e.target instanceof Element ? e.target.closest('[data-ctx]') : null);
     if (!item) return;
     const id = _ctxTargetId;
     _hideCtxMenu();
-    const rep = state.repeaters.find(x => x.id === id);
+    const rep = state.repeaters.find((/** @type {any} */ x) => x.id === id);
     if (!rep) return;
     if (item.dataset.ctx === 'info')     rep.marker.openPopup();
     if (item.dataset.ctx === 'p2p')      startPickingFrom(rep);
-    if (item.dataset.ctx === 'edit')     editRepeater(id);
-    if (item.dataset.ctx === 'vis')      toggleVisibility(id);
-    if (item.dataset.ctx === 'coverage') runCoverageAnalysis(id);
+    if (item.dataset.ctx === 'edit')     editRepeater(/** @type {number} */ (id));
+    if (item.dataset.ctx === 'vis')      toggleVisibility(/** @type {number} */ (id));
+    if (item.dataset.ctx === 'coverage') runCoverageAnalysis(/** @type {any} */ (id));
     if (item.dataset.ctx === 'pathfrom') document.dispatchEvent(
       new CustomEvent('path:from-node', { detail: { id } })
     );
     if (item.dataset.ctx === 'optimize') document.dispatchEvent(
       new CustomEvent('map:optimize-here', { detail: { lat: rep.lat, lon: rep.lon } })
     );
-    if (item.dataset.ctx === 'delete')   removeRepeater(id);
+    if (item.dataset.ctx === 'delete')   removeRepeater(/** @type {number} */ (id));
   });
-  document.addEventListener('click', e => {
-    if (_ctxMenu && _ctxMenu.style.display !== 'none' && !_ctxMenu.contains(e.target)) {
+  document.addEventListener('click', (/** @type {MouseEvent} */ e) => {
+    if (_ctxMenu && _ctxMenu.style.display !== 'none' && e.target instanceof Node && !_ctxMenu.contains(e.target)) {
       _hideCtxMenu();
     }
   }, true);
 }
 
+/**
+ * @param {any} r
+ * @param {MouseEvent} mouseEvt
+ */
 function _showCtxMenu(r, mouseEvt) {
   _ctxTargetId = r.id;
-  _ctxMenu.querySelector('[data-ctx="vis"]').textContent = r.visible ? 'Hide' : 'Show';
+  if (!_ctxMenu) return;
+  const visItem = _ctxMenu.querySelector('[data-ctx="vis"]');
+  if (visItem) visItem.textContent = r.visible ? 'Hide' : 'Show';
   // Position off-screen first so the browser lays the element out, then measure + reposition
   _ctxMenu.style.left = '-9999px';
   _ctxMenu.style.top  = '-9999px';
@@ -92,24 +122,34 @@ function _hideCtxMenu() {
 
 function _saveWsToDb() {
   const rows = state.repeaters
-    .filter(r => r.fromWs)
-    .map(r => ({ name: r.name, lat: r.lat, lon: r.lon, short: r.short ?? null, lastSeen: r.lastSeen ?? null, wsKey: r.wsKey ?? null }));
+    .filter((/** @type {any} */ r) => r.fromWs)
+    .map((/** @type {any} */ r) => ({ name: r.name, lat: r.lat, lon: r.lon, short: r.short ?? null, lastSeen: r.lastSeen ?? null, wsKey: r.wsKey ?? null }));
   window.electronAPI.wsRepeatersSave(rows).catch(e => console.warn('[ws] DB save failed:', e));
 }
 
+/**
+ * @returns {{ height: number, power: number, freq: number, gain: number }}
+ */
 function _getWsDefaults() {
+  /** @param {string} id */
+  const v = (id) => /** @type {HTMLInputElement | null} */ (document.getElementById(id))?.value ?? '';
   return {
-    height: parseFloat(document.getElementById('ws-default-height')?.value) || 10,
-    power:  parseFloat(document.getElementById('ws-default-power')?.value)  || 20,
-    freq:   parseFloat(document.getElementById('ws-default-freq')?.value)   || 869.525,
-    gain:   parseFloat(document.getElementById('ws-default-gain')?.value)   || 2,
+    height: parseFloat(v('ws-default-height')) || 10,
+    power:  parseFloat(v('ws-default-power'))  || 20,
+    freq:   parseFloat(v('ws-default-freq'))   || 869.525,
+    gain:   parseFloat(v('ws-default-gain'))   || 2,
   };
 }
 
+/** @param {any} r */
 function _wsKeyForRow(r) {
   return wsKeyForRow(r);
 }
 
+/**
+ * @param {any} r
+ * @param {string} name
+ */
 function _wsPopupLines(r, name) {
   const short = r.short ?? null;
   const lastSeen = r.last_seen ?? r.lastSeen ?? null;
@@ -120,6 +160,11 @@ function _wsPopupLines(r, name) {
   ].filter(Boolean).join('<br>');
 }
 
+/**
+ * @param {any} rep
+ * @param {any} r
+ * @param {Record<string, number>} defaults
+ */
 function _applyWsRow(rep, r, defaults) {
   const lat = parseFloat(r.lat);
   const lon = parseFloat(r.lon);
@@ -180,9 +225,12 @@ async function _loadWsFromDb() {
 }
 
 // WebSocket live feed
+/** @type {WebSocket | null} */
 let _ws = null;
+/** @type {Set<number>} */
 const _wsRepeaterIds = new Set(); // IDs of repeaters imported from the live WS feed
 
+/** @param {string} status */
 function _setWsStatus(status) {
   const dot = document.getElementById('ws-status-dot');
   const btn = document.getElementById('btn-ws-connect');
@@ -192,6 +240,7 @@ function _setWsStatus(status) {
   btn.textContent = status === 'connected' ? 'Disconnect' : 'Connect';
 }
 
+/** @param {unknown} data */
 function _syncWsRepeaters(data) {
   const snapshot = normalizeWsRepeaterSnapshot(data);
   if (!snapshot.ok) { console.warn('[ws] unexpected message shape, expected array'); return; }
@@ -211,8 +260,8 @@ function _syncWsRepeaters(data) {
   // Remove stale WS repeaters without clobbering manual undo state.
   const savedUndo = _lastRemoved;
   for (const id of [..._wsRepeaterIds]) {
-    const rep = state.repeaters.find(x => x.id === id);
-    if (rep && !incomingKeys.has(rep.wsKey)) {
+    const rep = /** @type {Repeater | undefined} */ (state.repeaters.find((/** @type {any} */ x) => x.id === id));
+    if (rep && rep.wsKey != null && !incomingKeys.has(rep.wsKey)) {
       removeRepeater(id, { rememberUndo: false, render: false, clearCoverage: false, notify: false });
       _wsRepeaterIds.delete(id);
       coverageChanged = true;
@@ -224,7 +273,7 @@ function _syncWsRepeaters(data) {
 
   for (const r of incoming) {
     const key = _wsKeyForRow(r);
-    const existing = state.repeaters.find(x => x.fromWs && x.wsKey === key);
+    const existing = state.repeaters.find((/** @type {any} */ x) => x.fromWs && x.wsKey === key);
     const defaults = _getWsDefaults();
     if (existing) {
       const result = _applyWsRow(existing, r, defaults);
@@ -250,6 +299,7 @@ function _syncWsRepeaters(data) {
   _saveWsToDb();
 }
 
+/** @param {string} url */
 export function connectLiveFeed(url) {
   disconnectLiveFeed();
   const wsUrl = normalizeWsUrl(url);
@@ -260,15 +310,16 @@ export function connectLiveFeed(url) {
   }
   _setWsStatus('connecting');
   _ws = new WebSocket(wsUrl);
-  _ws.onopen  = () => {
+  const ws = _ws;
+  ws.onopen  = () => {
     _setWsStatus('connected');
     setStatus('Live feed connected.');
     // Trigger Node-RED to send the current repeater list immediately
-    _ws.send('{}');
+    ws.send('{}');
   };
-  _ws.onerror = () => { _setWsStatus('error'); };
-  _ws.onclose = () => { _setWsStatus('disconnected'); _ws = null; };
-  _ws.onmessage = e => {
+  ws.onerror = () => { _setWsStatus('error'); };
+  ws.onclose = () => { _setWsStatus('disconnected'); _ws = null; };
+  ws.onmessage = (/** @type {MessageEvent<string>} */ e) => {
     try { _syncWsRepeaters(JSON.parse(e.data)); }
     catch (err) { console.warn('[ws] failed to parse message:', err); }
   };
@@ -299,10 +350,11 @@ export function disconnectLiveFeed() {
 }
 
 function _syncUndoBtn() {
-  const btn = document.getElementById('btn-undo-remove');
+  const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-undo-remove'));
   if (btn) btn.disabled = _lastRemoved === null;
 }
 
+/** @param {string} color */
 function makeMarkerIcon(color) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
     <path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="${color}" stroke="#fff" stroke-width="2"/>
@@ -314,6 +366,17 @@ function makeMarkerIcon(color) {
   return L.divIcon({ html: svg, iconSize: [28, 36], iconAnchor: [14, 36], popupAnchor: [0, -36], className: '' });
 }
 
+/**
+ * @param {any} name
+ * @param {number} lat
+ * @param {number} lon
+ * @param {number} height
+ * @param {number} power
+ * @param {number} freq
+ * @param {number} [gain]
+ * @param {{ render?: boolean, notify?: boolean }} [options]
+ * @returns {Repeater}
+ */
 export function addRepeater(name, lat, lon, height, power, freq, gain = 2, options = {}) {
   name = String(name ?? `Repeater ${state.nextId}`);
   const color = PALETTE[state.repeaters.length % PALETTE.length];
@@ -324,7 +387,7 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2, optio
     .bindPopup(`<b>${escHtml(name)}</b><br>TX: ${power} dBm + ${gain} dBi @ ${freq} MHz<br>Ant. height: ${height} m`);
 
   marker.on('dragend', () => {
-    const r = state.repeaters.find(x => x.id === id);
+    const r = /** @type {Repeater | undefined} */ (state.repeaters.find((/** @type {any} */ x) => x.id === id));
     if (r) {
       r.lat = marker.getLatLng().lat;
       r.lon = marker.getLatLng().lng;
@@ -339,15 +402,16 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2, optio
     renderRepeaterList();
   });
 
-  marker.on('click', async (e) => {
+  marker.on('click', async (/** @type {any} */ e) => {
     if (e.originalEvent) e.originalEvent._meshcoreHandled = true;
-    const r = state.repeaters.find(x => x.id === id);
+    const r = /** @type {Repeater | undefined} */ (state.repeaters.find((/** @type {any} */ x) => x.id === id));
     if (!r) return;
     if (await handleRepeaterClick(r)) return; // consumed by P2P picking
     if (handlePathNodePick(r)) return; // consumed by best-path picking
     _showCtxMenu(r, e.originalEvent);
   });
 
+  /** @type {Repeater} */
   const repeater = { id, name, lat, lon, height, power, freq, gain, marker, color, visible: true };
   state.repeaters.push(repeater);
   if (options.render !== false) renderRepeaterList();
@@ -355,8 +419,12 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2, optio
   return repeater;
 }
 
+/**
+ * @param {number} id
+ * @param {{ rememberUndo?: boolean, render?: boolean, clearCoverage?: boolean, notify?: boolean }} [options]
+ */
 export function removeRepeater(id, options = {}) {
-  const idx = state.repeaters.findIndex(r => r.id === id);
+  const idx = state.repeaters.findIndex((/** @type {any} */ r) => r.id === id);
   if (idx === -1) return;
   const r = state.repeaters[idx];
   if (options.rememberUndo !== false) {
@@ -384,13 +452,15 @@ export function undoLastRemove() {
 export function cancelPlacing() {
   if (!placingMode) return;
   placingMode = false;
-  document.getElementById('place-hint').classList.add('hidden');
-  document.getElementById('btn-add-click').textContent = 'Place on Map';
+  document.getElementById('place-hint')?.classList.add('hidden');
+  const btn = document.getElementById('btn-add-click');
+  if (btn) btn.textContent = 'Place on Map';
   map.getContainer().style.cursor = '';
 }
 
+/** @param {number} id */
 function setEditMode(id) {
-  const r = state.repeaters.find(x => x.id === id);
+  const r = /** @type {Repeater | undefined} */ (state.repeaters.find((/** @type {any} */ x) => x.id === id));
   if (!r) {
     // Stale UI interaction (e.g. context menu retained after the repeater was
     // removed). Reset edit state and bail; throwing here used to surface as a
@@ -400,35 +470,46 @@ function setEditMode(id) {
     return;
   }
   editingId = id;
-  document.getElementById('repeater-name').value   = r.name;
-  document.getElementById('repeater-lat').value    = r.lat;
-  document.getElementById('repeater-lon').value    = r.lon;
-  document.getElementById('repeater-height').value = r.height;
-  document.getElementById('repeater-power').value  = r.power;
-  document.getElementById('repeater-freq').value   = r.freq;
-  document.getElementById('repeater-gain').value   = r.gain;  // B4: reset preset selects so stale selections don't overwrite the loaded values
-  document.getElementById('radio-preset').value   = '';
-  document.getElementById('antenna-preset').value = '';
-  document.getElementById('btn-add-repeater').textContent = 'Update Node';
-  document.getElementById('btn-add-click').textContent = 'Cancel';
-  const addPanel = document.getElementById('add-repeater-summary')?.closest('details');
+  /** @param {string} elId @param {string | number} value */
+  const setVal = (elId, value) => {
+    const el = /** @type {HTMLInputElement | HTMLSelectElement | null} */ (document.getElementById(elId));
+    if (el) el.value = String(value);
+  };
+  setVal('repeater-name', r.name);
+  setVal('repeater-lat', r.lat);
+  setVal('repeater-lon', r.lon);
+  setVal('repeater-height', r.height);
+  setVal('repeater-power', r.power);
+  setVal('repeater-freq', r.freq);
+  setVal('repeater-gain', r.gain);  // B4: reset preset selects so stale selections don't overwrite the loaded values
+  setVal('radio-preset', '');
+  setVal('antenna-preset', '');
+  const addBtn = document.getElementById('btn-add-repeater');
+  if (addBtn) addBtn.textContent = 'Update Node';
+  const clickBtn = document.getElementById('btn-add-click');
+  if (clickBtn) clickBtn.textContent = 'Cancel';
+  const addPanel = /** @type {HTMLDetailsElement | null} */ (document.getElementById('add-repeater-summary')?.closest('details') ?? null);
   if (addPanel) addPanel.open = true;
-  document.getElementById('sidebar').scrollTo({ top: 0, behavior: 'smooth' });
+  document.getElementById('sidebar')?.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function clearEditMode() {
   editingId = null;
-  document.getElementById('btn-add-repeater').textContent = 'Add Node';
-  document.getElementById('btn-add-click').textContent = 'Place on Map';
+  const addBtn = document.getElementById('btn-add-repeater');
+  if (addBtn) addBtn.textContent = 'Add Node';
+  const clickBtn = document.getElementById('btn-add-click');
+  if (clickBtn) clickBtn.textContent = 'Place on Map';
 }
 
+/** @param {number} id */
 export function editRepeater(id) {
   cancelPlacing();
   setEditMode(id);
 }
 
+/** @param {number} id */
 function toggleVisibility(id) {
-  const r = state.repeaters.find(x => x.id === id);
+  const r = /** @type {Repeater | undefined} */ (state.repeaters.find((/** @type {any} */ x) => x.id === id));
   if (!r) return;
   r.visible = !r.visible;
   if (r.visible) {
@@ -436,8 +517,8 @@ function toggleVisibility(id) {
   } else {
     r.marker.remove();
   }
-  const covLayers = state.coverageLayers.filter(l => l._repeaterId === id);
-  covLayers.forEach(l => {
+  const covLayers = state.coverageLayers.filter((/** @type {any} */ l) => l._repeaterId === id);
+  covLayers.forEach((/** @type {any} */ l) => {
     if (r.visible) l.addTo(map); else l.remove();
   });
   renderRepeaterList();
@@ -446,8 +527,9 @@ function toggleVisibility(id) {
 
 function renderRepeaterList() {
   const ul = document.getElementById('repeater-list');
+  if (!ul) return;
 
-  let list = state.repeaters.filter(r =>
+  let list = state.repeaters.filter((/** @type {Repeater} */ r) =>
     !_filterText || [
       r.name,
       `${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}`,
@@ -456,8 +538,8 @@ function renderRepeaterList() {
       r.lastSeen ?? '',
     ].join(' ').toLowerCase().includes(_filterText)
   );
-  if (_sortMode === 'name-az') list.sort((a, b) => a.name.localeCompare(b.name));
-  else if (_sortMode === 'name-za') list.sort((a, b) => b.name.localeCompare(a.name));
+  if (_sortMode === 'name-az') list.sort((/** @type {Repeater} */ a, /** @type {Repeater} */ b) => a.name.localeCompare(b.name));
+  else if (_sortMode === 'name-za') list.sort((/** @type {Repeater} */ a, /** @type {Repeater} */ b) => b.name.localeCompare(a.name));
 
   if (list.length === 0) {
     ul.innerHTML = state.repeaters.length === 0
@@ -466,7 +548,7 @@ function renderRepeaterList() {
     return;
   }
 
-  ul.innerHTML = list.map(r => {
+  ul.innerHTML = list.map((/** @type {Repeater} */ r) => {
     const sub = (r.fromWs && r.lastSeen)
       ? `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)} \u00b7 ${escHtml(r.lastSeen)}`
       : `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)} \u00b7 ${r.height}m \u00b7 ${r.power}dBm+${r.gain}dBi \u00b7 ${r.freq}MHz`;
@@ -500,38 +582,40 @@ export function init() {
   _initCtxMenu();
   _loadWsFromDb();
 
-  document.getElementById('node-filter').addEventListener('input', e => {
-    _filterText = e.target.value.toLowerCase();
+  document.getElementById('node-filter')?.addEventListener('input', (/** @type {Event} */ e) => {
+    _filterText = /** @type {HTMLInputElement} */ (e.target).value.toLowerCase();
     renderRepeaterList();
   });
-  document.getElementById('node-sort').addEventListener('change', e => {
-    _sortMode = e.target.value;
+  document.getElementById('node-sort')?.addEventListener('change', (/** @type {Event} */ e) => {
+    _sortMode = /** @type {HTMLSelectElement} */ (e.target).value;
     renderRepeaterList();
   });
-  document.getElementById('btn-toggle-all-vis').addEventListener('click', () => {
-    const anyHidden = state.repeaters.some(r => !r.visible);
-    for (const r of state.repeaters) {
+  document.getElementById('btn-toggle-all-vis')?.addEventListener('click', () => {
+    const anyHidden = state.repeaters.some((/** @type {Repeater} */ r) => !r.visible);
+    for (const r of /** @type {Repeater[]} */ (state.repeaters)) {
       if (anyHidden ? !r.visible : r.visible) toggleVisibility(r.id);
     }
   });
 
   // A1: delegated click handler — no window globals needed
-  document.getElementById('repeater-list').addEventListener('click', e => {
-    const btn = e.target.closest('button[data-action]');
+  document.getElementById('repeater-list')?.addEventListener('click', (/** @type {MouseEvent} */ e) => {
+    const btn = /** @type {HTMLButtonElement | null} */ (e.target instanceof Element ? e.target.closest('button[data-action]') : null);
     if (!btn) return;
-    const id = parseInt(btn.dataset.id);
+    const id = parseInt(btn.dataset.id ?? '');
     if (btn.dataset.action === 'edit')       editRepeater(id);
     if (btn.dataset.action === 'delete')     removeRepeater(id);
     if (btn.dataset.action === 'toggle-vis') toggleVisibility(id);
   });
-  document.getElementById('btn-add-repeater').addEventListener('click', () => {
-    const name   = document.getElementById('repeater-name').value.trim() || `Repeater ${state.nextId}`;
-    const lat    = parseFloat(document.getElementById('repeater-lat').value);
-    const lon    = parseFloat(document.getElementById('repeater-lon').value);
-    const height = parseFloat(document.getElementById('repeater-height').value) || 10;
-    const power  = parseFloat(document.getElementById('repeater-power').value) || 20;
-    const freq   = parseFloat(document.getElementById('repeater-freq').value) || 869.525;
-    const gain   = parseFloat(document.getElementById('repeater-gain').value) || 2;
+  document.getElementById('btn-add-repeater')?.addEventListener('click', () => {
+    /** @param {string} id */
+    const v = (id) => /** @type {HTMLInputElement | null} */ (document.getElementById(id))?.value ?? '';
+    const name   = v('repeater-name').trim() || `Repeater ${state.nextId}`;
+    const lat    = parseFloat(v('repeater-lat'));
+    const lon    = parseFloat(v('repeater-lon'));
+    const height = parseFloat(v('repeater-height')) || 10;
+    const power  = parseFloat(v('repeater-power')) || 20;
+    const freq   = parseFloat(v('repeater-freq')) || 869.525;
+    const gain   = parseFloat(v('repeater-gain')) || 2;
 
     if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       setStatus('Invalid coordinates. Enter valid lat/lon.');
@@ -539,7 +623,7 @@ export function init() {
     }
 
     if (editingId !== null) {
-      const r = state.repeaters.find(x => x.id === editingId);
+      const r = /** @type {Repeater | undefined} */ (state.repeaters.find((/** @type {any} */ x) => x.id === editingId));
       if (r) {
         r.name = name; r.lat = lat; r.lon = lon; r.height = height;
         r.power = power; r.freq = freq; r.gain = gain;
@@ -557,13 +641,14 @@ export function init() {
     map.setView([lat, lon], Math.max(map.getZoom(), 11));
   });
 
-  document.getElementById('btn-add-click').addEventListener('click', () => {
+  document.getElementById('btn-add-click')?.addEventListener('click', () => {
     // In edit mode this button acts as cancel
     if (editingId !== null) { clearEditMode(); return; }
 
     placingMode = !placingMode;
     const hint = document.getElementById('place-hint');
     const btn  = document.getElementById('btn-add-click');
+    if (!hint || !btn) return;
     if (placingMode) {
       hint.classList.remove('hidden');
       btn.textContent = 'Cancel';
@@ -575,33 +660,35 @@ export function init() {
     }
   });
 
-  map.on('click', (e) => {
+  map.on('click', (/** @type {any} */ e) => {
     if (!placingMode) return;
     if (e.originalEvent) e.originalEvent._meshcoreHandled = true;
-    const name   = document.getElementById('repeater-name').value.trim() || `Repeater ${state.nextId}`;
-    const height = parseFloat(document.getElementById('repeater-height').value) || 10;
-    const power  = parseFloat(document.getElementById('repeater-power').value) || 20;
-    const freq   = parseFloat(document.getElementById('repeater-freq').value) || 869.525;
-    const gain   = parseFloat(document.getElementById('repeater-gain').value) || 2;
+    /** @param {string} id */
+    const v = (id) => /** @type {HTMLInputElement | null} */ (document.getElementById(id))?.value ?? '';
+    const name   = v('repeater-name').trim() || `Repeater ${state.nextId}`;
+    const height = parseFloat(v('repeater-height')) || 10;
+    const power  = parseFloat(v('repeater-power')) || 20;
+    const freq   = parseFloat(v('repeater-freq')) || 869.525;
+    const gain   = parseFloat(v('repeater-gain')) || 2;
     addRepeater(name, e.latlng.lat, e.latlng.lng, height, power, freq, gain);
     cancelPlacing();
   });
 
-  document.getElementById('btn-undo-remove').addEventListener('click', undoLastRemove);
+  document.getElementById('btn-undo-remove')?.addEventListener('click', undoLastRemove);
 
-  document.getElementById('btn-ws-connect').addEventListener('click', () => {
+  document.getElementById('btn-ws-connect')?.addEventListener('click', () => {
     if (_ws) {
       disconnectLiveFeed();
     } else {
-      const url = document.getElementById('ws-url').value.trim();
+      const url = /** @type {HTMLInputElement | null} */ (document.getElementById('ws-url'))?.value.trim() ?? '';
       if (url) connectLiveFeed(url);
     }
   });
 
-  document.getElementById('btn-clear-nodes').addEventListener('click', () => {
+  document.getElementById('btn-clear-nodes')?.addEventListener('click', () => {
     if (!confirmAction('Clear all nodes and coverage overlays?')) return;
     clearEditMode();
-    [...state.repeaters].forEach(r => removeRepeater(r.id, { render: false, clearCoverage: false, notify: false }));
+    [...state.repeaters].forEach((/** @type {Repeater} */ r) => removeRepeater(r.id, { render: false, clearCoverage: false, notify: false }));
     clearCoverageLayers();
     _lastRemoved = null;
     _syncUndoBtn();

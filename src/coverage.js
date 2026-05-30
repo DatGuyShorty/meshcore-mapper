@@ -1,6 +1,11 @@
 /**
  * coverage.js - Coverage analysis and heatmap rendering.
  * Exports: init
+ *
+ * NOTE: not yet under `// @ts-check`. The orchestration here is heavy on
+ * Leaflet + DOM and has too many implicit-any binding patterns to clean up
+ * inline. Best tackled as part of the Phase 0b `.ts` conversion (see
+ * REWRITE.md) when we can pick proper types up front rather than retrofit.
  */
 import { state, clearCoverageLayers, clearCoverageOverlayTiles } from './map.js';
 import {
