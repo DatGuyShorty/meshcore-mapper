@@ -2,7 +2,11 @@ const path = require('path');
 const { shell } = require('electron');
 const { isSafeExternalUrl, isSameDocument } = require('./urlGuards');
 
-function createWindow(BrowserWindow, appRoot) {
+// `appRoot` is the project root (app.getAppPath()) for resolving project files.
+// The preload and renderer, however, are emitted by electron-vite next to this
+// compiled main module (out/main, out/preload, out/renderer), so they are
+// resolved relative to __dirname — which is out/main at runtime.
+function createWindow(BrowserWindow, _appRoot) {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -13,11 +17,18 @@ function createWindow(BrowserWindow, appRoot) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      preload: path.join(appRoot, 'preload.js'),
+      preload: path.join(__dirname, '../preload/index.js'),
     },
   });
 
-  win.loadFile(path.join(appRoot, 'index.html'));
+  // electron-vite dev server URL when running `electron-vite dev`, otherwise
+  // the built renderer on file://.
+  const devUrl = process.env.ELECTRON_RENDERER_URL;
+  if (devUrl) {
+    win.loadURL(devUrl);
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'));
+  }
 
   // Route any window.open() / target="_blank" through the OS browser
   // instead of opening a new Electron BrowserWindow.

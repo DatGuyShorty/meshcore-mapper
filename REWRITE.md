@@ -166,14 +166,21 @@ Remaining un-`@ts-check`ed (deferred to Phase 0b TS conversion):
 - New `src/types/global.d.ts` ambient declaration: shape of `window.electronAPI` (the `preload.js` contextBridge surface), so renderer code type-checks IPC calls.
 - No source files moved to `.ts` yet; that's Phase 0b once the bundler is in place. Adding `// @ts-check` to additional modules is incremental and risk-free.
 
-### Phase 0b — Vite bundler (next)
+### Phase 0b — electron-vite bundler (DONE)
 
-- Add `vite`, `electron-vite` (or `vite-electron-plugin`) as devDeps.
-- Vite dev server replaces `<script type="module">` loading. Production build bundles renderer + preload separately.
-- Once Vite is in, port `src/repeaterRows.js` → `src/core/wsNormalize.ts` as the smallest example to prove the pipeline. Vite resolves `.ts` natively; Vitest already does.
-- ESLint config: add `@typescript-eslint`, `eslint-plugin-boundaries` (initially permissive; rules tighten per phase).
+- `electron-vite` + `vite` added as devDeps; `electron.vite.config.mjs` defines three build targets into `out/`:
+  - **main** → `out/main/index.js` (CJS). `externalizeDepsPlugin()` keeps `dependencies` external so runtime `require('sql.js')` / `require('js-yaml')` resolve from `node_modules` (critical for sql.js's wasm `locateFile`). `commonjsOptions.include` was added for `src/main/**` + `main.js` so the local `require('./src/main/...')` calls get **bundled in** — without it they survived verbatim and crashed with `Cannot find module './src/main/cacheDb'` (the paths don't exist next to `out/main/`).
+  - **preload** → `out/preload/index.js` (CJS — sandboxed preloads must be CJS). Same `commonjsOptions.include` for `preload.js`.
+  - **renderer** → `out/renderer/` (ESM bundle). A small plugin: strips the three.js importmap (three is bundled now), keeps `vendor/leaflet.js` + `src/shellInit.js` as classic scripts (copied verbatim into `out/renderer/`, re-injected so Vite never rewrites them), relaxes the built CSP's `script-src` (no inline scripts ship), disables `modulePreload` (its inline `__vite__mapDeps` helper would violate CSP), and **strips `crossorigin`** from the emitted tags (on `file://` it forces CORS against an opaque origin and blanks the renderer).
+- `main.js` uses `app.getAppPath()` for the project root (presets.yaml, scripts/) since `__dirname` is now `out/main/`. `src/main/window.js` loads `process.env.ELECTRON_RENDERER_URL` in `electron-vite dev`, else `out/renderer/index.html`, and resolves the preload from `out/preload/`.
+- Scripts: `dev` = `electron-vite dev`, `build` = `electron-vite build`, `start` = `electron-vite preview`, `smoke` = build-then-playwright. `"main"` repointed to `./out/main/index.js`. `out/` gitignored.
+- Web Workers (`coverageWorker`, `optimizerWorker`) emit as ES-module chunks under `out/renderer/assets/` and instantiate correctly via `new Worker(new URL(..., import.meta.url), { type: 'module' })`.
 
-**Verification:** existing `npm test`, `npm run lint`, `npm run typecheck`, `npm run smoke` all pass against the Vite build. Electron launches identically.
+**Verification:** `npm run check` green end-to-end — syntax, lint, typecheck (39 modules), 192 unit tests, 0 audit vulns, **15/15 smoke** against the built app. Boot diagnostic: 5 tabs, map visible, Leaflet 1.9.4, 0 page errors.
+
+Two pre-existing smoke flakes were hardened in the same pass (they failed on `82b184b` too, before electron-vite):
+- 5 node-list tests assumed an empty list but the app restores persisted WS-feed repeaters on launch → new `clearAllNodes()` helper resets the list first.
+- The coverage-compute test inherited the cached map zoom; at high zoom the CPU grid hit 4096² and couldn't finish in 120s → new `setMapView()` helper pins zoom 11 + 5 km radius via localStorage before reload, bounding the grid (now completes in ~5s).
 
 ### Phase 1 — port pure core to TS (3–5 days, low risk)
 

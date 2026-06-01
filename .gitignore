@@ -15,6 +15,9 @@ cache.db-wal
 cache.db-shm
 lora-config.json
 
+# Build output (electron-vite)
+out/
+
 # Playwright artefacts
 test-results/
 playwright-report/

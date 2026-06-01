@@ -4,7 +4,11 @@ const { createCacheDb } = require('./src/main/cacheDb');
 const { registerIpcHandlers } = require('./src/main/ipcHandlers');
 const { createWindow } = require('./src/main/window');
 
-const APP_ROOT = __dirname;
+// Under electron-vite the compiled main lives in out/main/, so __dirname no
+// longer points at the project root. app.getAppPath() returns the project root
+// (the folder containing package.json) in both source and built runs, which is
+// where presets.yaml and scripts/ (the Python CUDA helper) live.
+const APP_ROOT = app.getAppPath();
 const PRESETS_PATH = path.join(APP_ROOT, 'presets.yaml');
 
 // Allowlist of web permissions the renderer is allowed to use.

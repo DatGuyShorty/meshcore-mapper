@@ -2,16 +2,18 @@
   "name": "meshcore-mapper",
   "version": "1.0.0",
   "description": "LoRa Signal Propagation Mapper",
-  "main": "main.js",
+  "main": "./out/main/index.js",
   "scripts": {
     "app": "powershell -ExecutionPolicy Bypass -File ./start-app.ps1",
     "setup": "powershell -ExecutionPolicy Bypass -File ./start-app.ps1 -NoLaunch",
-    "start": "electron .",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
     "syntax": "node scripts/check-syntax.mjs",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run tests/unit",
-    "smoke": "playwright test tests/smoke",
+    "smoke": "electron-vite build && playwright test tests/smoke",
     "check": "npm run syntax && npm run lint && npm run typecheck && npm run test && npm audit --omit=dev && npm run smoke"
   },
   "dependencies": {
@@ -23,8 +25,10 @@
     "@playwright/test": "^1.60.0",
     "@types/node": "^25.9.1",
     "electron": "^31.0.0",
+    "electron-vite": "^5.0.0",
     "eslint": "^10.4.0",
     "typescript": "^6.0.3",
+    "vite": "^7.3.3",
     "vitest": "^4.1.7"
   }
 }

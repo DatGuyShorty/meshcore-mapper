@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { launchApp } = require('./electron-app');
-const { openTab, addRepeater } = require('./smoke-utils');
+const { openTab, addRepeater, clearAllNodes, setMapView } = require('./smoke-utils');
 
 test('app loads and exposes core workflow tabs', async () => {
   const app = await launchApp();
@@ -42,7 +42,7 @@ test('repeater node lifecycle works with add, delete, undo, and filtering', asyn
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1280, height: 900 });
 
-    await page.getByRole('tab', { name: 'Nodes' }).click();
+    await clearAllNodes(page);
     await page.locator('#repeater-name').fill('Smoke Workflow Node');
     await page.locator('#repeater-lat').fill('48.28625');
     await page.locator('#repeater-lon').fill('18.50540');
@@ -74,7 +74,7 @@ test('node tab full workflow covers add, edit, filter, toggle, delete, undo, and
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1280, height: 900 });
 
-    await openTab(page, 'Nodes');
+    await clearAllNodes(page);
 
     await page.locator('#radio-preset').selectOption('');
     await page.locator('#antenna-preset').selectOption('omni8');
@@ -167,6 +167,10 @@ test('coverage compute runs to completion and renders overlay tiles', async () =
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1280, height: 900 });
 
+    // Pin a low zoom + small radius so the CPU grid is bounded and the compute
+    // finishes deterministically regardless of the cached map view.
+    await setMapView(page, { zoom: 11, radiusKm: 5 });
+    await clearAllNodes(page);
     await addRepeater(page, { name: 'Smoke Coverage Node', lat: '48.28625', lon: '18.50540' });
     await openTab(page, 'Coverage');
 
@@ -259,6 +263,7 @@ test('node visibility toggle hides and shows repeaters in the list', async () =>
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1280, height: 900 });
 
+    await clearAllNodes(page);
     await addRepeater(page, { name: 'Smoke Visibility Node', lat: '48.28625', lon: '18.50540' });
     await openTab(page, 'Nodes');
 
@@ -278,6 +283,7 @@ test('multi-step repeater, P2P, coverage, and settings workflow', async () => {
     const page = await app.firstWindow();
     await page.setViewportSize({ width: 1280, height: 900 });
 
+    await clearAllNodes(page);
     await addRepeater(page, { name: 'Smoke Workflow A', lat: '48.28625', lon: '18.50540' });
     await addRepeater(page, { name: 'Smoke Workflow B', lat: '48.29000', lon: '18.51000' });
 
