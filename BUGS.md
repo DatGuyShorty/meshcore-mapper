@@ -9,9 +9,9 @@ This file collects the potential bugs discovered during the current review of th
 
 ## OpenStreetMap / Overpass
 - `src/buildings.js`: Overpass query does not request node-level building features such as `node["building"]` and `node["building:part"]`.
-- `src/buildings.js`: relation processing ignores `inner` members, so holes in multipolygon buildings are not modeled.
+- ~~`src/buildings.js`: relation processing ignores `inner` members, so holes in multipolygon buildings are not modeled.~~ **Fixed** — both `buildings.js` and `foliage.js` assemble inner rings via `assembleMultipolygon()` and attach them with `holeCandidatesForOuter()`, then subtract them in `segmentPolygonIntervalsWithHoles()`.
 - `src/buildings.js` / `src/foliage.js`: tile bbox loops assume `lonMin <= lonMax` and do not handle antimeridian-crossing bounds.
-- `src/foliage.js`: relation member assembly still does not explicitly support holes.
+- ~~`src/foliage.js`: relation member assembly still does not explicitly support holes.~~ **Fixed** — see above. Additionally, `holeCandidatesForOuter()` previously assigned a hole to any outer whose *bounding box* overlapped it; a C-shaped or disjoint outer sharing the bbox would wrongly inherit a clearing and punch a phantom gap. It now confirms true point-in-polygon containment of a representative interior point. Covered by `tests/unit/osmGeometry.test.js`.
 
 ## Input validation / grid generation
 - `src/signalModel.js`: `_hasFiniteLatLon()` validated latitude but not longitude bounds — now fixed; `computeSignalToPoint()` still relies on caller for distance sanity.

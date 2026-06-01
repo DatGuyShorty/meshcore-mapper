@@ -456,6 +456,37 @@ export function assembleMultipolygon(members, memberGeometry) {
 }
 
 /**
+ * Ray-cast point-in-polygon test against a [lat, lon] ring. Local copy so this
+ * module stays dependency-free (propagation.js already imports from here, so
+ * importing its `pointInPolygon` back would be circular).
+ * @param {number} lat
+ * @param {number} lon
+ * @param {Ring} poly
+ * @returns {boolean}
+ */
+function _pointInRing(lat, lon, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [yi, xi] = poly[i];
+    const [yj, xj] = poly[j];
+    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * Select the holes (inner rings) that belong to a given outer ring.
+ *
+ * A multipolygon relation can carry several outer rings and several inner
+ * rings; each inner ring is a hole in exactly one outer. Filtering by bbox
+ * overlap alone is wrong — a hole's bbox can overlap an outer whose polygon
+ * does not actually contain it (e.g. a C-shaped or disjoint outer that merely
+ * shares the bounding box). That mis-assigns clearings, punching phantom gaps
+ * in unrelated forest/building outers. Here we keep the cheap bbox pre-filter
+ * and then confirm true containment of a representative interior point.
+ *
  * @param {Ring} outer
  * @param {Ring[]} holes
  * @returns {Ring[]}
@@ -465,10 +496,21 @@ export function holeCandidatesForOuter(outer, holes) {
   const outerBb = ringBBox(outer);
   return holes.filter(hole => {
     const holeBb = ringBBox(hole);
-    return !(holeBb.latMax < outerBb.latMin
+    // Cheap reject: disjoint bounding boxes can't contain.
+    if (holeBb.latMax < outerBb.latMin
       || holeBb.latMin > outerBb.latMax
       || holeBb.lonMax < outerBb.lonMin
-      || holeBb.lonMin > outerBb.lonMax);
+      || holeBb.lonMin > outerBb.lonMax) {
+      return false;
+    }
+    // Confirm the outer polygon actually contains the hole. Test the hole's
+    // bbox centre first (correct for convex/typical clearings); if that point
+    // happens to fall in a concavity of the hole itself, fall back to any hole
+    // vertex landing strictly inside the outer.
+    const cLat = (holeBb.latMin + holeBb.latMax) / 2;
+    const cLon = (holeBb.lonMin + holeBb.lonMax) / 2;
+    if (_pointInRing(cLat, cLon, outer)) return true;
+    return hole.some(([hlat, hlon]) => _pointInRing(hlat, hlon, outer));
   });
 }
 

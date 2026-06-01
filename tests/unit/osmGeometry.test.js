@@ -85,6 +85,47 @@ describe('OSM geometry helpers', () => {
     expect(intervals).toEqual([[1 / 6, 1 / 3], [2 / 3, 5 / 6]]);
   });
 
+  it('assigns a hole to the outer that contains it, not merely a bbox-overlapping one', () => {
+    // A relation with two outer rings whose bounding boxes BOTH cover the
+    // clearing, but only one geometrically contains it:
+    //   outer A — solid square lon 0..6, lat 0..6, holds the clearing.
+    //   outer B — C-shape opening downward; its bbox is lon 0..6, lat 7..13
+    //             (north of A) so it does NOT overlap the clearing... we need
+    //             overlap. Instead nest B's bbox around the clearing:
+    //   outer B — C-shape with bbox lon 0..6 / lat 0..6 (same as A) but whose
+    //             solid mass sits in the lon 4.5..6 band, leaving the clearing
+    //             at lon 2..4 outside B's polygon though inside B's bbox.
+    const geometries = new Map([
+      ['way:1', [{ lat: 0, lon: 0 }, { lat: 0, lon: 6 }, { lat: 6, lon: 6 }, { lat: 6, lon: 0 }, { lat: 0, lon: 0 }]],
+      // C-shape: spans the full bbox lon 0..6 / lat 0..6 but is hollow on the
+      // left — only the right arm (lon 4.5..6) and the top/bottom bars are
+      // solid. The clearing at lon 2..4 / lat 2..4 lies in the hollow, i.e.
+      // inside B's bbox but OUTSIDE B's polygon.
+      ['way:2', [
+        { lat: 0, lon: 0 }, { lat: 0.5, lon: 0 }, { lat: 0.5, lon: 4.5 }, { lat: 5.5, lon: 4.5 },
+        { lat: 5.5, lon: 0 }, { lat: 6, lon: 0 }, { lat: 6, lon: 6 }, { lat: 0, lon: 6 }, { lat: 0, lon: 0 },
+      ]],
+      ['way:3', [{ lat: 2, lon: 2 }, { lat: 2, lon: 4 }, { lat: 4, lon: 4 }, { lat: 4, lon: 2 }, { lat: 2, lon: 2 }]],
+    ]);
+    const multi = assembleMultipolygon([
+      { type: 'way', ref: 1, role: 'outer' },
+      { type: 'way', ref: 2, role: 'outer' },
+      { type: 'way', ref: 3, role: 'inner' },
+    ], member => geometries.get(`${member.type}:${member.ref}`));
+
+    expect(multi.outers).toHaveLength(2);
+    expect(multi.holes).toHaveLength(1);
+
+    const outerA = geometries.get('way:1').map(p => [p.lat, p.lon]);
+    const outerB = geometries.get('way:2').map(p => [p.lat, p.lon]);
+
+    // A genuinely contains the clearing; B's bbox covers it but its polygon
+    // does not. A correct (containment-aware) assigner gives the hole to A
+    // only. The current bbox-overlap implementation wrongly gives it to BOTH.
+    expect(holeCandidatesForOuter(outerA, multi.holes)).toHaveLength(1);
+    expect(holeCandidatesForOuter(outerB, multi.holes)).toHaveLength(0);
+  });
+
   it('clamps grid interpolation fractions to the sampled bounds', () => {
     expect(clampedGridFractions(20, -10, {
       latMin: 0,
