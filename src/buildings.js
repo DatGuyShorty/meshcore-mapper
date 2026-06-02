@@ -452,11 +452,11 @@ async function _fetchBuildingsTile(tile, {
     _throwIfAborted(signal);
     const base = OVERPASS_MIRRORS[attempt % OVERPASS_MIRRORS.length];
     if (attempt > 0) await _sleep(2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length), signal);
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener('abort', onAbort, { once: true });
-    const timer = setTimeout(() => controller.abort(), 60000);
     try {
+      // 60s timeout via the scheduler: its clock starts when the request is
+      // actually dequeued, not while it waits behind the per-host Overpass
+      // concurrency cap (1). A hand-rolled timer here would count queue-wait
+      // time and spuriously abort queued tiles.
       res = await scheduledFetch(base, {
         method: 'POST',
         headers: {
@@ -464,17 +464,14 @@ async function _fetchBuildingsTile(tile, {
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         },
         body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal,
+        signal,
+        timeoutMs: 60000,
       });
-      clearTimeout(timer);
     } catch (err) {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) throw _abortError();
       lastErr = /** @type {Error} */ (err);
       continue;
     }
-    signal?.removeEventListener('abort', onAbort);
     if (!res) continue;
     if (res.status === 429 || res.status === 406 || res.status >= 500) { res = null; continue; }
     break;
