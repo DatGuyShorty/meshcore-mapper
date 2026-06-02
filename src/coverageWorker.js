@@ -1,10 +1,16 @@
+// @ts-check
 /**
  * coverageWorker.js - Web Worker row-band renderer for coverage analysis.
+ * Runs in a DedicatedWorkerGlobalScope.
  */
 import { writePixel } from './propagation.js';
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
-self.onmessage = ({ data }) => {
+/** @type {DedicatedWorkerGlobalScope} */
+// eslint-disable-next-line no-restricted-globals
+const ctx = /** @type {any} */ (self);
+
+ctx.onmessage = (/** @type {MessageEvent<any>} */ { data }) => {
   const {
     gridElevs: gridElevsBuf,
     gridRes, ELEV_RES, rowStart, rowEnd,
@@ -64,11 +70,11 @@ self.onmessage = ({ data }) => {
 
     processed += gridRes;
     if ((r - rowStart) % 4 === 0) {
-      self.postMessage({ type: 'progress', rowStart, pct: processed / totalBandPts });
+      ctx.postMessage({ type: 'progress', rowStart, pct: processed / totalBandPts });
     }
   }
 
-  self.postMessage({
+  ctx.postMessage({
     type: 'done',
     rowStart,
     rowEnd,

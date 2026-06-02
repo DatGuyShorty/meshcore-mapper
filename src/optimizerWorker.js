@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * optimizerWorker.js — Pure greedy scoring loop for the optimizer.
  * Receives pre-fetched grids and elevations from the main thread.
@@ -5,7 +6,11 @@
  */
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
-onmessage = function ({ data }) {
+/** @type {DedicatedWorkerGlobalScope} */
+// eslint-disable-next-line no-restricted-globals
+const ctx = /** @type {any} */ (self);
+
+ctx.onmessage = function (/** @type {MessageEvent<any>} */ { data }) {
   const { evalPoints, evalElevs, candidates, candidateElevs, nRepeaters, txParams, opts } = data;
   const { height, power, freq, gain } = txParams;
 
@@ -30,6 +35,7 @@ onmessage = function ({ data }) {
     profileMaxSamples: opts.profileMaxSamples,
   };
 
+  /** @type {Array<{ lat: number, lon: number, score: number, elevM: number }>} */
   const placed  = [];
   const covered = new Uint8Array(evalPoints.length);
   const selectedCandidates = new Uint8Array(candidates.length);
@@ -58,7 +64,7 @@ onmessage = function ({ data }) {
 
       if (ci % 16 === 0) {
         const pct = 20 + 75 * ((round + ci / candidates.length) / nRepeaters);
-        postMessage({ type: 'progress', pct,
+        ctx.postMessage({ type: 'progress', pct,
           msg: `Round ${round + 1}/${nRepeaters}: scoring candidate ${ci + 1}/${candidates.length}…` });
       }
     }
@@ -76,9 +82,18 @@ onmessage = function ({ data }) {
     });
   }
 
-  postMessage({ type: 'done', results: placed });
+  ctx.postMessage({ type: 'done', results: placed });
 };
 
+/**
+ * @param {{ lat: number, lon: number, height: number, power: number, freq: number, gain?: number }} tx
+ * @param {number} txElev
+ * @param {Array<{ latitude: number, longitude: number }>} evalPoints
+ * @param {number[]} evalElevs
+ * @param {Uint8Array} covered
+ * @param {any} opts
+ * @param {Float32Array} signals
+ */
 function _scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, opts, signals) {
   const threshold = opts.rxSens + opts.fadeMargin;
   const fsplBase  = fsplBaseDb(tx.freq);
@@ -100,6 +115,11 @@ function _scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, o
   return evalPoints.length === 0 ? 0 : newCovered / evalPoints.length;
 }
 
+/**
+ * @param {Float32Array} signals
+ * @param {Uint8Array} covered
+ * @param {{ rxSens: number, fadeMargin: number }} opts
+ */
 function _markCovered(signals, covered, opts) {
   const threshold = opts.rxSens + opts.fadeMargin;
   for (let idx = 0; idx < signals.length; idx++) {
@@ -107,6 +127,17 @@ function _markCovered(signals, covered, opts) {
   }
 }
 
+/**
+ * @param {{ lat: number, lon: number, height: number, power: number, freq: number, gain?: number }} tx
+ * @param {number} txElev
+ * @param {{ latitude: number, longitude: number }} pt
+ * @param {number} rxElev
+ * @param {number} dist
+ * @param {number} fsplBase
+ * @param {number[]} gridElevs
+ * @param {any} opts
+ * @param {import('./signalModel.js').ProfileBuffers} profileBuffers
+ */
 function _computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts, profileBuffers) {
   return computeSignalToPoint({
     tx, txElev, rxLat: pt.latitude, rxLon: pt.longitude, rxElev,

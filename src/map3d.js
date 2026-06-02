@@ -4,7 +4,7 @@
  * separate map model.
  */
 import * as THREE from 'three';
-import { MapControls } from '../node_modules/three/examples/jsm/controls/MapControls.js';
+import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
 import { getActiveBaseLayerInfo, map, state } from './map.js';
 import { fetchElevationsFromTiles } from './elevation.js';
 import { fetchBuildings } from './buildings.js';

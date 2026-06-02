@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * optimizer.js
  * Finds the best repeater placement location(s) within a bounding box.
@@ -7,12 +8,75 @@
  * Algorithm: exhaustive grid search over candidate TX locations, scoring each
  * with scoreCoverage(). For multiple repeaters, a greedy incremental pass is
  * used (place each repeater to maximise marginal new coverage).
+ *
+ * @typedef {import('./signalModel.js').TxSpec}        TxSpec
+ * @typedef {import('./signalModel.js').ObstacleSet}   ObstacleSet
+ * @typedef {import('./signalModel.js').ProfileBuffers} ProfileBuffers
+ *
+ * @typedef {Object} Bounds
+ * @property {number} latMin
+ * @property {number} latMax
+ * @property {number} lonMin
+ * @property {number} lonMax
+ *
+ * @typedef {Object} TxParams
+ * @property {number} height
+ * @property {number} power
+ * @property {number} freq
+ * @property {number} [gain]
+ *
+ * @typedef {Object} OptimizerOpts
+ * @property {number} rxHeight
+ * @property {number} rxSens
+ * @property {number} [fadeMargin]
+ * @property {number} radiusKm
+ * @property {boolean} [useLos]
+ * @property {boolean} [useFresnel]
+ * @property {boolean} [useFoliage]
+ * @property {boolean} [useBuildings]
+ * @property {string}  [diffractionModel]
+ * @property {number}  [candidateRes]
+ * @property {number}  [evalRes]
+ * @property {number}  [foliageLossPerM]
+ * @property {number}  [buildingLossPerM]
+ * @property {number}  [profileTargetSpacingM]
+ * @property {number}  [profileMaxSamples]
+ *
+ * @typedef {Object} BestLocation
+ * @property {number} lat
+ * @property {number} lon
+ * @property {number} score
+ * @property {number} elevM
+ *
+ * @typedef {Object} ScoreOpts
+ * @property {number} rxHeight
+ * @property {number} rxSens
+ * @property {number} fadeMargin
+ * @property {number} radiusKm
+ * @property {boolean | undefined} useLos
+ * @property {boolean | undefined} useFresnel
+ * @property {string | undefined}  diffractionModel
+ * @property {number}  gridRes
+ * @property {number}  latMin
+ * @property {number}  latMax
+ * @property {number}  lonMin
+ * @property {number}  lonMax
+ * @property {number | undefined} profileTargetSpacingM
+ * @property {number | undefined} profileMaxSamples
+ * @property {ObstacleSet | null} foliage
+ * @property {number | undefined} foliageLossPerM
+ * @property {ObstacleSet | null} buildings
+ * @property {number | undefined} buildingLossPerM
  */
 import { fetchElevations } from './elevation.js';
 import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
+/**
+ * @param {{ useLos?: boolean, useFoliage?: boolean, useBuildings?: boolean }} [opts]
+ * @returns {boolean}
+ */
 export function optimizerNeedsTerrain(opts = {}) {
   return Boolean(opts.useLos || opts.useFoliage || opts.useBuildings);
 }
@@ -20,14 +84,12 @@ export function optimizerNeedsTerrain(opts = {}) {
 /**
  * Find the best N repeater locations within a bounding box.
  *
- * @param {object} bounds       - { latMin, latMax, lonMin, lonMax }
- * @param {number} nRepeaters   - how many locations to find
- * @param {object} txParams     - { height, power, freq } — same for all candidates
- * @param {object} opts         - { rxHeight, rxSens, radiusKm, useLos, useFresnel, candidateRes, evalRes }
- *   candidateRes: grid size for candidate TX locations (e.g. 16)
- *   evalRes:      grid size for coverage evaluation (e.g. 64)
- * @param {function} onProgress - callback(pct: 0-100, msg: string)
- * @returns {Promise<Array<{ lat, lon, score, elevM }>>} best locations, best first
+ * @param {Bounds} bounds
+ * @param {number} nRepeaters
+ * @param {TxParams} txParams
+ * @param {OptimizerOpts} opts
+ * @param {((pct: number, msg: string) => void) | null} [onProgress]
+ * @returns {Promise<BestLocation[]>}
  */
 export async function findBestLocations(bounds, nRepeaters, txParams, opts, onProgress) {
   const { latMin, latMax, lonMin, lonMax } = bounds;
@@ -75,6 +137,7 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
   progress(20, 'Scoring candidate locations…');
 
   // shared opts for scoreCoverage
+  /** @type {ScoreOpts} */
   const scoreOpts = {
     rxHeight, rxSens, fadeMargin, radiusKm, useLos, useFresnel,
     diffractionModel: opts.diffractionModel,
@@ -82,13 +145,14 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
     latMin, latMax, lonMin, lonMax,
     profileTargetSpacingM: opts.profileTargetSpacingM,
     profileMaxSamples: opts.profileMaxSamples,
-    foliage,
+    foliage: /** @type {ObstacleSet | null} */ (foliage),
     foliageLossPerM: opts.foliageLossPerM,
-    buildings,
+    buildings: /** @type {ObstacleSet | null} */ (buildings),
     buildingLossPerM: opts.buildingLossPerM,
   };
 
   // ── Greedy incremental search ──
+  /** @type {BestLocation[]} */
   const placed = [];
   const covered = new Uint8Array(evalPoints.length);
   const selectedCandidates = new Uint8Array(candidates.length);
@@ -143,8 +207,19 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
 
 // ─── Helpers ────────────────────────────────────────────────────
 
+/**
+ * Generate a regular lat/lon grid of `res × res` sample points inside a bbox.
+ * Latitude decreases with row index so `[0]` is the north-west corner.
+ * @param {number} latMin
+ * @param {number} latMax
+ * @param {number} lonMin
+ * @param {number} lonMax
+ * @param {number} res
+ * @returns {Array<{ latitude: number, longitude: number }>}
+ */
 export function buildGrid(latMin, latMax, lonMin, lonMax, res) {
   const gridRes = Math.max(1, Math.floor(Number(res) || 1));
+  /** @type {Array<{ latitude: number, longitude: number }>} */
   const pts = [];
   const rowDen = Math.max(1, gridRes - 1);
   const colDen = Math.max(1, gridRes - 1);
@@ -161,6 +236,14 @@ export function buildGrid(latMin, latMax, lonMin, lonMax, res) {
 
 /**
  * Score marginal new coverage and return the per-point signal array for the winner.
+ * @param {TxSpec} tx
+ * @param {number} txElev
+ * @param {Array<{ latitude: number, longitude: number }>} evalPoints
+ * @param {number[]} evalElevs
+ * @param {Uint8Array} covered
+ * @param {ScoreOpts} opts
+ * @param {Float32Array} signals
+ * @returns {number}
  */
 function scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, opts, signals) {
   const { rxSens, radiusKm } = opts;
@@ -187,6 +270,9 @@ function scoreCoverageIncremental(tx, txElev, evalPoints, evalElevs, covered, op
 
 /**
  * Mark covered cells using the pre-computed signal array from the winning pass.
+ * @param {Float32Array} signals
+ * @param {Uint8Array} covered
+ * @param {ScoreOpts} opts
  */
 function markCovered(signals, covered, opts) {
   const threshold = opts.rxSens + (opts.fadeMargin ?? 0);
@@ -195,6 +281,18 @@ function markCovered(signals, covered, opts) {
   }
 }
 
+/**
+ * @param {TxSpec} tx
+ * @param {number} txElev
+ * @param {{ latitude: number, longitude: number }} pt
+ * @param {number} rxElev
+ * @param {number} dist
+ * @param {number} fsplBase
+ * @param {number[]} gridElevs
+ * @param {ScoreOpts} opts
+ * @param {ProfileBuffers} profileBuffers
+ * @returns {number}
+ */
 function computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts, profileBuffers) {
   return computeSignalToPoint({
     tx, txElev, rxLat: pt.latitude, rxLon: pt.longitude, rxElev,

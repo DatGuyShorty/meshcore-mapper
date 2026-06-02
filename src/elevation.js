@@ -1,7 +1,11 @@
+// @ts-check
 /**
  * elevation.js
  * Fetches terrain elevation data using high-accuracy APIs, with SQLite caching.
  * Cache is keyed on lat/lon rounded to 4 decimal places (~11m precision).
+ *
+ * @typedef {{ latitude: number, longitude: number }} ElevationPoint
+ * @typedef {Record<string, number>} ElevationStats
  */
 import { scheduledFetch } from './requestScheduler.js';
 import { normalizeLon } from './osmGeometry.js';
@@ -34,20 +38,27 @@ const DEM_TILE_FETCH_CONCURRENCY = 6;
 const DATASET_BATCH_CONCURRENCY = 2;
 
 function _abortError() {
-  const err = new Error('Cancelled');
+  const err = /** @type {Error & { cancelled?: boolean }} */ (new Error('Cancelled'));
   err.name = 'AbortError';
   err.cancelled = true;
   return err;
 }
 
+/** @param {AbortSignal | null | undefined} signal */
 function _throwIfAborted(signal) {
   if (signal?.aborted) throw _abortError();
 }
 
+/** @param {any} err */
 function _isAbort(err) {
   return err?.cancelled || err?.name === 'AbortError';
 }
 
+/**
+ * @param {number} ms
+ * @param {AbortSignal | null | undefined} signal
+ * @returns {Promise<void>}
+ */
 function sleep(ms, signal) {
   _throwIfAborted(signal);
   return new Promise((resolve, reject) => {
@@ -64,26 +75,49 @@ function sleep(ms, signal) {
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
+/** @param {number} v */
 const round4 = v => Math.round(v * 1e4) / 1e4;
 
+/** @type {Map<string, number>} */
 const _elevMem = new Map();
 const ELEV_MEM_MAX = 500_000;
+/** @type {Map<string, any>} */
 const _demTileMem = new Map();
 const DEM_TILE_MEM_MAX = 1024;
 
+/**
+ * @param {ElevationStats | null | undefined} stats
+ * @param {string} key
+ * @param {number} [amount]
+ */
 function _metric(stats, key, amount = 1) {
   if (!stats) return;
   stats[key] = (stats[key] ?? 0) + amount;
 }
 
+/**
+ * @param {number} lat
+ * @param {number} lon
+ */
 function _key(lat, lon) {
   return `${lat},${lon}`;
 }
 
+/**
+ * @param {string} source
+ * @param {number} z
+ * @param {number} x
+ * @param {number} y
+ */
 function _demKey(source, z, x, y) {
   return `${source}:${z}:${x}:${y}`;
 }
 
+/**
+ * Normalise the various binary shapes the cache layer hands us into Uint8Array.
+ * @param {unknown} value
+ * @returns {Uint8Array | null}
+ */
 export function _toUint8Array(value) {
   if (!value) return null;
   if (value instanceof Uint8Array) return value;
@@ -95,6 +129,10 @@ export function _toUint8Array(value) {
   return null;
 }
 
+/**
+ * @param {string} k
+ * @param {any} v
+ */
 function _demTileMemSet(k, v) {
   if (_demTileMem.size >= DEM_TILE_MEM_MAX) {
     const evict = Math.ceil(DEM_TILE_MEM_MAX * 0.25);
@@ -107,6 +145,14 @@ function _demTileMemSet(k, v) {
   _demTileMem.set(k, v);
 }
 
+/**
+ * Map a lat/lon to a Web-Mercator tile coordinate plus sub-pixel offset
+ * inside that tile, for the given zoom level.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {number} z
+ * @returns {{ tx: number, ty: number, px: number, py: number }}
+ */
 export function _latLonToTilePoint(lat, lon, z) {
   const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
   const wrappedLon = normalizeLon(lon) ?? 0;
@@ -122,10 +168,19 @@ export function _latLonToTilePoint(lat, lon, z) {
   return { tx, ty, px, py };
 }
 
+/**
+ * @param {number} lat
+ * @param {number} z
+ */
 function _webMercatorPixelMeters(lat, z) {
   return 156543.034 * Math.cos(lat * Math.PI / 180) / (2 ** z);
 }
 
+/** @typedef {{ latitude?: number, longitude?: number, lat?: number, lon?: number }} LooseLatLon */
+
+/**
+ * @param {LooseLatLon[]} points
+ */
 export function _estimatePointSpacingM(points) {
   if (!points || points.length < 2) return 0;
   let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
@@ -133,10 +188,12 @@ export function _estimatePointSpacingM(points) {
     const lat = p.latitude ?? p.lat;
     const lon = p.longitude ?? p.lon;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lon < minLon) minLon = lon;
-    if (lon > maxLon) maxLon = lon;
+    const la = /** @type {number} */ (lat);
+    const lo = /** @type {number} */ (lon);
+    if (la < minLat) minLat = la;
+    if (la > maxLat) maxLat = la;
+    if (lo < minLon) minLon = lo;
+    if (lo > maxLon) maxLon = lo;
   }
   if (!Number.isFinite(minLat) || (minLat === maxLat && minLon === maxLon)) return 0;
 
@@ -147,6 +204,10 @@ export function _estimatePointSpacingM(points) {
   return Math.max(widthM, heightM) / Math.max(1, side - 1);
 }
 
+/**
+ * @param {LooseLatLon[]} points
+ * @param {{ demTileZoom?: number, targetResolutionM?: number }} [options]
+ */
 export function _chooseDemTileZoom(points, options = {}) {
   const explicit = Number(options.demTileZoom);
   if (Number.isFinite(explicit)) {
@@ -154,13 +215,13 @@ export function _chooseDemTileZoom(points, options = {}) {
   }
 
   const targetResolutionM = Number.isFinite(options.targetResolutionM)
-    ? options.targetResolutionM
+    ? /** @type {number} */ (options.targetResolutionM)
     : _estimatePointSpacingM(points);
 
   if (!Number.isFinite(targetResolutionM) || targetResolutionM <= 0) return DEM_TILE_MAX_ZOOM;
 
   const first = points.find(p => Number.isFinite(p.latitude ?? p.lat));
-  const lat = first ? (first.latitude ?? first.lat) : 0;
+  const lat = first ? (first.latitude ?? first.lat ?? 0) : 0;
   const desiredPixelM = Math.max(2, targetResolutionM / 3);
 
   for (let z = DEM_TILE_MIN_ZOOM; z <= DEM_TILE_MAX_ZOOM; z++) {
@@ -169,20 +230,29 @@ export function _chooseDemTileZoom(points, options = {}) {
   return DEM_TILE_MAX_ZOOM;
 }
 
+/**
+ * @param {Uint8Array | number[] | ArrayBuffer} bytes
+ * @returns {Promise<TerrariumTile>}
+ */
 async function _decodeTilePng(bytes) {
-  const blob = new Blob([bytes], { type: 'image/png' });
+  const blob = new Blob([/** @type {BlobPart} */ (bytes)], { type: 'image/png' });
   const bitmap = await createImageBitmap(blob);
 
+  /** @type {OffscreenCanvas | HTMLCanvasElement} */
   let canvas;
   if (typeof OffscreenCanvas !== 'undefined') {
     canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
   } else {
-    canvas = document.createElement('canvas');
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
+    const dom = document.createElement('canvas');
+    dom.width = bitmap.width;
+    dom.height = bitmap.height;
+    canvas = dom;
   }
 
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const ctx = /** @type {OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D} */ (
+    canvas.getContext('2d', { willReadFrequently: true })
+  );
+  if (!ctx) throw new Error('Failed to obtain 2D canvas context for DEM tile decode');
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close?.();
 
@@ -194,6 +264,15 @@ async function _decodeTilePng(bytes) {
   };
 }
 
+/**
+ * @typedef {{ width: number, height: number, data: ArrayLike<number> }} TerrariumTile
+ */
+
+/**
+ * @param {TerrariumTile} tile
+ * @param {number} x
+ * @param {number} y
+ */
 function _sampleTerrariumPixel(tile, x, y) {
   const idx = (y * tile.width + x) * 4;
   const r = tile.data[idx];
@@ -202,6 +281,12 @@ function _sampleTerrariumPixel(tile, x, y) {
   return (r * 256 + g + b / 256) - 32768;
 }
 
+/**
+ * Bilinear-sample a Terrarium PNG tile at fractional pixel coords.
+ * @param {TerrariumTile} tile
+ * @param {number} px
+ * @param {number} py
+ */
 export function _sampleTerrariumElevation(tile, px, py) {
   const x = Math.max(0, Math.min(tile.width - 1, px));
   const y = Math.max(0, Math.min(tile.height - 1, py));
@@ -221,9 +306,17 @@ export function _sampleTerrariumElevation(tile, px, py) {
          e11 * fx * fy;
 }
 
+/**
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, idx: number) => Promise<R>} mapper
+ * @returns {Promise<R[]>}
+ */
 async function _mapWithConcurrency(items, limit, mapper) {
   if (!items.length) return [];
   const concurrency = Math.max(1, Math.min(limit, items.length));
+  /** @type {R[]} */
   const out = new Array(items.length);
   let next = 0;
 
@@ -239,6 +332,14 @@ async function _mapWithConcurrency(items, limit, mapper) {
   return out;
 }
 
+/**
+ * @param {string} source
+ * @param {number} z
+ * @param {number} x
+ * @param {number} y
+ * @param {ElevationStats | null | undefined} stats
+ * @param {AbortSignal | null | undefined} signal
+ */
 async function _getDemTile(source, z, x, y, stats, signal) {
   const key = _demKey(source, z, x, y);
   if (_demTileMem.has(key)) {
@@ -280,12 +381,34 @@ async function _getDemTile(source, z, x, y, stats, signal) {
   }
 }
 
+/**
+ * @typedef {Object} DemSampleItem
+ * @property {number} lat
+ * @property {number} lon
+ * @property {string} key
+ * @property {number} [elev]
+ *
+ * @typedef {Object} DemTileGroup
+ * @property {number} z
+ * @property {number} x
+ * @property {number} y
+ * @property {Array<{ item: DemSampleItem, px: number, py: number }>} samples
+ */
+
+/**
+ * @param {Iterable<DemTileGroup>} tileGroups
+ * @param {ElevationStats | null | undefined} stats
+ * @param {AbortSignal | null | undefined} signal
+ * @param {{ onProgress?: ((p: { completed: number, total: number }) => void) | null, concurrency?: number }} [options]
+ * @returns {Promise<DemSampleItem[]>}
+ */
 async function _processDemTileGroups(tileGroups, stats, signal, options = {}) {
   const onProgress = options.onProgress;
   const configuredConcurrency = Number.isFinite(options.concurrency)
-    ? Math.max(1, Math.min(16, Math.floor(options.concurrency)))
+    ? Math.max(1, Math.min(16, Math.floor(/** @type {number} */ (options.concurrency))))
     : DEM_TILE_FETCH_CONCURRENCY;
   const groups = Array.isArray(tileGroups) ? tileGroups : Array.from(tileGroups);
+  /** @type {DemSampleItem[]} */
   const apiFallback = [];
   let completedTiles = 0;
   let nextIndex = 0;
@@ -314,7 +437,8 @@ async function _processDemTileGroups(tileGroups, stats, signal, options = {}) {
             apiFallback.push(s.item);
           }
         }
-      } catch (err) {
+      } catch (rawErr) {
+        const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
         if (_isAbort(err)) throw err;
         _metric(stats, 'demTileMisses');
         console.warn(`[elevation] DEM tile ${group.z}/${group.x}/${group.y} failed: ${err.message}`);
@@ -330,6 +454,13 @@ async function _processDemTileGroups(tileGroups, stats, signal, options = {}) {
   return apiFallback;
 }
 
+/**
+ * @param {DemSampleItem[]} items
+ * @param {ElevationStats | null | undefined} stats
+ * @param {AbortSignal | null | undefined} signal
+ * @param {{ demTileZoom?: number, targetResolutionM?: number }} [options]
+ * @returns {Promise<DemSampleItem[]>}
+ */
 async function _fillFromDemTiles(items, stats, signal, options = {}) {
   if (!items.length || !window.electronAPI?.cacheDemTileGet || !window.electronAPI?.cacheDemTileStore) {
     return items;
@@ -337,6 +468,7 @@ async function _fillFromDemTiles(items, stats, signal, options = {}) {
 
   const demTileZoom = _chooseDemTileZoom(items, options);
   if (stats) stats.demTileZoom = Math.max(stats.demTileZoom ?? 0, demTileZoom);
+  /** @type {Map<string, DemTileGroup>} */
   const tileGroups = new Map();
   for (const item of items) {
     const p = _latLonToTilePoint(item.lat, item.lon, demTileZoom);
@@ -354,6 +486,10 @@ async function _fillFromDemTiles(items, stats, signal, options = {}) {
   return items.filter(item => item.elev === undefined);
 }
 
+/**
+ * @param {string} k
+ * @param {number} v
+ */
 function _elevMemSet(k, v) {
   if (_elevMem.size >= ELEV_MEM_MAX) {
     const evict = Math.ceil(ELEV_MEM_MAX * 0.25);
@@ -367,8 +503,13 @@ function _elevMemSet(k, v) {
   _elevMem.set(k, v);
 }
 
+/**
+ * @param {ElevationPoint[]} points
+ */
 function _dedupeRounded(points) {
+  /** @type {DemSampleItem[]} */
   const unique = [];
+  /** @type {Map<string, number>} */
   const byKey = new Map();
   const pointToUnique = new Int32Array(points.length);
 
@@ -388,6 +529,9 @@ function _dedupeRounded(points) {
   return { unique, pointToUnique };
 }
 
+/**
+ * @param {Array<{ lat: number, lon: number }>} points
+ */
 async function _lookupCache(points) {
   if (window.electronAPI?.cacheElevationsLookupMany) {
     return window.electronAPI.cacheElevationsLookupMany(points);
@@ -407,8 +551,9 @@ async function _lookupCache(points) {
  * Fetch elevations for an array of { latitude, longitude } points.
  * Returns a matching array of elevation values in metres.
  *
- * @param {Array<{latitude: number, longitude: number}>} points
- * @param {object|null} stats optional mutable metrics object
+ * @param {ElevationPoint[]} points
+ * @param {ElevationStats | null} [stats] optional mutable metrics object
+ * @param {{ signal?: AbortSignal | null }} [options]
  * @returns {Promise<number[]>}
  */
 export async function fetchElevations(points, stats = null, options = {}) {
@@ -473,9 +618,10 @@ export async function fetchElevations(points, stats = null, options = {}) {
 
         for (let i = 0; i < unresolved.length; i++) {
           const item = unresolved[i];
-          item.elev = fetched[i];
-          _elevMemSet(item.key, fetched[i]);
-          toStore.push({ lat: item.lat, lon: item.lon, elev: fetched[i] });
+          const elev = fetched[i] ?? 0;
+          item.elev = elev;
+          _elevMemSet(item.key, elev);
+          toStore.push({ lat: item.lat, lon: item.lon, elev });
         }
       }
 
@@ -488,9 +634,10 @@ export async function fetchElevations(points, stats = null, options = {}) {
     }
   }
 
+  /** @type {number[]} */
   const results = new Array(points.length);
   for (let i = 0; i < pointToUnique.length; i++) {
-    results[i] = unique[pointToUnique[i]].elev;
+    results[i] = unique[pointToUnique[i]].elev ?? 0;
   }
 
   console.info(
@@ -505,9 +652,9 @@ export async function fetchElevations(points, stats = null, options = {}) {
  * Bypasses the point DB entirely — tiles are the cache.
  * Falls back to the API only for points whose tile couldn't be fetched.
  *
- * @param {Array<{latitude: number, longitude: number}>} points
- * @param {object|null} stats
- * @param {{signal?: AbortSignal}} options
+ * @param {ElevationPoint[]} points
+ * @param {ElevationStats | null} [stats]
+ * @param {{ signal?: AbortSignal | null, onProgress?: ((p: { completed: number, total: number }) => void) | null, demTileConcurrency?: number, targetResolutionM?: number, demTileZoom?: number }} [options]
  * @returns {Promise<number[]>}
  */
 export async function fetchElevationsFromTiles(points, stats = null, options = {}) {
@@ -564,12 +711,14 @@ export async function fetchElevationsFromTiles(points, stats = null, options = {
       const apiPoints = apiFallback.map(({ lat, lon }) => ({ latitude: lat, longitude: lon }));
       const fetched = await _fetchFromAPI(apiPoints, stats, signal);
       for (let i = 0; i < apiFallback.length; i++) {
-        apiFallback[i].elev = fetched[i];
-        _elevMemSet(apiFallback[i].key, fetched[i]);
+        const elev = fetched[i] ?? 0;
+        apiFallback[i].elev = elev;
+        _elevMemSet(apiFallback[i].key, elev);
       }
     }
   }
 
+  /** @type {number[]} */
   const results = new Array(points.length);
   for (const it of items) results[it.i] = it.elev ?? 0;
 
@@ -586,10 +735,10 @@ export async function fetchElevationsFromTiles(points, stats = null, options = {
  * Fetch elevations from a specific OpenTopoData dataset without point-DB caching.
  * Useful when deriving above-ground heights from DSM-DEM.
  *
- * @param {Array<{latitude: number, longitude: number}>} points
+ * @param {ElevationPoint[]} points
  * @param {string} dataset e.g. "srtm30m" or "aster30m"
- * @param {object|null} stats
- * @param {{signal?: AbortSignal}} options
+ * @param {ElevationStats | null} [stats]
+ * @param {{ signal?: AbortSignal | null, batchConcurrency?: number }} [options]
  * @returns {Promise<number[]>}
  */
 export async function fetchDatasetElevations(points, dataset, stats = null, options = {}) {
@@ -599,7 +748,7 @@ export async function fetchDatasetElevations(points, dataset, stats = null, opti
   }
   const signal = options.signal;
   const batchConcurrency = Number.isFinite(options.batchConcurrency)
-    ? Math.max(1, Math.min(4, Math.floor(options.batchConcurrency)))
+    ? Math.max(1, Math.min(4, Math.floor(/** @type {number} */ (options.batchConcurrency))))
     : DATASET_BATCH_CONCURRENCY;
   _throwIfAborted(signal);
 
@@ -615,7 +764,7 @@ export async function fetchDatasetElevations(points, dataset, stats = null, opti
   };
 
   if (points.length <= api.maxBatch || batchConcurrency === 1) {
-    return _fetchFromSingleAPI(api, points, stats, signal);
+    return /** @type {number[]} */ (/** @type {unknown} */ (await _fetchFromSingleAPI(api, points, stats, signal)));
   }
 
   const chunks = [];
@@ -623,24 +772,33 @@ export async function fetchDatasetElevations(points, dataset, stats = null, opti
     chunks.push({ start: i, pts: points.slice(i, i + api.maxBatch) });
   }
 
+  /** @type {number[]} */
   const results = new Array(points.length);
-  await _mapWithConcurrency(chunks, batchConcurrency, async (chunk) => {
+  await _mapWithConcurrency(chunks, batchConcurrency, async (/** @type {{ start: number, pts: ElevationPoint[] }} */ chunk) => {
     _throwIfAborted(signal);
     const vals = await _fetchFromSingleAPI(api, chunk.pts, stats, signal);
     for (let i = 0; i < vals.length; i++) {
-      results[chunk.start + i] = vals[i];
+      results[chunk.start + i] = vals[i] ?? 0;
     }
   });
 
   return results;
 }
 
+/**
+ * @param {ElevationPoint[]} points
+ * @param {ElevationStats | null | undefined} stats
+ * @param {AbortSignal | null | undefined} signal
+ * @returns {Promise<(number | null)[]>}
+ */
 async function _fetchFromAPI(points, stats, signal) {
+  /** @type {Error | null} */
   let lastErr = null;
   for (const api of ELEVATION_APIS) {
     try {
       return await _fetchFromSingleAPI(api, points, stats, signal);
-    } catch (err) {
+    } catch (rawErr) {
+      const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
       if (_isAbort(err)) throw err;
       console.warn(`[elevation] ${api.name} failed: ${err.message} - trying next source`);
       lastErr = err;
@@ -649,6 +807,10 @@ async function _fetchFromAPI(points, stats, signal) {
   throw new Error(`All elevation sources exhausted: ${lastErr?.message ?? 'unknown'}`);
 }
 
+/**
+ * @param {{ url: string, maxBatch: number, delayMs: number, name: string, body: string }} api
+ * @param {ElevationPoint[]} batch
+ */
 function _requestBody(api, batch) {
   if (api.body === 'pipe') {
     return JSON.stringify({
@@ -659,7 +821,15 @@ function _requestBody(api, batch) {
   return JSON.stringify({ locations: batch });
 }
 
+/**
+ * @param {{ url: string, maxBatch: number, delayMs: number, name: string, body: string }} api
+ * @param {ElevationPoint[]} points
+ * @param {ElevationStats | null | undefined} stats
+ * @param {AbortSignal | null | undefined} signal
+ * @returns {Promise<(number | null)[]>}
+ */
 async function _fetchFromSingleAPI(api, points, stats, signal) {
+  /** @type {(number | null)[]} */
   const results = new Array(points.length).fill(null);
 
   for (let i = 0; i < points.length; i += api.maxBatch) {
@@ -667,7 +837,10 @@ async function _fetchFromSingleAPI(api, points, stats, signal) {
     if (i > 0) await sleep(api.delayMs, signal);
 
     const batch = points.slice(i, i + api.maxBatch);
-    let resp = null, lastErr = null;
+    /** @type {Response | null} */
+    let resp = null;
+    /** @type {Error | null} */
+    let lastErr = null;
 
     for (let attempt = 0; attempt < 3; attempt++) {
       _throwIfAborted(signal);
@@ -681,12 +854,13 @@ async function _fetchFromSingleAPI(api, points, stats, signal) {
           signal,
           timeoutMs: 25000,
         });
-      } catch (err) {
+      } catch (rawErr) {
         if (signal?.aborted) throw _abortError();
-        lastErr = err;
+        lastErr = /** @type {Error} */ (rawErr);
         continue;
       }
 
+      if (!resp) continue;
       if (resp.status === 429) {
         resp = null;
         await sleep(5000, signal);
@@ -708,34 +882,60 @@ async function _fetchFromSingleAPI(api, points, stats, signal) {
       console.warn(`[elevation] ${api.name}: expected ${batch.length} results, got ${data.results.length}`);
     }
 
-    data.results.forEach((r, j) => {
+    data.results.forEach((/** @type {any} */ r, /** @type {number} */ j) => {
       results[i + j] = (r.elevation !== null && r.elevation !== undefined) ? r.elevation : null;
     });
     console.debug(`[elevation] ${api.name}: fetched ${Math.min(i + api.maxBatch, points.length) - i} points`);
   }
 
-  _fillNulls(results, points);
+  const fillStats = _fillNulls(results, points);
+  if (stats && (fillStats.filledFromNeighbour || fillStats.defaultedToZero)) {
+    _metric(stats, 'elevationFilledFromNeighbour', fillStats.filledFromNeighbour);
+    _metric(stats, 'elevationDefaultedToZero', fillStats.defaultedToZero);
+  }
   return results;
 }
 
+/**
+ * Forward-then-back-fill missing API elevation values so the returned array
+ * has no nulls. Returns the count of values that were filled from a
+ * neighbour vs defaulted to zero, so callers can surface data-quality info
+ * to the user. Mutates `results` in place.
+ *
+ * @param {(number | null)[]} results
+ * @param {ElevationPoint[]} points
+ * @returns {{ filledFromNeighbour: number, defaultedToZero: number }}
+ */
 export function _fillNulls(results, points) {
-  const missingCount = results.filter(value => value === null).length;
+  const missingCount = results.filter((/** @type {number | null} */ value) => value === null).length;
   if (missingCount > 0) {
     console.warn(`[elevation] ${missingCount}/${results.length} API elevation result(s) were null; using nearest available fallback values.`);
   }
+
+  let filledFromNeighbour = 0;
+  let defaultedToZero = 0;
+
   let last = null;
   for (let i = 0; i < results.length; i++) {
     if (results[i] !== null) last = results[i];
-    else if (last !== null) results[i] = last;
+    else if (last !== null) {
+      results[i] = last;
+      filledFromNeighbour++;
+    }
   }
 
   last = null;
   for (let i = results.length - 1; i >= 0; i--) {
     if (results[i] !== null) last = results[i];
-    else if (last !== null) results[i] = last;
-    else {
+    else if (last !== null) {
+      results[i] = last;
+      filledFromNeighbour++;
+    } else {
       results[i] = 0;
+      defaultedToZero++;
       console.warn(`[elevation] no elevation data at ${points[i]?.latitude},${points[i]?.longitude} - defaulting to 0 m`);
     }
   }
+
+  return { filledFromNeighbour, defaultedToZero };
 }

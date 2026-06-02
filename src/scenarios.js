@@ -1,3 +1,13 @@
+// @ts-check
+/**
+ * Coverage-tab scenario presets. `applyScenarioProfile(id)` writes each
+ * preset value back into its corresponding DOM input and dispatches a
+ * synthetic `change` event so the rest of the UI reacts.
+ *
+ * @typedef {Record<string, string | boolean>} ScenarioPreset
+ */
+
+/** @type {Record<string, ScenarioPreset>} */
 const SCENARIOS = {
   quick: {
     'grid-res': '0.5',
@@ -57,13 +67,16 @@ const SCENARIOS = {
   },
 };
 
+/**
+ * @param {string} profileId
+ */
 export function applyScenarioProfile(profileId) {
   const values = SCENARIOS[profileId];
   if (!values) return;
   for (const [id, value] of Object.entries(values)) {
-    const el = document.getElementById(id);
+    const el = /** @type {HTMLInputElement | HTMLSelectElement | null} */ (document.getElementById(id));
     if (!el) continue;
-    if (el.type === 'checkbox') el.checked = Boolean(value);
+    if (/** @type {HTMLInputElement} */ (el).type === 'checkbox') /** @type {HTMLInputElement} */ (el).checked = Boolean(value);
     else el.value = String(value);
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }

@@ -1,42 +1,76 @@
+// @ts-check
 /**
  * map.js — Leaflet map singleton and shared application state.
  * Import `map`, `state`, and `clearCoverageLayers` from here in any module that needs them.
  * L (Leaflet) is loaded as a global script before this module runs.
+ *
+ * @typedef {Object} AppState
+ * @property {any[]} repeaters
+ * @property {any[]} coverageLayers
+ * @property {any[]} coverageResults
+ * @property {any[]} p2pLinks
+ * @property {any[]} pathLinks
+ * @property {any[]} foliageLayers
+ * @property {any[]} buildingLayers
+ * @property {any[]} barrierLayers
+ * @property {number} nextId
  */
 
 export const map = L.map('map', {
   center: [48.28625, 18.50540], // Tlmace Slovakia, a nice hilly area to test with
-  zoom: 12, 
+  zoom: 12,
   zoomControl: true,
 });
 
 let _activeBaseLayerName = 'Streets (OSM)';
 
-const baseLayers = {
-  'Streets (OSM)': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-  }),
-  'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles © Esri — Source: Esri, Maxar, GeoEye, Earthstar Geographics',
-    maxZoom: 19,
-  }),
-  'Terrain': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://opentopomap.org/">OpenTopoMap</a> (CC-BY-SA)',
-    maxZoom: 17,
-  }),
+/**
+ * @typedef {{ url: string, options: Record<string, any> }} BaseLayerSpec
+ * @type {Record<string, BaseLayerSpec>}
+ */
+
+// Track the URL template + options for each layer ourselves so callers don't
+// depend on Leaflet's private `_url` field — that's undocumented API and has
+// renamed between major Leaflet versions.
+const baseLayerSpecs = {
+  'Streets (OSM)': {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    },
+  },
+  'Satellite': {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    options: {
+      attribution: 'Tiles © Esri — Source: Esri, Maxar, GeoEye, Earthstar Geographics',
+      maxZoom: 19,
+    },
+  },
+  'Terrain': {
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    options: {
+      attribution: '© <a href="https://opentopomap.org/">OpenTopoMap</a> (CC-BY-SA)',
+      maxZoom: 17,
+    },
+  },
 };
+
+/** @type {Record<string, any>} */
+const baseLayers = Object.fromEntries(
+  Object.entries(baseLayerSpecs).map(([name, spec]) => [name, L.tileLayer(spec.url, spec.options)])
+);
 
 baseLayers['Streets (OSM)'].addTo(map);
 L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
-map.on('baselayerchange', e => { _activeBaseLayerName = e.name || _activeBaseLayerName; });
+map.on('baselayerchange', (/** @type {any} */ e) => { _activeBaseLayerName = e.name || _activeBaseLayerName; });
 
 export function getActiveBaseLayerInfo() {
-  const layer = baseLayers[_activeBaseLayerName] || baseLayers['Streets (OSM)'];
+  const spec = baseLayerSpecs[_activeBaseLayerName] || baseLayerSpecs['Streets (OSM)'];
   return {
     name: _activeBaseLayerName,
-    url: layer._url,
-    options: { ...layer.options },
+    url: spec.url,
+    options: { ...spec.options },
   };
 }
 
@@ -67,11 +101,12 @@ export function getActiveBaseLayerInfo() {
   }
 })();
 
-map.on('mousemove', (e) => {
-  document.getElementById('cursor-coords').textContent =
-    `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+map.on('mousemove', (/** @type {any} */ e) => {
+  const el = document.getElementById('cursor-coords');
+  if (el) el.textContent = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
 });
 
+/** @type {AppState} */
 export const state = {
   repeaters: [],       // { id, name, lat, lon, height, power, freq, marker, color }
   coverageLayers: [],  // Leaflet ImageOverlay per repeater
@@ -86,7 +121,7 @@ export const state = {
 
 /** Remove rendered coverage overlay tiles while keeping computed coverage metadata. */
 export function clearCoverageOverlayTiles() {
-  state.coverageLayers.forEach(l => {
+  state.coverageLayers.forEach((/** @type {any} */ l) => {
     if (l._blobUrl) URL.revokeObjectURL(l._blobUrl); // B7: free blob memory
     map.removeLayer(l);
   });
@@ -102,22 +137,23 @@ export function clearCoverageLayers() {
 
 /** Remove all foliage polygon outlines from the map. */
 export function clearFoliageLayers() {
-  state.foliageLayers.forEach(l => map.removeLayer(l));
+  state.foliageLayers.forEach((/** @type {any} */ l) => map.removeLayer(l));
   state.foliageLayers = [];
 }
 
 /** Remove all building footprint polygons from the map. */
 export function clearBuildingLayers() {
-  state.buildingLayers.forEach(l => map.removeLayer(l));
+  state.buildingLayers.forEach((/** @type {any} */ l) => map.removeLayer(l));
   state.buildingLayers = [];
 }
 
 /** Remove all barrier/wall polygons from the map. */
 export function clearBarrierLayers() {
-  state.barrierLayers.forEach(l => map.removeLayer(l));
+  state.barrierLayers.forEach((/** @type {any} */ l) => map.removeLayer(l));
   state.barrierLayers = [];
 }
 
+/** @param {string} name */
 function _dispatchDocumentEvent(name) {
   if (typeof document !== 'undefined') document.dispatchEvent(new CustomEvent(name));
 }

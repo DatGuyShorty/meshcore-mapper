@@ -53,6 +53,9 @@ async function createCacheDb(app) {
     db = new SQL.Database();
   }
 
+  // sql.js runs the DB entirely in WASM memory; these pragmas have no effect
+  // on the in-memory engine and are kept only so the same SQL would also work
+  // against a future native sqlite backend without dropping durability hints.
   db.run('PRAGMA journal_mode=WAL');
   db.run('PRAGMA synchronous=NORMAL');
   db.run(`

@@ -1,5 +1,34 @@
+// @ts-check
 const MAX_WORKERS = 8;
 
+/**
+ * @typedef {Object} CoverageBand
+ * @property {number} rowStart
+ * @property {number} rowEnd
+ *
+ * @typedef {Object} CoverageWorkerStats
+ * @property {number} workerCount
+ * @property {number} workerComputeMs
+ * @property {number} insidePoints
+ * @property {number} totalPoints
+ * @property {boolean} sharedGridBuffer
+ *
+ * @typedef {Object} CoverageWorkerResult
+ * @property {Uint8ClampedArray} rgba
+ * @property {Float32Array} signalGrid
+ * @property {CoverageWorkerStats} stats
+ *
+ * @typedef {Object} CoverageWorkerJob
+ * @property {Promise<CoverageWorkerResult>} promise
+ * @property {number} workerCount
+ * @property {() => void} cancel
+ */
+
+/**
+ * @param {{ gridRes: number, gridElevs: Float32Array | ArrayBufferLike } & Record<string, any>} payload
+ * @param {{ workerCount?: number, onProgress?: ((p: number) => void) | null }} [opts]
+ * @returns {CoverageWorkerJob}
+ */
 export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgress = null } = {}) {
   const gridRes = payload.gridRes;
   const totalPixels = gridRes * gridRes;
@@ -11,7 +40,9 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
   }
   const bands = buildCoverageWorkerBands(gridRes, workerCount);
   const count = bands.length;
+  /** @type {Set<Worker>} */
   const workers = new Set();
+  /** @type {Map<number, number>} */
   const bandProgress = new Map();
   const rgba = new Uint8ClampedArray(gridRes * gridRes * 4);
   const signalGrid = new Float32Array(gridRes * gridRes);
@@ -27,8 +58,10 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
 
   let settled = false;
   let completed = 0;
+  /** @type {((err: any) => void) | null} */
   let rejectRun = null;
 
+  /** @type {Promise<CoverageWorkerResult>} */
   const promise = new Promise((resolve, reject) => {
     rejectRun = reject;
 
@@ -37,7 +70,7 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
       workers.add(worker);
       bandProgress.set(rowStart, 0);
 
-      worker.onmessage = ({ data: msg }) => {
+      worker.onmessage = (/** @type {MessageEvent<any>} */ { data: msg }) => {
         if (settled) return;
         if (msg.type === 'progress') {
           bandProgress.set(msg.rowStart, msg.pct);
@@ -88,13 +121,19 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
       if (settled) return;
       settled = true;
       _terminateAll(workers);
-      const err = new Error('Cancelled');
+      const err = /** @type {Error & { cancelled?: boolean }} */ (new Error('Cancelled'));
       err.cancelled = true;
       rejectRun?.(err);
     },
   };
 }
 
+/**
+ * @param {number} gridRes
+ * @param {number} [workerCount]
+ * @param {number | null} [hardwareConcurrency]
+ * @returns {CoverageBand[]}
+ */
 export function buildCoverageWorkerBands(gridRes, workerCount = 0, hardwareConcurrency = null) {
   const hardware = hardwareConcurrency ?? (
     typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 2
@@ -102,6 +141,7 @@ export function buildCoverageWorkerBands(gridRes, workerCount = 0, hardwareConcu
   const requestedWorkers = workerCount || hardware || 2;
   const targetCount = Math.max(1, Math.min(MAX_WORKERS, requestedWorkers, gridRes));
   const rowsPerWorker = Math.ceil(gridRes / targetCount);
+  /** @type {CoverageBand[]} */
   const bands = [];
   for (let wi = 0; wi < targetCount; wi++) {
     const rowStart = wi * rowsPerWorker;
@@ -111,10 +151,13 @@ export function buildCoverageWorkerBands(gridRes, workerCount = 0, hardwareConcu
   return bands;
 }
 
+/** @param {Float32Array | ArrayBufferLike} gridElevs */
 function _sharedGridBuffer(gridElevs) {
   if (typeof SharedArrayBuffer === 'undefined') return null;
   try {
-    const source = gridElevs instanceof Float32Array ? gridElevs : new Float32Array(gridElevs);
+    const source = gridElevs instanceof Float32Array
+      ? gridElevs
+      : new Float32Array(/** @type {ArrayBufferLike} */ (gridElevs));
     const shared = new SharedArrayBuffer(source.byteLength);
     new Float32Array(shared).set(source);
     return shared;
@@ -123,13 +166,19 @@ function _sharedGridBuffer(gridElevs) {
   }
 }
 
+/** @param {Float32Array | ArrayBufferLike} gridElevs */
 function _copyGridBuffer(gridElevs) {
   if (gridElevs instanceof Float32Array) {
-    return gridElevs.buffer.slice(gridElevs.byteOffset, gridElevs.byteOffset + gridElevs.byteLength);
+    return /** @type {ArrayBuffer} */ (gridElevs.buffer).slice(gridElevs.byteOffset, gridElevs.byteOffset + gridElevs.byteLength);
   }
-  return gridElevs.buffer.slice(0);
+  return /** @type {ArrayBuffer} */ (gridElevs).slice(0);
 }
 
+/**
+ * @param {Map<number, number>} progressByRowStart
+ * @param {CoverageBand[]} bands
+ * @param {number} gridRes
+ */
 function _weightedProgress(progressByRowStart, bands, gridRes) {
   let doneRows = 0;
   for (const { rowStart, rowEnd } of bands) {
@@ -139,6 +188,7 @@ function _weightedProgress(progressByRowStart, bands, gridRes) {
   return Math.max(0, Math.min(1, doneRows / gridRes));
 }
 
+/** @param {Set<Worker>} workers */
 function _terminateAll(workers) {
   for (const worker of workers) worker.terminate();
   workers.clear();

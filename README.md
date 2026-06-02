@@ -6,8 +6,19 @@ Desktop app (Electron) for visualising MeshCore / Meshtastic repeater coverage w
 
 ```
 npm install
-npm start
+npm run dev      # electron-vite dev server with HMR
 ```
+
+For a production-style run (build, then launch the built app):
+
+```
+npm run build
+npm start        # electron-vite preview
+```
+
+The app is bundled with [electron-vite](https://electron-vite.org/): `npm run build`
+emits `out/main`, `out/preload`, and `out/renderer`. `npm run dev` serves the
+renderer with hot-module reload; `npm start` previews the built output.
 
 Windows bootstrap entry point:
 

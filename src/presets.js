@@ -44,8 +44,15 @@ const DEFAULTS = {
   ],
 };
 
+// @ts-check
+/**
+ * @template T
+ * @param {string} id
+ * @param {T[]} items
+ * @param {(item: T) => { value: string, text: string }} mapper
+ */
 function populateSelect(id, items, mapper) {
-  const sel = document.getElementById(id);
+  const sel = /** @type {HTMLSelectElement | null} */ (document.getElementById(id));
   if (!sel) return;
   // preserve first placeholder option, clear the rest
   while (sel.options.length > 1) sel.remove(1);
@@ -58,10 +65,17 @@ function populateSelect(id, items, mapper) {
   });
 }
 
+/**
+ * @param {string} id
+ * @param {string | number} value
+ */
 function setValueAndNotify(id, value) {
-  const el = document.getElementById(id);
+  const el = /** @type {HTMLInputElement | HTMLSelectElement | null} */ (document.getElementById(id));
   if (!el) return;
-  el.value = value;
+  // Assign the raw value (number or string). Real DOM coerces to string,
+  // but tests stub elements with a plain `value` property and assert against
+  // the raw assignment.
+  el.value = /** @type {any} */ (value);
   el.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
@@ -85,21 +99,24 @@ export async function init() {
     a => ({ value: a.id, text: `${a.label}  (${a.gain_dbi} dBi)` }));
 
   // ── Event listeners ──────────────────────────────────────────
-  document.getElementById('radio-preset').addEventListener('change', e => {
-    const h = presets.hardware.find(x => x.id === e.target.value);
+  document.getElementById('radio-preset')?.addEventListener('change', e => {
+    const value = /** @type {HTMLSelectElement} */ (e.target).value;
+    const h = presets.hardware.find((/** @type {any} */ x) => x.id === value);
     if (h) setValueAndNotify('repeater-power', h.tx_power);
   });
 
-  document.getElementById('modem-preset').addEventListener('change', e => {
-    const m = presets.radio_modes.find(x => x.id === e.target.value);
+  document.getElementById('modem-preset')?.addEventListener('change', e => {
+    const value = /** @type {HTMLSelectElement} */ (e.target).value;
+    const m = presets.radio_modes.find((/** @type {any} */ x) => x.id === value);
     if (m) {
       setValueAndNotify('rx-sensitivity', m.sensitivity);
       if (m.freq !== undefined) setValueAndNotify('repeater-freq', m.freq);
     }
   });
 
-  document.getElementById('antenna-preset').addEventListener('change', e => {
-    const a = presets.antenna.find(x => x.id === e.target.value);
+  document.getElementById('antenna-preset')?.addEventListener('change', e => {
+    const value = /** @type {HTMLSelectElement} */ (e.target).value;
+    const a = presets.antenna.find((/** @type {any} */ x) => x.id === value);
     if (a) setValueAndNotify('repeater-gain', a.gain_dbi);
   });
 }

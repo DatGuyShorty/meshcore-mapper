@@ -1,7 +1,18 @@
+// @ts-check
 /**
  * buildings.js — Fetch building footprints from OpenStreetMap (via Overpass API)
  * and compute additional signal attenuation from traversal through buildings.
  * Exports: fetchBuildings, buildingLossDb
+ *
+ * @typedef {import('./osmGeometry.js').Ring} Ring
+ * @typedef {import('./osmGeometry.js').Bbox} Bbox
+ *
+ * @typedef {Object} BuildingsPayload
+ * @property {Ring[]} polygons
+ * @property {Bbox[]} bboxes
+ * @property {number[]} heights
+ * @property {Array<Ring[]>} holes
+ * @property {{ tiles: number[][], latMin: number, latSpan: number, lonMin: number, lonSpan: number } | null} tileIndex
  */
 import { earthBulgeM, segmentPolygonIntervalsWithHoles } from './propagation.js';
 import { fetchDatasetElevations } from './elevation.js';
@@ -99,16 +110,22 @@ const DEFAULT_HEIGHT_BY_BARRIER = {
 };
 
 function _abortError() {
-  const err = new Error('Cancelled');
+  const err = /** @type {Error & { cancelled?: boolean }} */ (new Error('Cancelled'));
   err.name = 'AbortError';
   err.cancelled = true;
   return err;
 }
 
+/** @param {AbortSignal | null | undefined} signal */
 function _throwIfAborted(signal) {
   if (signal?.aborted) throw _abortError();
 }
 
+/**
+ * @param {number} ms
+ * @param {AbortSignal | null | undefined} signal
+ * @returns {Promise<void>}
+ */
 function _sleep(ms, signal) {
   _throwIfAborted(signal);
   return new Promise((resolve, reject) => {
@@ -126,14 +143,23 @@ function _sleep(ms, signal) {
   });
 }
 
+/**
+ * @param {unknown} latMin
+ * @param {unknown} latMax
+ * @param {unknown} lonMin
+ * @param {unknown} lonMax
+ * @param {string} cacheVersion
+ */
 function _tilesForBboxB(latMin, latMax, lonMin, lonMax, cacheVersion) {
   return tileDescriptorsForBbox(latMin, latMax, lonMin, lonMax, cacheVersion);
 }
 const DEFAULT_WALL_LOSS_DB_PER_M = 0.5; // ~0.5 dB/m at 868 MHz (ITU-R P.2040 residential)
 
+/** @type {Map<string, any>} */
 const _memCache     = new Map();
 const MEM_CACHE_MAX = 8;
 
+/** @param {Ring | null | undefined} ring */
 function _polygonCentroid(ring) {
   if (!ring?.length) return null;
   let lat = 0;
@@ -145,6 +171,14 @@ function _polygonCentroid(ring) {
   return { latitude: lat / ring.length, longitude: lon / ring.length };
 }
 
+/**
+ * @param {Ring[]} polygons
+ * @param {number[]} fallbackHeights
+ * @param {AbortSignal | null | undefined} signal
+ * @param {number | undefined} datasetBatchConcurrency
+ * @param {number} [sampleLimit]
+ * @returns {Promise<number[]>}
+ */
 async function _deriveBuildingHeightsFromDsmMinusDem(polygons, fallbackHeights, signal, datasetBatchConcurrency, sampleLimit = 0) {
   if (!polygons.length) return fallbackHeights;
 
@@ -167,7 +201,7 @@ async function _deriveBuildingHeightsFromDsmMinusDem(polygons, fallbackHeights, 
   const centroids = sampled.map(s => s.centroid);
 
   try {
-    const fetchOpts = { signal, batchConcurrency: datasetBatchConcurrency };
+    const fetchOpts = { signal: signal ?? undefined, batchConcurrency: datasetBatchConcurrency };
     const [dem, dsm] = await Promise.all([
       fetchDatasetElevations(centroids, 'srtm30m', null, fetchOpts),
       fetchDatasetElevations(centroids, 'aster30m', null, fetchOpts),
@@ -183,17 +217,27 @@ async function _deriveBuildingHeightsFromDsmMinusDem(polygons, fallbackHeights, 
     }
     console.info(`[buildings] DSM-DEM heights applied for ${applied}/${sampled.length} buildings (sampled from ${derived.length})`);
     return derived;
-  } catch (err) {
+  } catch (rawErr) {
+    const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
     if (err?.cancelled || err?.name === 'AbortError') throw err;
     console.warn('[buildings] DSM-DEM height derivation failed, using OSM heights:', err.message);
     return fallbackHeights;
   }
 }
 
+/**
+ * @param {Ring[]} polygons
+ * @param {Bbox[]} bboxes
+ * @param {number} latMin
+ * @param {number} latMax
+ * @param {number} lonMin
+ * @param {number} lonMax
+ */
 function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
   if (polygons.length === 0) return null;
   const latSpan = (latMax - latMin) || 1;
   const lonSpan = (lonMax - lonMin) || 1;
+  /** @type {number[][]} */
   const tiles = Array.from({ length: TILE_N * TILE_N }, () => []);
   for (let pi = 0; pi < bboxes.length; pi++) {
     const bb   = bboxes[pi];
@@ -209,7 +253,11 @@ function _buildTileIndex(polygons, bboxes, latMin, latMax, lonMin, lonMax) {
 }
 
 /**
- * Parse common OSM length values into metres.
+ * Parse common OSM length values into metres. Accepts numbers, decimal
+ * strings, `5 ft`, `5'10"`, etc. Returns `null` if the input doesn't
+ * parse cleanly or resolves to a non-positive number.
+ * @param {unknown} value
+ * @returns {number | null}
  */
 export function parseOsmLengthMeters(value) {
   if (value === null || value === undefined) return null;
@@ -233,14 +281,23 @@ export function parseOsmLengthMeters(value) {
   return numeric;
 }
 
+/** @param {unknown} value */
 function _osmType(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
+/**
+ * @param {number} value
+ * @param {number} [min]
+ * @param {number} [max]
+ */
 function _clampHeight(value, min = 1, max = 400) {
   return Math.max(min, Math.min(max, value));
 }
 
+/** @typedef {Record<string, unknown>} OsmTags */
+
+/** @param {OsmTags} tags */
 function _roofHeight(tags) {
   const explicit = parseOsmLengthMeters(tags?.['roof:height']);
   if (explicit !== null) return explicit;
@@ -252,6 +309,7 @@ function _roofHeight(tags) {
   return 1.0;
 }
 
+/** @param {OsmTags} tags */
 function _floorHeightForTags(tags) {
   const building = _osmType(tags?.building || tags?.['building:part']);
   if (['industrial', 'warehouse', 'hangar', 'farm', 'farm_auxiliary', 'retail'].includes(building)) return 4.2;
@@ -261,17 +319,28 @@ function _floorHeightForTags(tags) {
   return 3.0;
 }
 
+/** @param {OsmTags} tags */
 function _defaultStructureHeight(tags) {
   const building = _osmType(tags?.building || tags?.['building:part']);
   const manMade = _osmType(tags?.man_made);
   const barrier = _osmType(tags?.barrier);
-  if (building && DEFAULT_HEIGHT_BY_BUILDING_TYPE[building] !== undefined) return DEFAULT_HEIGHT_BY_BUILDING_TYPE[building];
-  if (manMade && DEFAULT_HEIGHT_BY_MAN_MADE[manMade] !== undefined) return DEFAULT_HEIGHT_BY_MAN_MADE[manMade];
-  if (barrier && DEFAULT_HEIGHT_BY_BARRIER[barrier] !== undefined) return DEFAULT_HEIGHT_BY_BARRIER[barrier];
+  const byBuilding = /** @type {Record<string, number>} */ (DEFAULT_HEIGHT_BY_BUILDING_TYPE);
+  const byManMade = /** @type {Record<string, number>} */ (DEFAULT_HEIGHT_BY_MAN_MADE);
+  const byBarrier = /** @type {Record<string, number>} */ (DEFAULT_HEIGHT_BY_BARRIER);
+  if (building && byBuilding[building] !== undefined) return byBuilding[building];
+  if (manMade && byManMade[manMade] !== undefined) return byManMade[manMade];
+  if (barrier && byBarrier[barrier] !== undefined) return byBarrier[barrier];
   if (_osmType(tags?.military) === 'bunker') return 5;
   return DEFAULT_BUILDING_HEIGHT_M;
 }
 
+/**
+ * Pick a building height in metres from a tag bag, in priority order:
+ * explicit `height` / `building:height` → derived from `building:levels`
+ * → fall-back default by `building` / `man_made` / `barrier` kind.
+ * @param {OsmTags} [tags]
+ * @returns {number}
+ */
 export function inferBuildingHeight(tags = {}) {
   const explicit = parseOsmLengthMeters(tags.height || tags['building:height'] || tags.est_height);
   if (explicit !== null) return _clampHeight(explicit);
@@ -287,6 +356,13 @@ export function inferBuildingHeight(tags = {}) {
   return _clampHeight(minHeight + _defaultStructureHeight(tags));
 }
 
+/**
+ * Decide whether an OSM feature should be treated as an obstacle, and if so
+ * which obstacle kind + inferred height + (for linear features) corridor
+ * width.
+ * @param {OsmTags} [tags]
+ * @returns {{ kind: string, height: number, linearWidthM: number | null } | null}
+ */
 export function classifyStructureTags(tags = {}) {
   const building = _osmType(tags.building || tags['building:part']);
   const manMade = _osmType(tags.man_made);
@@ -309,6 +385,11 @@ export function classifyStructureTags(tags = {}) {
   return null;
 }
 
+/**
+ * Build the Overpass QL query string for a single tile bbox.
+ * @param {string} bbox  pre-formatted `(south,west,north,east)` literal
+ * @returns {string}
+ */
 export function buildBuildingsOverpassQuery(bbox) {
   const filters = [
     `way["building"]${bbox};`,
@@ -331,6 +412,13 @@ export function buildBuildingsOverpassQuery(bbox) {
 /**
  * Fetch one 0.25° tile of building footprints (mem-cache → SQLite → Overpass).
  * Tiles are shared across all repeaters — cached once, reused for every coverage run in the area.
+ * @param {import('./osmGeometry.js').TileDescriptor} tile
+ * @param {Object} [options]
+ * @param {AbortSignal | null} [options.signal]
+ * @param {number} [options.datasetBatchConcurrency]
+ * @param {boolean} [options.deriveObstacleHeights]
+ * @param {number} [options.derivationSampleLimit]
+ * @returns {Promise<any>}
  */
 async function _fetchBuildingsTile(tile, {
   signal = null,
@@ -347,7 +435,7 @@ async function _fetchBuildingsTile(tile, {
   const sqlCached = await window.electronAPI.cacheBuildingsLookup(key);
   if (sqlCached) {
     console.debug(`[buildings] SQLite hit tile ${key} — ${sqlCached.polygons.length} building(s)`);
-    if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
+    if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(/** @type {string} */ (_memCache.keys().next().value));
     _memCache.set(key, sqlCached);
     return sqlCached;
   }
@@ -356,16 +444,19 @@ async function _fetchBuildingsTile(tile, {
   const bbox  = overpassBboxString(tile);
   const query = buildBuildingsOverpassQuery(bbox);
 
-  let res = null, lastErr = null;
+  /** @type {Response | null} */
+  let res = null;
+  /** @type {Error | null} */
+  let lastErr = null;
   for (let attempt = 0; attempt < OVERPASS_MIRRORS.length * 2; attempt++) {
     _throwIfAborted(signal);
     const base = OVERPASS_MIRRORS[attempt % OVERPASS_MIRRORS.length];
     if (attempt > 0) await _sleep(2000 * Math.ceil(attempt / OVERPASS_MIRRORS.length), signal);
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener('abort', onAbort, { once: true });
-    const timer = setTimeout(() => controller.abort(), 60000);
     try {
+      // 60s timeout via the scheduler: its clock starts when the request is
+      // actually dequeued, not while it waits behind the per-host Overpass
+      // concurrency cap (1). A hand-rolled timer here would count queue-wait
+      // time and spuriously abort queued tiles.
       res = await scheduledFetch(base, {
         method: 'POST',
         headers: {
@@ -373,17 +464,15 @@ async function _fetchBuildingsTile(tile, {
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         },
         body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal,
+        signal,
+        timeoutMs: 60000,
       });
-      clearTimeout(timer);
     } catch (err) {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
       if (signal?.aborted) throw _abortError();
-      lastErr = err;
+      lastErr = /** @type {Error} */ (err);
       continue;
     }
-    signal?.removeEventListener('abort', onAbort);
+    if (!res) continue;
     if (res.status === 429 || res.status === 406 || res.status >= 500) { res = null; continue; }
     break;
   }
@@ -391,20 +480,35 @@ async function _fetchBuildingsTile(tile, {
   if (!res.ok) throw new Error(`Overpass API error: ${res.status}`);
 
   const data = await res.json();
-  const polygons = [], bboxes = [], heights = [], ids = [], kinds = [], holes = [];
+  /** @type {Ring[]} */ const polygons = [];
+  /** @type {Bbox[]} */ const bboxes = [];
+  /** @type {number[]} */ const heights = [];
+  /** @type {string[]} */ const ids = [];
+  /** @type {string[]} */ const kinds = [];
+  /** @type {Ring[][]} */ const holes = [];
+  /** @type {Set<string>} */
   const seenFeatureIds = new Set();
+  /** @type {Map<string, Array<{ lat: number, lon: number }>>} */
   const elementGeom = new Map();
   for (const el of data.elements) {
     if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2) {
       elementGeom.set(`way:${el.id}`, el.geometry);
     }
   }
+  /** @param {any} member */
   const memberGeometry = (member) => {
     if (!member || typeof member.type !== 'string') return null;
     if (Array.isArray(member.geometry) && member.geometry.length >= 2) return member.geometry;
     return elementGeom.get(`${member.type}:${member.ref}`) ?? null;
   };
 
+  /**
+   * @param {Ring} ring
+   * @param {number} h
+   * @param {string} featureId
+   * @param {string} kind
+   * @param {Ring[]} [ringHoles]
+   */
   const addRing = (ring, h, featureId, kind, ringHoles = []) => {
     if (ring.length < 3) return;
     const bbox = ringBBox(ring);
@@ -426,7 +530,8 @@ async function _fetchBuildingsTile(tile, {
     const h = classification.height;
     const baseFeatureId = `${el.type}:${el.id ?? 'na'}`;
     if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
-      const ring = el.geometry.map(n => [n.lat, n.lon]);
+      /** @type {Ring} */
+      const ring = el.geometry.map((/** @type {{lat:number,lon:number}} */ n) => /** @type {[number,number]} */ ([n.lat, n.lon]));
       if (classification.linearWidthM && !_isClosedRing(ring) && String(el.tags?.area || '').toLowerCase() !== 'yes') {
         const corridors = _lineCorridorRings(ring, classification.linearWidthM);
         for (let ci = 0; ci < corridors.length; ci++) {
@@ -444,7 +549,7 @@ async function _fetchBuildingsTile(tile, {
           addRing(ring, h, `${baseFeatureId}:outer:${ri}`, classification.kind, holeCandidatesForOuter(ring, multi.holes));
         }
       } else if (Array.isArray(el.geometry) && el.geometry.length >= 3) {
-        addRing(el.geometry.map(n => [n.lat, n.lon]), h, baseFeatureId, classification.kind);
+        addRing(el.geometry.map((/** @type {{lat:number,lon:number}} */ n) => /** @type {[number,number]} */ ([n.lat, n.lon])), h, baseFeatureId, classification.kind);
       }
     } else if (el.type === 'node' && Number.isFinite(el.lat) && Number.isFinite(el.lon)) {
       const diameterM = parseOsmLengthMeters(el.tags?.diameter || el.tags?.width)
@@ -465,7 +570,7 @@ async function _fetchBuildingsTile(tile, {
     : heights;
   console.info(`[buildings] tile ${key}: ${polygons.length} building(s)`);
   const tileData = { polygons, bboxes, heights: derivedHeights, ids, kinds, holes };
-  if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(_memCache.keys().next().value);
+  if (_memCache.size >= MEM_CACHE_MAX) _memCache.delete(/** @type {string} */ (_memCache.keys().next().value));
   _memCache.set(key, tileData);
   await window.electronAPI.cacheBuildingsStore(key, tileData);
   return tileData;
@@ -474,7 +579,18 @@ async function _fetchBuildingsTile(tile, {
 /**
  * Fetch building footprints within a bounding box.
  * Data is fetched and cached per 0.25° tile — nearby repeaters share the same tile data.
- * @returns {Promise<{ polygons, bboxes, heights, tileIndex }>}
+ * @param {number} latMin
+ * @param {number} latMax
+ * @param {number} lonMin
+ * @param {number} lonMax
+ * @param {Object} [options]
+ * @param {AbortSignal | null} [options.signal]
+ * @param {((p: { source: string, completed: number, total: number }) => void) | null} [options.onProgress]
+ * @param {number} [options.tileConcurrency]
+ * @param {number} [options.datasetBatchConcurrency]
+ * @param {boolean} [options.deriveObstacleHeights]
+ * @param {number} [options.derivationSampleLimit]
+ * @returns {Promise<BuildingsPayload & { ids: string[], kinds: string[] }>}
  */
 export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {}) {
   const {
@@ -488,7 +604,13 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {
   _throwIfAborted(signal);
   const cacheVersion = deriveObstacleHeights ? CACHE_V_DERIVED : CACHE_V_OSM;
   const tiles = _tilesForBboxB(latMin, latMax, lonMin, lonMax, cacheVersion);
-  const polygons = [], bboxes = [], heights = [], ids = [], kinds = [], holes = [];
+  /** @type {Ring[]} */ const polygons = [];
+  /** @type {Bbox[]} */ const bboxes = [];
+  /** @type {number[]} */ const heights = [];
+  /** @type {string[]} */ const ids = [];
+  /** @type {string[]} */ const kinds = [];
+  /** @type {Ring[][]} */ const holes = [];
+  /** @type {Set<string>} */
   const seenMerged = new Set();
   const tileResults = await fetchOsmTileBatch(tiles, {
     signal,
@@ -525,6 +647,16 @@ export async function fetchBuildings(latMin, latMax, lonMin, lonMax, options = {
   return { polygons, bboxes, heights, ids, kinds, holes, tileIndex };
 }
 
+/**
+ * @param {{ tiles: number[][], latMin: number, latSpan: number, lonMin: number, lonSpan: number } | null} tileIndex
+ * @param {Bbox[]} bboxes
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {number} polygonCount
+ * @returns {Iterable<number>}
+ */
 function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCount) {
   const latLo = Math.min(lat1, lat2), latHi = Math.max(lat1, lat2);
   const lonLo = Math.min(lon1, lon2), lonHi = Math.max(lon1, lon2);
@@ -537,6 +669,7 @@ function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCo
   const rMax = Math.max(0, Math.min(TILE_N - 1, Math.floor((latHi - tileIndex.latMin) / tileIndex.latSpan * TILE_N)));
   const cMin = Math.max(0, Math.min(TILE_N - 1, Math.floor((lonLo - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
   const cMax = Math.max(0, Math.min(TILE_N - 1, Math.floor((lonHi - tileIndex.lonMin) / tileIndex.lonSpan * TILE_N)));
+  /** @type {Set<number>} */
   const set = new Set();
   for (let r = Math.min(rMin, rMax); r <= Math.max(rMin, rMax); r++) {
     for (let c = Math.min(cMin, cMax); c <= Math.max(cMin, cMax); c++) {
@@ -554,17 +687,18 @@ function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCo
  * Compute total building attenuation (dB) along a terrain profile path.
  * The ray is attenuated when it passes through a building footprint below the rooftop.
  *
- * @param {Float64Array} profileLats   - latitude of each profile sample
- * @param {Float64Array} profileLons   - longitude of each profile sample
- * @param {number[]|Float32Array}  profileElevs
+ * @param {ArrayLike<number>} profileLats
+ * @param {ArrayLike<number>} profileLons
+ * @param {ArrayLike<number>} profileElevs
  * @param {number}  txAntH
  * @param {number}  rxAntH
- * @param {Array}   polygons
- * @param {Array}   bboxes
- * @param {number[]} heights     - building height (m above terrain) per polygon
- * @param {object|null} tileIndex
+ * @param {Ring[]}   polygons
+ * @param {Bbox[]}   bboxes
+ * @param {ArrayLike<number>} heights     building height (m above terrain) per polygon
+ * @param {{ tiles: number[][], latMin: number, latSpan: number, lonMin: number, lonSpan: number } | null} tileIndex
  * @param {number}  totalDistM
- * @param {number}  lossPerMeterDb
+ * @param {number}  [lossPerMeterDb]
+ * @param {Ring[][]} [holes]
  * @returns {number} total building loss in dB
  */
 export function buildingLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH,
