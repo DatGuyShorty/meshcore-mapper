@@ -1,3 +1,4 @@
+// @ts-check
 import { map, state } from './map.js';
 
 export function getMapViewportMetrics() {
@@ -9,11 +10,18 @@ export function getMapViewportMetrics() {
   };
 }
 
+/**
+ * @param {() => void} handler
+ * @returns {() => void} unsubscribe
+ */
 export function onMapViewportChanged(handler) {
   map.on('zoomend moveend', handler);
   return () => map.off('zoomend moveend', handler);
 }
 
+/**
+ * @param {{ blobUrl: string, bounds: any, opacity: number, repId: string | number }} args
+ */
 export function addCoverageOverlayTile({ blobUrl, bounds, opacity, repId }) {
   const overlay = L.imageOverlay(
     blobUrl,
@@ -22,10 +30,11 @@ export function addCoverageOverlayTile({ blobUrl, bounds, opacity, repId }) {
   ).addTo(map);
   overlay._repeaterId = repId;
   overlay._blobUrl = blobUrl;
-  state.coverageLayers.push(overlay);
+  /** @type {any[]} */ (state.coverageLayers).push(overlay);
   return overlay;
 }
 
+/** @param {number} opacity */
 export function setCoverageLayerOpacity(opacity) {
-  state.coverageLayers.forEach(layer => layer.setOpacity(opacity));
+  /** @type {any[]} */ (state.coverageLayers).forEach((/** @type {any} */ layer) => layer.setOpacity(opacity));
 }

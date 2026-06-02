@@ -1,3 +1,4 @@
+// @ts-check
 import { clampedGridFractions } from './osmGeometry.js';
 
 /**
@@ -8,8 +9,10 @@ import { clampedGridFractions } from './osmGeometry.js';
 
 // ─── Haversine distance (metres) ────────────────────────────────
 /**
- * @param {number} lat1 @param {number} lon1
- * @param {number} lat2 @param {number} lon2
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
  * @returns {number} distance in metres
  */
 export function haversine(lat1, lon1, lat2, lon2) {
@@ -54,28 +57,54 @@ export function fspl(distanceM, freqMHz) {
 export const RE_EFF = 6371000 * (4 / 3); // k = 4/3, standard atmosphere
 
 // P5: cached wavelength and sample-fraction arrays — computed once per unique input, reused thereafter
+/** @type {Map<number, number>} */
 const _lambdaCache = new Map();
+/** @type {Map<number, Float64Array>} */
 const _fracsCache  = new Map();
 
+/** @param {number} freqMHz */
 function _getLambda(freqMHz) {
-  if (!_lambdaCache.has(freqMHz)) _lambdaCache.set(freqMHz, 299792458 / (freqMHz * 1e6));
-  return _lambdaCache.get(freqMHz);
+  let v = _lambdaCache.get(freqMHz);
+  if (v === undefined) {
+    v = 299792458 / (freqMHz * 1e6);
+    _lambdaCache.set(freqMHz, v);
+  }
+  return v;
 }
 
+/** @param {number} n */
 function _getFracs(n) {
-  if (!_fracsCache.has(n)) {
-    const f = new Float64Array(n);
+  let f = _fracsCache.get(n);
+  if (!f) {
+    f = new Float64Array(n);
     for (let i = 0; i < n; i++) f[i] = i / (n - 1);
     _fracsCache.set(n, f);
   }
-  return _fracsCache.get(n);
+  return f;
 }
 
+/**
+ * Knife-edge diffraction loss as a function of the Fresnel-Kirchhoff
+ * parameter v. ITU-R P.526-style approximation.
+ * @param {number} v
+ */
 function _knifeEdgeLossDb(v) {
   if (v <= -0.78) return 0;
   return Math.max(0, 6.9 + 20 * Math.log10(Math.sqrt((v - 0.1) ** 2 + 1) + v - 0.1));
 }
 
+/**
+ * Recursive Deygout multi-edge diffraction over the obstacle-height profile
+ * between sample indices i0..i1.
+ * @param {ArrayLike<number>} obstacleHeights
+ * @param {ArrayLike<number>} distsM
+ * @param {number} lambdaM
+ * @param {number} i0
+ * @param {number} i1
+ * @param {number} h0
+ * @param {number} h1
+ * @returns {number}
+ */
 function _deygoutSectionLoss(obstacleHeights, distsM, lambdaM, i0, i1, h0, h1) {
   if (i1 - i0 < 2) return 0;
 
@@ -107,17 +136,31 @@ function _deygoutSectionLoss(obstacleHeights, distsM, lambdaM, i0, i1, h0, h1) {
   return mainLoss + leftLoss + rightLoss;
 }
 
+/** @param {number} deg */
 function _normalizeAzimuthDeg(deg) {
   let a = deg % 360;
   if (a < 0) a += 360;
   return a;
 }
 
+/**
+ * @param {number} a
+ * @param {number} b
+ */
 function _shortestAngleDiffDeg(a, b) {
   const d = Math.abs(_normalizeAzimuthDeg(a) - _normalizeAzimuthDeg(b));
   return d > 180 ? 360 - d : d;
 }
 
+/**
+ * Initial bearing (azimuth, degrees clockwise from north) from point 1 to
+ * point 2 along a great circle.
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @returns {number}
+ */
 export function bearingDeg(lat1, lon1, lat2, lon2) {
   const phi1 = lat1 * Math.PI / 180;
   const phi2 = lat2 * Math.PI / 180;
@@ -127,6 +170,15 @@ export function bearingDeg(lat1, lon1, lat2, lon2) {
   return _normalizeAzimuthDeg(Math.atan2(y, x) * 180 / Math.PI);
 }
 
+/**
+ * Off-axis antenna pattern attenuation. Accepts either a built-in pattern
+ * key ('omni', 'sector90', 'sector120') or a custom `{hpbwDeg, maxAttenDb}`
+ * shape.
+ * @param {string | { hpbwDeg?: number, maxAttenDb?: number } | null | undefined} pattern
+ * @param {number} boresightDeg
+ * @param {number} targetBearingDeg
+ * @returns {number}
+ */
 export function antennaPatternOffsetDb(pattern, boresightDeg, targetBearingDeg) {
   if (!pattern || pattern === 'omni') return 0;
 
@@ -153,6 +205,30 @@ export function antennaPatternOffsetDb(pattern, boresightDeg, targetBearingDeg) 
   return -attenDb;
 }
 
+/**
+ * @typedef {Object} CheckLoSResult
+ * @property {boolean} los
+ * @property {boolean} geometricLos
+ * @property {boolean} fresnelClear
+ * @property {number} diffractionLossDb
+ * @property {string} diffractionModel
+ * @property {number} minClearanceM
+ * @property {number} minFresnelClearanceRatio
+ */
+
+/**
+ * Check LoS along a pre-sampled terrain profile and compute diffraction loss.
+ * @param {number} txElevM
+ * @param {number} rxElevM
+ * @param {ArrayLike<number>} profileElevs
+ * @param {number} txHeightM
+ * @param {number} rxHeightM
+ * @param {number} totalDistM
+ * @param {number} freqMHz
+ * @param {boolean} useFresnel
+ * @param {string} [diffractionModel]
+ * @returns {CheckLoSResult}
+ */
 export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, totalDistM, freqMHz, useFresnel, diffractionModel = 'knife-edge') {
   const n = profileElevs.length;
   if (n < 2) {
@@ -241,11 +317,26 @@ export function checkLoS(txElevM, rxElevM, profileElevs, txHeightM, rxHeightM, t
   };
 }
 
+/**
+ * Pick a sensible sample count for a terrain profile at a given distance.
+ * @param {number} distanceM
+ * @param {number} [targetSpacingM]
+ * @param {number} [minSamples]
+ * @param {number} [maxSamples]
+ * @returns {number}
+ */
 export function profileSampleCount(distanceM, targetSpacingM = 50, minSamples = 16, maxSamples = 512) {
   if (!Number.isFinite(distanceM) || distanceM <= 0) return minSamples;
   return Math.max(minSamples, Math.min(maxSamples, Math.ceil(distanceM / targetSpacingM) + 1));
 }
 
+/**
+ * Earth-curvature bulge in metres at a fractional position along a path of
+ * `totalDistM` metres, using the standard k=4/3 effective Earth radius.
+ * @param {number} fraction
+ * @param {number} totalDistM
+ * @returns {number}
+ */
 export function earthBulgeM(fraction, totalDistM) {
   const d1 = fraction * totalDistM;
   const d2 = totalDistM - d1;
@@ -259,6 +350,7 @@ export function earthBulgeM(fraction, totalDistM) {
 /**
  * Apply log-normal shadow fading to path loss.
  * @param {number} sigmaDbd - standard deviation of fading (dB); 0 = disabled
+ * @param {string | null} [seedKey] - if provided, switches to deterministic mode for stable reruns
  * @returns {number} shadow fading value (dB), normally distributed with mean 0 and std dev σ
  */
 export function shadowFadingDb(sigmaDbd, seedKey = null) {
@@ -283,6 +375,7 @@ export function shadowFadingDb(sigmaDbd, seedKey = null) {
   return sigmaDbd * z;
 }
 
+/** @param {string} text */
 function _fnv1a32(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
@@ -292,6 +385,7 @@ function _fnv1a32(text) {
   return h >>> 0;
 }
 
+/** @param {number} seed */
 function _unitFromSeed(seed) {
   // LCG step; returns [0, 1).
   const next = (Math.imul(seed >>> 0, 1664525) + 1013904223) >>> 0;
@@ -301,6 +395,19 @@ function _unitFromSeed(seed) {
 // Current: Deygout multi-edge (primary) + single knife-edge fallback lower bound
 // TODO: Rounded obstacle diffraction — smooth transitions for non-sharp peaks
 // TODO: Antenna patterns — directional gain (azimuth/elevation masks) per antenna
+/** @typedef {Array<[number, number]>} Polygon */
+
+/**
+ * Return the [t0, t1] sub-intervals of the line segment (lat1,lon1)→(lat2,lon2)
+ * that lie inside the polygon. Each returned interval is in normalised
+ * line-parameter space (0 = start point, 1 = end point).
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {Polygon} poly
+ * @returns {Array<[number, number]>}
+ */
 export function segmentPolygonIntervals(lat1, lon1, lat2, lon2, poly) {
   if (!poly || poly.length < 3) return [];
 
@@ -325,11 +432,13 @@ export function segmentPolygonIntervals(lat1, lon1, lat2, lon2, poly) {
   }
 
   ts.sort((a, b) => a - b);
+  /** @type {number[]} */
   const uniq = [];
   for (const t of ts) {
     if (uniq.length === 0 || Math.abs(t - uniq[uniq.length - 1]) > 1e-6) uniq.push(t);
   }
 
+  /** @type {Array<[number, number]>} */
   const intervals = [];
   for (let i = 0; i < uniq.length - 1; i++) {
     const a = uniq[i];
@@ -343,6 +452,17 @@ export function segmentPolygonIntervals(lat1, lon1, lat2, lon2, poly) {
   return intervals;
 }
 
+/**
+ * Same as `segmentPolygonIntervals` but subtracts any sub-intervals that fall
+ * inside one or more holes (interior rings of a multipolygon).
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {Polygon} poly
+ * @param {Polygon[]} [holes]
+ * @returns {Array<[number, number]>}
+ */
 export function segmentPolygonIntervalsWithHoles(lat1, lon1, lat2, lon2, poly, holes = []) {
   let intervals = segmentPolygonIntervals(lat1, lon1, lat2, lon2, poly);
   if (!intervals.length || !Array.isArray(holes) || holes.length === 0) return intervals;
@@ -356,9 +476,15 @@ export function segmentPolygonIntervalsWithHoles(lat1, lon1, lat2, lon2, poly, h
   return intervals;
 }
 
+/**
+ * @param {Array<[number, number]>} intervals
+ * @param {Array<[number, number]>} cuts
+ * @returns {Array<[number, number]>}
+ */
 function _subtractIntervals(intervals, cuts) {
   let out = intervals;
   for (const [cutA, cutB] of cuts) {
+    /** @type {Array<[number, number]>} */
     const next = [];
     for (const [a, b] of out) {
       if (cutB <= a || cutA >= b) {
@@ -375,14 +501,9 @@ function _subtractIntervals(intervals, cuts) {
 
 
 // P6: write directly into a Uint8ClampedArray — avoids one [r,g,b,a] allocation per pixel
-/**
- * @param {Uint8ClampedArray} buf  - ImageData buffer
- * @param {number}            base - byte offset (idx * 4)
- * @param {number}            sigDbm
- * @param {number}            rxSens
- */
 // Gradient stops: [normalised 0-1, r, g, b, alpha]
 // 0 = at rxSens (threshold), 1 = strong signal (cap at -70 dBm)
+/** @type {ReadonlyArray<readonly [number, number, number, number, number]>} */
 const GRAD = [
   [0.00, 220,  40,   0, 120],  // red-orange  — just above threshold
   [0.25, 255, 160,   0, 145],  // amber
@@ -391,6 +512,13 @@ const GRAD = [
   [1.00,   0, 200,  90, 180],  // green       — strong signal
 ];
 
+/**
+ * Write a single RGBA pixel into a coverage heatmap buffer.
+ * @param {Uint8ClampedArray} buf  - ImageData buffer
+ * @param {number}            base - byte offset (idx * 4)
+ * @param {number}            sigDbm
+ * @param {number}            rxSens
+ */
 export function writePixel(buf, base, sigDbm, rxSens) {
   if (sigDbm < rxSens) {
     // Below threshold — dark red, semi-transparent
@@ -415,10 +543,14 @@ export function writePixel(buf, base, sigDbm, rxSens) {
 // ─── Bilinear elevation interpolation ───────────────────────────
 /**
  * Sample a flat row-major elevation grid at an arbitrary lat/lon using bilinear interpolation.
- * @param {number} lat @param {number} lon
- * @param {number[]} grid  - flat [row * res + col] elevation array
+ * @param {number} lat
+ * @param {number} lon
+ * @param {ArrayLike<number> | null | undefined} grid  - flat [row * res + col] elevation array
  * @param {number} res     - grid resolution (same for rows and cols)
- * @param {number} latMin @param {number} latMax @param {number} lonMin @param {number} lonMax
+ * @param {number} latMin
+ * @param {number} latMax
+ * @param {number} lonMin
+ * @param {number} lonMax
  * @returns {number} interpolated elevation (m)
  */
 export function bilinearElev(lat, lon, grid, res, latMin, latMax, lonMin, lonMax) {

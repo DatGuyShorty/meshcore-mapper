@@ -1,3 +1,4 @@
+// @ts-check
 import { antennaPatternOffsetDb, bearingDeg, bilinearElev, checkLoS, profileSampleCount } from './propagation.js';
 import { foliageLossDb } from './foliage.js';
 import { buildingLossDb } from './buildings.js';
@@ -6,21 +7,81 @@ export const DEFAULT_PROFILE_TARGET_SPACING_M = 50;
 export const DEFAULT_PROFILE_MIN_SAMPLES = 16;
 export const DEFAULT_PROFILE_MAX_SAMPLES = 512;
 
+/**
+ * @typedef {Object} Bbox
+ * @property {number} latMin
+ * @property {number} latMax
+ * @property {number} lonMin
+ * @property {number} lonMax
+ *
+ * @typedef {Object} TxSpec
+ * @property {number} lat
+ * @property {number} lon
+ * @property {number} height       Antenna height above ground (m)
+ * @property {number} power        TX power (dBm)
+ * @property {number} freq         Frequency (MHz)
+ * @property {number} [gain]       Antenna gain (dBi)
+ * @property {string} [pattern]    Antenna pattern key ('omni', 'sector90', …)
+ * @property {number} [azimuthDeg]
+ * @property {string} [name]
+ * @property {string | number} [id]
+ *
+ * @typedef {Object} ProfileBuffers
+ * @property {Float32Array} elevs
+ * @property {Float64Array} lats
+ * @property {Float64Array} lons
+ *
+ * @typedef {Object} ObstacleSet
+ * @property {Array<Array<[number, number]>>} polygons
+ * @property {Array<Bbox>} bboxes
+ * @property {Float32Array | number[]} [canopyHeights]
+ * @property {Float32Array | number[]} [factors]
+ * @property {Float32Array | number[]} [heights]
+ * @property {any} [tileIndex]
+ * @property {any} [holes]
+ */
+
+/**
+ * Approximate ground distance in metres using a local flat-Earth projection.
+ * Good to ~0.03% for ranges typical of LoRa links; cheap enough to call
+ * hundreds of thousands of times during a grid scan.
+ * @param {unknown} txLat
+ * @param {unknown} txLon
+ * @param {unknown} rxLat
+ * @param {unknown} rxLon
+ * @returns {number}
+ */
 export function flatDistanceM(txLat, txLon, rxLat, rxLon) {
   if (!_hasFiniteLatLon(txLat, txLon) || !_hasFiniteLatLon(rxLat, rxLon)) return Infinity;
+  const txLatN = /** @type {number} */ (txLat);
+  const txLonN = /** @type {number} */ (txLon);
+  const rxLatN = /** @type {number} */ (rxLat);
+  const rxLonN = /** @type {number} */ (rxLon);
   const mPerLat = 110574;
-  const mPerLon = 111320 * Math.cos(txLat * Math.PI / 180);
-  const dLat = (rxLat - txLat) * mPerLat;
-  const dLon = _shortestDeltaLonDeg(rxLon, txLon) * mPerLon;
+  const mPerLon = 111320 * Math.cos(txLatN * Math.PI / 180);
+  const dLat = (rxLatN - txLatN) * mPerLat;
+  const dLon = _shortestDeltaLonDeg(rxLonN, txLonN) * mPerLon;
   return Math.sqrt(dLat * dLat + dLon * dLon);
 }
 
+/**
+ * Constant part of FSPL: `20·log10(f_Hz) − 147.55`.
+ * Returned as a base value the caller adds `20·log10(d_m)` to.
+ * @param {unknown} freqMHz
+ * @returns {number}
+ */
 export function fsplBaseDb(freqMHz) {
   const freq = Number(freqMHz);
   if (!Number.isFinite(freq) || freq <= 0) return Infinity;
   return 20 * Math.log10(freq * 1e6) - 147.55;
 }
 
+/**
+ * Allocate (and pool) reusable typed-array buffers for terrain profile
+ * sampling, so the inner coverage loop doesn't allocate per pixel.
+ * @param {number} [maxSamples]
+ * @returns {ProfileBuffers}
+ */
 export function ensureProfileBuffers(maxSamples = DEFAULT_PROFILE_MAX_SAMPLES) {
   return {
     elevs: new Float32Array(maxSamples),
@@ -29,6 +90,19 @@ export function ensureProfileBuffers(maxSamples = DEFAULT_PROFILE_MAX_SAMPLES) {
   };
 }
 
+/**
+ * Sample the terrain elevation grid along the great-circle line between
+ * (txLat, txLon) and (rxLat, rxLon) into the provided typed-array buffers.
+ * @param {ProfileBuffers} buffers
+ * @param {number} count
+ * @param {number} txLat
+ * @param {number} txLon
+ * @param {number} rxLat
+ * @param {number} rxLon
+ * @param {ArrayLike<number>} elevGrid
+ * @param {number} elevRes
+ * @param {Bbox} bounds
+ */
 export function fillTerrainProfile(buffers, count, txLat, txLon, rxLat, rxLon, elevGrid, elevRes, bounds) {
   for (let s = 0; s < count; s++) {
     const t = s / (count - 1);
@@ -40,6 +114,49 @@ export function fillTerrainProfile(buffers, count, txLat, txLon, rxLat, rxLon, e
   }
 }
 
+/**
+ * @typedef {Object} ComputeSignalArgs
+ * @property {TxSpec} tx
+ * @property {number} txElev
+ * @property {number} rxLat
+ * @property {number} rxLon
+ * @property {number | null} [rxElev]
+ * @property {number | null} [distM]
+ * @property {number | null} [fsplBase]
+ * @property {ArrayLike<number>} elevGrid
+ * @property {number} elevRes
+ * @property {Bbox} bounds
+ * @property {number} rxHeight
+ * @property {number} [rxGain]
+ * @property {string} [rxPattern]
+ * @property {number} [rxAzimuthDeg]
+ * @property {number} [effectiveSens]
+ * @property {boolean} [useLos]
+ * @property {boolean} [useFresnel]
+ * @property {string} [diffractionModel]
+ * @property {ObstacleSet | null} [foliage]
+ * @property {number} [foliageLossPerM]
+ * @property {ObstacleSet | null} [buildings]
+ * @property {number} [buildingLossPerM]
+ * @property {number} [profileTargetSpacingM]
+ * @property {number} [profileMinSamples]
+ * @property {number} [profileMaxSamples]
+ * @property {ProfileBuffers | null} [profileBuffers]
+ *
+ * @typedef {Object} SignalToPointResult
+ * @property {number} rxPower
+ * @property {number} distM
+ * @property {any} los
+ * @property {number} txPatternOffset
+ * @property {number} rxPatternOffset
+ * @property {number} effectiveTxGain
+ * @property {number} effectiveRxGain
+ */
+
+/**
+ * @param {ComputeSignalArgs} args
+ * @returns {SignalToPointResult}
+ */
 export function computeSignalToPoint({
   tx,
   txElev,
@@ -109,7 +226,8 @@ export function computeSignalToPoint({
     if (foliage) {
       rxPower -= foliageLossDb(
         profileLats, profileLons, profile, tx.height, rxHeight,
-        foliage.polygons, foliage.bboxes, foliage.canopyHeights, foliage.factors,
+        foliage.polygons, foliage.bboxes,
+        foliage.canopyHeights ?? [], foliage.factors ?? [],
         foliage.tileIndex, dist, foliageLossPerM, tx.freq, foliage.holes
       );
     }
@@ -117,7 +235,8 @@ export function computeSignalToPoint({
     if (buildings) {
       rxPower -= buildingLossDb(
         profileLats, profileLons, profile, tx.height, rxHeight,
-        buildings.polygons, buildings.bboxes, buildings.heights,
+        buildings.polygons, buildings.bboxes,
+        buildings.heights ?? [],
         buildings.tileIndex, dist, buildingLossPerM, buildings.holes
       );
     }
@@ -126,6 +245,11 @@ export function computeSignalToPoint({
   return { rxPower, distM: dist, los, txPatternOffset, rxPatternOffset, effectiveTxGain, effectiveRxGain };
 }
 
+/**
+ * @param {unknown} lat
+ * @param {unknown} lon
+ * @returns {boolean}
+ */
 function _hasFiniteLatLon(lat, lon) {
   const la = Number(lat);
   const lo = Number(lon);
@@ -137,10 +261,19 @@ function _hasFiniteLatLon(lat, lon) {
     && lo <= 180;
 }
 
+/**
+ * @param {unknown} a
+ * @param {unknown} b
+ * @returns {number}
+ */
 function _shortestDeltaLonDeg(a, b) {
   return ((Number(a) - Number(b) + 540) % 360) - 180;
 }
 
+/**
+ * @param {number} dist
+ * @returns {SignalToPointResult}
+ */
 function _noCoverageResult(dist) {
   return {
     rxPower: -200,

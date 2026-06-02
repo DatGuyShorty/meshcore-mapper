@@ -1,3 +1,4 @@
+// @ts-check
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 import { LORA_REQUIRED_SNR_DB } from './radioMetrics.js';
 
@@ -6,20 +7,57 @@ import { LORA_REQUIRED_SNR_DB } from './radioMetrics.js';
 // modem we assume in the rest of the UI when no preset is selected.
 const FALLBACK_REQUIRED_SNR_DB = LORA_REQUIRED_SNR_DB[11];
 
+/**
+ * Extract a longitude from either a Leaflet-style `{lat, lng}` or a
+ * domain `{lat, lon}` point.
+ * @param {{ lng?: unknown, lon?: unknown } | null | undefined} latlng
+ * @returns {number | undefined}
+ */
 function _lon(latlng) {
-  return Number.isFinite(latlng?.lng) ? latlng.lng : latlng?.lon;
+  const lng = latlng?.lng;
+  if (Number.isFinite(lng)) return /** @type {number} */ (lng);
+  const lon = latlng?.lon;
+  return Number.isFinite(lon) ? /** @type {number} */ (lon) : undefined;
 }
 
+/**
+ * @param {number} lat
+ * @param {number} lon
+ * @param {{ latMin: number, latMax: number, lonMin: number, lonMax: number }} bounds
+ */
 function _insideBounds(lat, lon, bounds) {
   return lat >= bounds.latMin && lat <= bounds.latMax
     && lon >= bounds.lonMin && lon <= bounds.lonMax;
 }
 
-export function inspectCoverageAtPoint(latlng, coverageResults, { limit = 4 } = {}) {
-  const lat = latlng?.lat;
-  const lon = _lon(latlng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+/**
+ * @typedef {Object} CoverageInspectRow
+ * @property {number | string} repId
+ * @property {string} repName
+ * @property {number} rxPower
+ * @property {number} snrDb
+ * @property {number} requiredSnrDb
+ * @property {number} margin
+ * @property {number} distM
+ * @property {any} los
+ * @property {number} threshold
+ */
 
+/**
+ * Inspect the recorded coverage results at a clicked lat/lon, returning a
+ * margin-sorted list of which repeaters cover that point and by how much.
+ * @param {{ lat?: unknown, lng?: unknown, lon?: unknown } | null | undefined} latlng
+ * @param {any[] | null | undefined} coverageResults
+ * @param {{ limit?: number }} [options]
+ * @returns {CoverageInspectRow[]}
+ */
+export function inspectCoverageAtPoint(latlng, coverageResults, { limit = 4 } = {}) {
+  const latRaw = latlng?.lat;
+  const lat = Number.isFinite(latRaw) ? /** @type {number} */ (latRaw) : NaN;
+  const lon = _lon(latlng);
+  if (!Number.isFinite(lat) || lon === undefined) return [];
+
+  /** @type {CoverageInspectRow[]} */
   const rows = [];
   for (const result of coverageResults ?? []) {
     const radiusKm = Number(result?.radiusKm);

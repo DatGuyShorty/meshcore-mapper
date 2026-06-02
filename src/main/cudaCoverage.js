@@ -327,6 +327,41 @@ function _validateObstaclePackedSize({ label, polygons, vertexCount, bboxes, hei
   }
 }
 
+/**
+ * Pull progress + result messages out of a chunk of Python helper stdout.
+ *
+ * Lines that are valid JSON with `type === 'progress'` invoke `onProgress`.
+ * Other valid-JSON objects become the candidate `lastMessage` (the helper
+ * emits its final result on the last line of stdout).
+ *
+ * Non-JSON lines are tolerated and surfaced via `onStrayLine` so the caller
+ * can log them without aborting — earlier versions rejected the whole job
+ * the moment the helper printed an unexpected log line.
+ *
+ * @param {string[]} lines
+ * @param {{ lastMessage: any }} state mutated in place; the last
+ *   non-progress JSON message wins.
+ * @param {{ onProgress?: (msg: any) => void, onStrayLine?: (line: string) => void }} cb
+ */
+function _consumePythonLines(lines, state, { onProgress = null, onStrayLine = null } = {}) {
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let msg;
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      onStrayLine?.(trimmed);
+      continue;
+    }
+    if (msg && typeof msg === 'object' && msg.type === 'progress') {
+      onProgress?.(msg);
+    } else {
+      state.lastMessage = msg;
+    }
+  }
+}
+
 function _runPython(helperPath, args, { jobKey = 'probe', onProgress = null } = {}) {
   return new Promise((resolve, reject) => {
     if (currentChildren[jobKey]) {
@@ -340,26 +375,15 @@ function _runPython(helperPath, args, { jobKey = 'probe', onProgress = null } = 
     });
     currentChildren[jobKey] = child;
     let stdout = '';
-    let lastMessage = null;
     let stderr = '';
+    const parseState = { lastMessage: null };
+    const stray = line => console.warn(`[cuda] ${jobKey}: stray non-JSON line ignored: ${line.slice(0, 200)}`);
+
     child.stdout.on('data', chunk => {
       stdout += chunk.toString();
       const lines = stdout.split(/\r?\n/);
       stdout = lines.pop() ?? '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const msg = JSON.parse(trimmed);
-          if (msg?.type === 'progress') {
-            onProgress?.(msg);
-          } else {
-            lastMessage = msg;
-          }
-        } catch {
-          // Ignore non-JSON progress noise, final parse handles strict return.
-        }
-      }
+      _consumePythonLines(lines, parseState, { onProgress, onStrayLine: stray });
     });
     child.stderr.on('data', chunk => { stderr += chunk.toString(); });
     child.on('error', err => {
@@ -372,20 +396,9 @@ function _runPython(helperPath, args, { jobKey = 'probe', onProgress = null } = 
         reject(new Error(stderr.trim() || `Python CUDA helper exited ${code}`));
         return;
       }
-      try {
-        const trailing = stdout.trim();
-        if (trailing) {
-          const msg = JSON.parse(trailing);
-          if (msg?.type === 'progress') {
-            onProgress?.(msg);
-          } else {
-            lastMessage = msg;
-          }
-        }
-        resolve(lastMessage ?? {});
-      } catch (err) {
-        reject(new Error(`Python CUDA helper returned invalid JSON: ${err.message}`));
-      }
+      const trailing = stdout.trim();
+      if (trailing) _consumePythonLines([trailing], parseState, { onProgress, onStrayLine: stray });
+      resolve(parseState.lastMessage ?? {});
     });
   });
 }
@@ -422,4 +435,4 @@ function _expectFiniteObject(value, name, fields) {
   }
 }
 
-module.exports = { registerCudaCoverageHandlers };
+module.exports = { registerCudaCoverageHandlers, _consumePythonLines };

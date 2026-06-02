@@ -1,7 +1,26 @@
+// @ts-check
 import { createCoverageWorkerPoolJob } from './coverageWorkerPool.js';
 import { obstacleLayerHasHoles } from './osmGeometry.js';
 
+/**
+ * @typedef {Object} CudaProbeResult
+ * @property {boolean} available
+ * @property {string} [reason]
+ * @property {string} [device]
+ *
+ * @typedef {Object} CoverageBackendStatus
+ * @property {CudaProbeResult} cuda
+ *
+ * @typedef {Object} CoverageRunResult
+ * @property {Uint8ClampedArray} rgba
+ * @property {Float32Array} signalGrid
+ * @property {Record<string, any>} stats
+ * @property {'cuda' | 'cpu'} backend
+ */
+
+/** @type {CudaProbeResult} */
 let _cudaStatus = { available: false, reason: 'Not probed yet' };
+/** @type {import('./coverageWorkerPool.js').CoverageWorkerJob | null} */
 let _currentCpuJob = null;
 
 export async function initCoverageBackends() {
@@ -15,12 +34,14 @@ export async function initCoverageBackends() {
   return getCoverageBackendStatus();
 }
 
+/** @returns {CoverageBackendStatus} */
 export function getCoverageBackendStatus() {
   return {
     cuda: _cudaStatus,
   };
 }
 
+/** @param {CoverageBackendStatus} [status] */
 export function formatCoverageBackendStatus(status = getCoverageBackendStatus()) {
   const cuda = status.cuda?.available
     ? `Python CUDA ready (${status.cuda.device || 'device detected'})`
@@ -28,10 +49,16 @@ export function formatCoverageBackendStatus(status = getCoverageBackendStatus())
   return `${cuda}; CPU fallback ready`;
 }
 
+/**
+ * @param {string | null | undefined} preference
+ * @param {CoverageBackendStatus} [caps]
+ * @returns {Array<'cuda' | 'cpu'>}
+ */
 export function resolveBackendOrder(preference, caps = getCoverageBackendStatus()) {
   const pref = preference || 'auto';
   if (pref === 'cuda') return ['cuda', 'cpu'];
   if (pref === 'cpu') return ['cpu'];
+  /** @type {Array<'cuda' | 'cpu'>} */
   const order = [];
   if (caps.cuda?.available) order.push('cuda');
   order.push('cpu');
@@ -46,12 +73,18 @@ export function cancelCoverageCompute() {
   window.electronAPI?.cudaCoverageCancel?.().catch(() => {});
 }
 
+/**
+ * @param {Record<string, any> & { gridRes: number, foliage?: any, buildings?: any }} payload
+ * @param {{ backendPreference?: string, workerCount?: number, signal?: AbortSignal | null, onProgress?: ((p: number | { pct: number, stage?: string }) => void) | null }} [opts]
+ * @returns {Promise<CoverageRunResult>}
+ */
 export async function computeCoverage(payload, {
   backendPreference = 'auto',
   workerCount = 0,
   signal = null,
   onProgress = null,
 } = {}) {
+  /** @type {string[]} */
   const errors = [];
   const order = resolveBackendOrder(backendPreference);
 
@@ -69,7 +102,8 @@ export async function computeCoverage(payload, {
       }
       const result = await _runCpu(payload, { workerCount, onProgress });
       return _validateCoverageResult(result, 'cpu', payload);
-    } catch (err) {
+    } catch (rawErr) {
+      const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
       if (err?.name === 'AbortError' || err?.cancelled) throw err;
       errors.push(`${backend}: ${err?.message || err}`);
       console.warn(`[coverage] ${backend} backend failed:`, err);
@@ -79,6 +113,10 @@ export async function computeCoverage(payload, {
   throw new Error(`All coverage backends failed: ${errors.join('; ')}`);
 }
 
+/**
+ * @param {Record<string, any>} payload
+ * @param {{ signal: AbortSignal | null, onProgress: ((p: { pct: number, stage?: string }) => void) | null }} ctx
+ */
 async function _runCuda(payload, { signal, onProgress }) {
   if (!_cudaStatus.available || !window.electronAPI?.cudaCoverageCompute) {
     return { unsupported: true, message: _cudaStatus.reason || 'Python CUDA unavailable' };
@@ -90,6 +128,7 @@ async function _runCuda(payload, { signal, onProgress }) {
   onProgress?.({ pct: 0.02, stage: 'launching-python' });
   const cancelOnAbort = () => window.electronAPI.cudaCoverageCancel?.().catch(() => {});
   signal?.addEventListener('abort', cancelOnAbort, { once: true });
+  /** @param {any} msg */
   const progressListener = (msg) => {
     const pct = Number(msg?.pct);
     if (!Number.isFinite(pct)) return;
@@ -128,6 +167,12 @@ async function _runCuda(payload, { signal, onProgress }) {
   }
 }
 
+/**
+ * @param {{ rgba?: any, signalGrid?: any, stats?: any }} result
+ * @param {'cuda' | 'cpu'} backend
+ * @param {{ gridRes: number }} payload
+ * @returns {CoverageRunResult}
+ */
 function _validateCoverageResult(result, backend, payload) {
   const rgba = result?.rgba;
   const signalGrid = result?.signalGrid;
@@ -153,6 +198,10 @@ function _validateCoverageResult(result, backend, payload) {
   };
 }
 
+/**
+ * @param {any} payload
+ * @param {{ workerCount: number, onProgress: any }} ctx
+ */
 async function _runCpu(payload, { workerCount, onProgress }) {
   const job = createCoverageWorkerPoolJob(payload, { workerCount, onProgress });
   _currentCpuJob = job;
@@ -164,7 +213,7 @@ async function _runCpu(payload, { workerCount, onProgress }) {
 }
 
 function _abortError() {
-  const err = new Error('Cancelled');
+  const err = /** @type {Error & { cancelled?: boolean }} */ (new Error('Cancelled'));
   err.name = 'AbortError';
   err.cancelled = true;
   return err;

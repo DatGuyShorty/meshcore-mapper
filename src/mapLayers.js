@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * mapLayers.js - Independent OSM overlay layers (foliage, buildings, barriers).
  * These are visual reference layers shown on the map regardless of whether
@@ -14,7 +15,9 @@ let _buildingsEnabled = false;
 let _barriersEnabled = false;
 let _autoRefresh = true;
 let _loading = false;
+/** @type {ReturnType<typeof setTimeout> | null} */
 let _refreshTimer = null;
+/** @type {AbortController | null} */
 let _abortController = null;
 let _suppressStartupRefresh = true;
 
@@ -22,27 +25,42 @@ const DEFAULT_FOLIAGE_OPACITY = 0.18;
 const DEFAULT_BUILDING_OPACITY = 0.45;
 const DEFAULT_BARRIER_OPACITY = 0.35;
 
+/** @type {any} */
 let _polyRenderer = null;
 function _getRenderer() {
   if (!_polyRenderer) _polyRenderer = L.canvas({ padding: 0.1 });
   return _polyRenderer;
 }
 
+/**
+ * @param {string} msg
+ * @param {string} [kind]
+ */
 function _setStatus(msg, kind = 'info') {
   setInlineStatus('layer-status', msg, kind);
 }
 
+/**
+ * @param {string} id
+ * @param {number} fallback
+ */
 export function _opacityFromSlider(id, fallback) {
-  const value = parseFloat(document.getElementById(id)?.value);
+  const el = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
+  const value = parseFloat(el?.value ?? '');
   const pct = Number.isFinite(value) ? value : fallback * 100;
   return Math.max(0, Math.min(1, pct / 100));
 }
 
+/**
+ * @param {number} fillOpacity
+ * @param {number} boost
+ */
 export function _outlineOpacity(fillOpacity, boost) {
   if (fillOpacity <= 0) return 0;
   return Math.min(1, fillOpacity + boost);
 }
 
+/** @type {Record<string, string>} */
 const FOLIAGE_COLORS = {
   forest: '#22c55e',
   wood: '#22c55e',
@@ -64,6 +82,7 @@ const FOLIAGE_COLORS = {
   hedge: '#86efac',
 };
 
+/** @param {string} [kind] */
 export function _foliageStyle(kind = 'forest') {
   const fillOpacity = _opacityFromSlider('foliage-opacity', DEFAULT_FOLIAGE_OPACITY);
   const fillColor = FOLIAGE_COLORS[kind] || FOLIAGE_COLORS.forest;
@@ -78,6 +97,7 @@ export function _foliageStyle(kind = 'forest') {
   };
 }
 
+/** @param {string} fillColor */
 export function _buildingStyle(fillColor) {
   const fillOpacity = _opacityFromSlider('building-opacity', DEFAULT_BUILDING_OPACITY);
   return {
@@ -105,24 +125,25 @@ export function _barrierStyle() {
 }
 
 function _applyFoliageOpacity() {
-  state.foliageLayers.forEach(layer => layer.setStyle(_foliageStyle(layer._foliageKind)));
+  state.foliageLayers.forEach((/** @type {any} */ layer) => layer.setStyle(_foliageStyle(layer._foliageKind)));
 }
 
 function _applyBuildingOpacity() {
   const fillOpacity = _opacityFromSlider('building-opacity', DEFAULT_BUILDING_OPACITY);
   const opacity = _outlineOpacity(fillOpacity, 0.25);
-  state.buildingLayers.forEach(layer => layer.setStyle({ opacity, fillOpacity }));
+  state.buildingLayers.forEach((/** @type {any} */ layer) => layer.setStyle({ opacity, fillOpacity }));
 }
 
 function _applyBarrierOpacity() {
   const style = _barrierStyle();
-  state.barrierLayers.forEach(layer => layer.setStyle(style));
+  state.barrierLayers.forEach((/** @type {any} */ layer) => layer.setStyle(style));
 }
 
+/** @param {AbortSignal} signal */
 async function _loadFoliage(signal) {
   clearFoliageLayers();
   const b = map.getBounds();
-  const deriveObstacleHeights = document.getElementById('obstacle-height-mode')?.value === 'dsm-dem';
+  const deriveObstacleHeights = /** @type {HTMLSelectElement | null} */ (document.getElementById('obstacle-height-mode'))?.value === 'dsm-dem';
   const data = await fetchFoliage(b.getSouth(), b.getNorth(), b.getWest(), b.getEast(), { signal, deriveObstacleHeights });
   for (let i = 0; i < data.polygons.length; i++) {
     if (signal?.aborted) throw _abortError();
@@ -139,11 +160,12 @@ async function _loadFoliage(signal) {
   return data.polygons.length;
 }
 
+/** @param {AbortSignal} signal */
 async function _loadBuildings(signal) {
   clearBuildingLayers();
   clearBarrierLayers();
   const b = map.getBounds();
-  const deriveObstacleHeights = document.getElementById('obstacle-height-mode')?.value === 'dsm-dem';
+  const deriveObstacleHeights = /** @type {HTMLSelectElement | null} */ (document.getElementById('obstacle-height-mode'))?.value === 'dsm-dem';
   const data = await fetchBuildings(b.getSouth(), b.getNorth(), b.getWest(), b.getEast(), { signal, deriveObstacleHeights });
   let buildingCount = 0;
   let barrierCount = 0;
@@ -188,7 +210,7 @@ async function _refresh() {
   _abortController?.abort();
   _abortController = new AbortController();
   const btn = document.getElementById('btn-refresh-layers');
-  const cancelBtn = document.getElementById('btn-cancel-layers');
+  const cancelBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-cancel-layers'));
   setButtonBusy(btn, true, 'Loading...');
   if (cancelBtn) cancelBtn.disabled = false;
   _setStatus('Loading layers...');
@@ -205,7 +227,8 @@ async function _refresh() {
       if (_barriersEnabled) parts.push(`${barrierCount} barrier${barrierCount !== 1 ? 's' : ''}`);
     }
     _setStatus(parts.length ? parts.join(', ') + ' loaded.' : '', parts.length ? 'success' : 'info');
-  } catch (e) {
+  } catch (rawErr) {
+    const e = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
     if (e?.cancelled || e?.name === 'AbortError') {
       _setStatus('Layer refresh cancelled.', 'warning');
     } else {
@@ -221,7 +244,7 @@ async function _refresh() {
 }
 
 function _abortError() {
-  const err = new Error('Cancelled');
+  const err = /** @type {Error & { cancelled?: boolean }} */ (new Error('Cancelled'));
   err.name = 'AbortError';
   err.cancelled = true;
   return err;
@@ -233,18 +256,19 @@ function _scheduleRefresh() {
     return;
   }
   if (!_autoRefresh || (!_foliageEnabled && !_buildingsEnabled && !_barriersEnabled)) return;
-  clearTimeout(_refreshTimer);
+  if (_refreshTimer !== null) clearTimeout(_refreshTimer);
   _refreshTimer = setTimeout(_refresh, 800);
 }
 
 export function init() {
-  const foliageEl = document.getElementById('layer-foliage');
-  const buildingsEl = document.getElementById('layer-buildings');
-  const barriersEl = document.getElementById('layer-barriers');
-  const autoRefreshEl = document.getElementById('layer-auto-refresh');
+  const foliageEl = /** @type {HTMLInputElement | null} */ (document.getElementById('layer-foliage'));
+  const buildingsEl = /** @type {HTMLInputElement | null} */ (document.getElementById('layer-buildings'));
+  const barriersEl = /** @type {HTMLInputElement | null} */ (document.getElementById('layer-barriers'));
+  const autoRefreshEl = /** @type {HTMLInputElement | null} */ (document.getElementById('layer-auto-refresh'));
   const foliageOpacityEl = document.getElementById('foliage-opacity');
   const buildingOpacityEl = document.getElementById('building-opacity');
   const barrierOpacityEl = document.getElementById('barrier-opacity');
+  if (!foliageEl || !buildingsEl || !barriersEl || !autoRefreshEl) return;
 
   _foliageEnabled = foliageEl.checked;
   _buildingsEnabled = buildingsEl.checked;
@@ -252,33 +276,33 @@ export function init() {
   _autoRefresh = autoRefreshEl.checked;
 
   foliageEl.addEventListener('change', async (e) => {
-    _foliageEnabled = e.target.checked;
+    _foliageEnabled = /** @type {HTMLInputElement} */ (e.target).checked;
     if (!_foliageEnabled) { _abortController?.abort(); clearFoliageLayers(); _setStatus(''); return; }
     await _refresh();
   });
 
   buildingsEl.addEventListener('change', async (e) => {
-    _buildingsEnabled = e.target.checked;
+    _buildingsEnabled = /** @type {HTMLInputElement} */ (e.target).checked;
     if (!_buildingsEnabled) { _abortController?.abort(); clearBuildingLayers(); _setStatus(''); return; }
     await _refresh();
   });
 
   barriersEl.addEventListener('change', async (e) => {
-    _barriersEnabled = e.target.checked;
+    _barriersEnabled = /** @type {HTMLInputElement} */ (e.target).checked;
     if (!_barriersEnabled) { _abortController?.abort(); clearBarrierLayers(); _setStatus(''); return; }
     await _refresh();
   });
 
   autoRefreshEl.addEventListener('change', (e) => {
-    _autoRefresh = e.target.checked;
+    _autoRefresh = /** @type {HTMLInputElement} */ (e.target).checked;
   });
 
-  foliageOpacityEl.addEventListener('input', _applyFoliageOpacity);
-  buildingOpacityEl.addEventListener('input', _applyBuildingOpacity);
-  barrierOpacityEl.addEventListener('input', _applyBarrierOpacity);
+  foliageOpacityEl?.addEventListener('input', _applyFoliageOpacity);
+  buildingOpacityEl?.addEventListener('input', _applyBuildingOpacity);
+  barrierOpacityEl?.addEventListener('input', _applyBarrierOpacity);
 
-  document.getElementById('btn-refresh-layers').addEventListener('click', _refresh);
-  document.getElementById('btn-cancel-layers').addEventListener('click', () => _abortController?.abort());
+  document.getElementById('btn-refresh-layers')?.addEventListener('click', _refresh);
+  document.getElementById('btn-cancel-layers')?.addEventListener('click', () => _abortController?.abort());
 
   map.on('moveend', _scheduleRefresh);
   if (_foliageEnabled || _buildingsEnabled || _barriersEnabled) {

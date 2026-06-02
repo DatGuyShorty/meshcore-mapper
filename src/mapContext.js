@@ -1,20 +1,25 @@
+// @ts-check
 import { map, state } from './map.js';
 import { inspectCoverageAtPoint } from './coveragePoint.js';
 import { escHtml } from './ui.js';
 
+/** @param {number} v */
 export function _fmtDb(v) {
   const sign = v >= 0 ? '+' : '';
   return `${sign}${v.toFixed(1)} dB`;
 }
 
+/** @param {number} v */
 export function _fmtDbm(v) {
   return `${v.toFixed(1)} dBm`;
 }
 
+/** @param {number} m */
 export function _fmtDistance(m) {
   return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
 }
 
+/** @param {import('./coveragePoint.js').CoverageInspectRow} row */
 export function _coverageRow(row) {
   const ok = row.margin >= 0;
   const los = row.los
@@ -34,6 +39,7 @@ export function _coverageRow(row) {
   </div>`;
 }
 
+/** @param {{ lat: number, lng: number }} latlng */
 export function _popupContent(latlng) {
   const rows = inspectCoverageAtPoint(latlng, state.coverageResults);
   const hasCoverage = state.coverageResults.length > 0;
@@ -54,13 +60,14 @@ export function _popupContent(latlng) {
   </div>`;
 }
 
+/** @param {{ originalEvent?: any }} event */
 export function _shouldIgnoreMapClick(event) {
   if (event.originalEvent?._meshcoreHandled) return true;
   return map.getContainer().style.cursor === 'crosshair';
 }
 
 export function init() {
-  map.on('click', event => {
+  map.on('click', (/** @type {any} */ event) => {
     if (_shouldIgnoreMapClick(event)) return;
     L.popup({
       className: 'map-context-popup',

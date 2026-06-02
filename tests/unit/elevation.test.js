@@ -90,7 +90,34 @@ describe('elevation helper functions', () => {
       { latitude: 0, longitude: 4 },
       { latitude: 0, longitude: 5 },
     ];
-    _fillNulls(results, points);
+    const stats = _fillNulls(results, points);
     expect(results).toEqual([1, 1, 1, 4, 4, 6]);
+    expect(stats).toEqual({ filledFromNeighbour: 3, defaultedToZero: 0 });
+  });
+
+  it('reports defaulted-to-zero when no neighbour is available', () => {
+    const results = [null, null, null];
+    const points = [
+      { latitude: 1, longitude: 1 },
+      { latitude: 1, longitude: 2 },
+      { latitude: 1, longitude: 3 },
+    ];
+    const stats = _fillNulls(results, points);
+    expect(results).toEqual([0, 0, 0]);
+    expect(stats).toEqual({ filledFromNeighbour: 0, defaultedToZero: 3 });
+  });
+
+  it('reports zero counts when there were no nulls', () => {
+    const results = [10, 20, 30];
+    const points = [
+      { latitude: 0, longitude: 0 },
+      { latitude: 0, longitude: 1 },
+      { latitude: 0, longitude: 2 },
+    ];
+    expect(_fillNulls(results, points)).toEqual({
+      filledFromNeighbour: 0,
+      defaultedToZero: 0,
+    });
+    expect(results).toEqual([10, 20, 30]);
   });
 });

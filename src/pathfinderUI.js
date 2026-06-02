@@ -1,3 +1,4 @@
+// @ts-check
 import { map, state } from './map.js';
 import { findBestPath } from './pathfinder.js';
 import { getP2PSettings } from './settings.js';
@@ -6,11 +7,16 @@ import {
   setProgress, yieldToUI,
 } from './ui.js';
 
+/** @type {any[]} */
 let _pathPolylines = [];
+/** @type {any[]} */
 let _pathMarkers = [];
+/** @type {AbortController | null} */
 let _abortController = null;
+/** @type {'from' | 'to' | null} */
 let _pickTarget = null;
 
+/** @param {'from' | 'to' | null} target */
 function _setPickMode(target) {
   _pickTarget = target;
   const hint = document.getElementById('path-pick-hint');
@@ -31,14 +37,14 @@ function _setPickMode(target) {
 }
 
 export function initPathfinderUI() {
-  document.getElementById('btn-find-path').addEventListener('click', _runPathFinder);
-  document.getElementById('btn-cancel-path').addEventListener('click', () => _abortController?.abort());
-  document.getElementById('btn-path-pick-from').addEventListener('click', () => {
+  document.getElementById('btn-find-path')?.addEventListener('click', _runPathFinder);
+  document.getElementById('btn-cancel-path')?.addEventListener('click', () => _abortController?.abort());
+  document.getElementById('btn-path-pick-from')?.addEventListener('click', () => {
     setActiveTab('planning');
     _refreshPathSelects();
     _setPickMode('from');
   });
-  document.getElementById('btn-path-pick-to').addEventListener('click', () => {
+  document.getElementById('btn-path-pick-to')?.addEventListener('click', () => {
     setActiveTab('planning');
     _refreshPathSelects();
     _setPickMode('to');
@@ -46,24 +52,27 @@ export function initPathfinderUI() {
   document.addEventListener('repeaters:changed', _refreshPathSelects);
   setTimeout(_refreshPathSelects, 0);
 
-  document.addEventListener('path:from-node', e => {
+  document.addEventListener('path:from-node', (/** @type {any} */ e) => {
     setActiveTab('planning');
-    document.querySelectorAll('#tab-planning details.panel').forEach(d => {
-      if (d.querySelector('summary')?.textContent.includes('Best Relay Path')) d.open = true;
+    document.querySelectorAll('#tab-planning details.panel').forEach((/** @type {Element} */ d) => {
+      if (d.querySelector('summary')?.textContent?.includes('Best Relay Path')) {
+        /** @type {HTMLDetailsElement} */ (d).open = true;
+      }
     });
     _refreshPathSelects();
-    const fromSel = document.getElementById('path-from');
+    const fromSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('path-from'));
     if (fromSel) fromSel.value = String(e.detail.id);
-    const toSel = document.getElementById('path-to');
+    const toSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('path-to'));
     if (fromSel && toSel) _ensureDifferentEndpoints(fromSel, toSel);
     _setPickMode(null);
   });
 }
 
+/** @param {{ id: string | number }} r */
 export function handlePathNodePick(r) {
   if (!_pickTarget) return false;
-  const fromSel = document.getElementById('path-from');
-  const toSel = document.getElementById('path-to');
+  const fromSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('path-from'));
+  const toSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('path-to'));
   if (!fromSel || !toSel) return false;
 
   if (_pickTarget === 'from') {
@@ -78,6 +87,10 @@ export function handlePathNodePick(r) {
   return true;
 }
 
+/**
+ * @param {HTMLSelectElement} fromSel
+ * @param {HTMLSelectElement} toSel
+ */
 function _ensureDifferentEndpoints(fromSel, toSel) {
   if (fromSel.value !== toSel.value || toSel.options.length <= 1) return;
   const next = [...toSel.options].find(opt => opt.value !== fromSel.value);
@@ -86,8 +99,8 @@ function _ensureDifferentEndpoints(fromSel, toSel) {
 
 function _refreshPathSelects() {
   const nodes = state.repeaters;
-  const fromSel = document.getElementById('path-from');
-  const toSel = document.getElementById('path-to');
+  const fromSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('path-from'));
+  const toSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('path-to'));
   if (!fromSel || !toSel) return;
 
   const savedFrom = fromSel.value;
@@ -102,7 +115,7 @@ function _refreshPathSelects() {
     return;
   }
 
-  const sorted = [...nodes].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...nodes].sort((/** @type {any} */ a, /** @type {any} */ b) => a.name.localeCompare(b.name));
   for (const r of sorted) {
     fromSel.appendChild(new Option(r.name, String(r.id)));
     toSel.appendChild(new Option(r.name, String(r.id)));
@@ -115,8 +128,8 @@ function _refreshPathSelects() {
 }
 
 function _clearPathLayers() {
-  _pathPolylines.forEach(l => map.removeLayer(l));
-  _pathMarkers.forEach(m => map.removeLayer(m));
+  _pathPolylines.forEach((l) => map.removeLayer(l));
+  _pathMarkers.forEach((m) => map.removeLayer(m));
   _pathPolylines = [];
   _pathMarkers = [];
   state.pathLinks = [];
@@ -127,6 +140,7 @@ function _dispatchLinkChanged() {
   document.dispatchEvent(new CustomEvent('p2p:changed'));
 }
 
+/** @param {number} margin */
 function _marginColor(margin) {
   if (margin >= 15) return '#4ade80';
   if (margin >= 5) return '#86efac';
@@ -135,19 +149,30 @@ function _marginColor(margin) {
   return '#f87171';
 }
 
+/**
+ * @param {string} msg
+ * @param {boolean} [isError]
+ */
 function _setPathStatus(msg, isError = false) {
   const status = document.getElementById('path-status');
+  if (!status) return;
   status.textContent = msg;
   status.className = 'hint' + (isError ? ' hint-error' : '');
   status.classList.remove('hidden');
 }
 
+/**
+ * @param {number} margin
+ * @param {number} distM
+ * @param {number | null | undefined} rxPower
+ */
 function _pathLineLabel(margin, distM, rxPower) {
   const sign = margin >= 0 ? '+' : '';
-  const rxText = Number.isFinite(rxPower) ? ` - ${rxPower.toFixed(1)} dBm` : '';
+  const rxText = Number.isFinite(rxPower) ? ` - ${/** @type {number} */ (rxPower).toFixed(1)} dBm` : '';
   return `<b>${sign}${margin.toFixed(1)} dB</b><br>${(distM / 1000).toFixed(2)} km${rxText}`;
 }
 
+/** @param {import('./pathfinder.js').PathResult} result */
 function _renderPath(result) {
   const { path, bottleneck, numHops, edgeDistances, edgeRxPowers = [] } = result;
   _clearPathLayers();
@@ -156,7 +181,7 @@ function _renderPath(result) {
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1].node;
     const b = path[i].node;
-    const margin = path[i].incomingMargin;
+    const margin = path[i].incomingMargin ?? 0;
     const color = _marginColor(margin);
     const line = L.polyline([[a.lat, a.lon], [b.lat, b.lon]], {
       color,
@@ -193,7 +218,7 @@ function _renderPath(result) {
     _pathMarkers.push(L.marker([node.lat, node.lon], { icon }).addTo(map).bindTooltip(escHtml(node.name), { permanent: false }));
   }
 
-  const latlngs = path.map(p => [p.node.lat, p.node.lon]);
+  const latlngs = path.map((p) => [p.node.lat, p.node.lon]);
   if (latlngs.length > 1) map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40] });
 
   const bottleneckColor = _marginColor(bottleneck);
@@ -216,23 +241,27 @@ function _renderPath(result) {
   }
   html += '</tbody></table>';
 
-  document.getElementById('path-results').innerHTML = html;
+  const resultsEl = document.getElementById('path-results');
+  if (resultsEl) resultsEl.innerHTML = html;
   _setPathStatus(bottleneck >= 0
     ? `Path found - bottleneck +${bottleneck.toFixed(1)} dB`
     : `Path found but link is marginal (${bottleneck.toFixed(1)} dB)`);
 }
 
 async function _runPathFinder() {
-  const fromId = parseInt(document.getElementById('path-from').value);
-  const toId = parseInt(document.getElementById('path-to').value);
+  const fromSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('path-from'));
+  const toSel = /** @type {HTMLSelectElement | null} */ (document.getElementById('path-to'));
+  const fromId = parseInt(fromSel?.value ?? '');
+  const toId = parseInt(toSel?.value ?? '');
   if (isNaN(fromId) || isNaN(toId) || fromId === toId) {
     _setPathStatus('Select two different nodes.', true);
     return;
   }
 
   const p2p = getP2PSettings();
-  const useFresnel = document.getElementById('path-use-fresnel').checked;
+  const useFresnel = /** @type {HTMLInputElement | null} */ (document.getElementById('path-use-fresnel'))?.checked ?? false;
   const startTime = performance.now();
+  /** @param {string} msg */
   const step = (msg) => {
     const elapsed = (performance.now() - startTime).toFixed(1);
     console.info(`[pathfinder] [${elapsed}ms] ${msg}`);
@@ -251,9 +280,11 @@ async function _runPathFinder() {
   }));
 
   _setPathStatus('Computing relay path...');
-  document.getElementById('path-results').innerHTML = '';
+  const resEl = document.getElementById('path-results');
+  if (resEl) resEl.innerHTML = '';
   setButtonBusy('btn-find-path', true, 'Computing...');
-  document.getElementById('btn-cancel-path').disabled = false;
+  const cancelBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-cancel-path'));
+  if (cancelBtn) cancelBtn.disabled = false;
   _abortController = new AbortController();
   setCancelHandler(() => _abortController?.abort());
   setProgress(2, 'Preparing relay path search...');
@@ -283,7 +314,8 @@ async function _runPathFinder() {
     _renderPath(result);
     step(`Complete: hops=${result.numHops}, bottleneck=${result.bottleneck.toFixed(1)} dB, total=${(performance.now() - startTime).toFixed(1)}ms`);
     console.info(`[pathfinder] ${result.numHops}-hop path, bottleneck=${result.bottleneck.toFixed(1)} dB`);
-  } catch (err) {
+  } catch (rawErr) {
+    const err = /** @type {Error & { cancelled?: boolean }} */ (rawErr);
     hideProgress();
     if (err?.cancelled || err?.name === 'AbortError') {
       _setPathStatus('Path search cancelled.', true);
@@ -295,6 +327,7 @@ async function _runPathFinder() {
     _abortController = null;
     setCancelHandler(null);
     setButtonBusy('btn-find-path', false);
-    document.getElementById('btn-cancel-path').disabled = true;
+    const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('btn-cancel-path'));
+    if (btn) btn.disabled = true;
   }
 }

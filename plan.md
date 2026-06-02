@@ -54,6 +54,39 @@ Last reviewed: May 2026.
 
 | ID | What | How |
 |----|------|-----|
+| S1 | CSP meta tag in renderer | `index.html` `<meta http-equiv="Content-Security-Policy">` allowlisting tile/API/WS hosts; inline importmap allowed via SHA-256 hash, no `'unsafe-inline'` |
+| S2 | `setWindowOpenHandler` + `will-navigate` | `src/main/window.js` — external links go through `shell.openExternal`, cross-document navigation blocked, same-document hash/path changes preserved; `sandbox: true` added |
+| S3 | `setPermissionRequestHandler` + `setPermissionCheckHandler` | `main.js` — only `geolocation` allowed, used once on first launch by `src/map.js` |
+| S4 | WS payload length clamping in renderer | `src/repeaterRows.js#normalizeWsRepeaterSnapshot` mirrors `_safeWsRow` caps (name 120, short/lastSeen 80, key 160) |
+| S5 | Inline shell-init script extracted to file | New `src/shellInit.js`; `index.html` `<script>` block removed |
+| C1 | `app.js` concatenated import split onto two lines | `app.js:12` |
+| C2 | Stray `60` between section headers removed from `AGENTS.md` | `AGENTS.md:48` |
+| C3 | `tests/` lint warnings (6 unused vars) renamed to `_`-prefixed | `tests/unit/map.test.js`, `tests/unit/mapAdapter.test.js`, `tests/unit/ui.test.js` |
+| T1 | Playwright per-test timeout raised from 30s → 180s | `playwright.config.cjs` — coverage compute on a fresh terrain cache takes ~80s, so the 30s test timeout could never let inner 120s `expect` calls fire |
+| T2 | Coverage smoke test now checks "≥1 image layer" instead of "exactly 1" | `tests/smoke/workflow-smoke.spec.cjs:187` — large grids render across multiple 1024px tiles; the strict `toHaveCount(1)` assertion failed for any radius/zoom producing >1024 cells |
+| T3 | Multi-step smoke test uses Clear button instead of completing a two-click pick | `tests/smoke/workflow-smoke.spec.cjs:298–306` — the original `map.click()` × 2 path was brittle vs persisted map centre/zoom from prior tests; the completion path is exercised by other tests |
+| T4 | Opt-in renderer console capture in smoke harness | `tests/smoke/electron-app.js` — `SMOKE_VERBOSE=1` pipes renderer console + page errors to stdout for diagnosis |
+| D1 | Rewrite/maintainability plan | New `REWRITE.md` — phased TS migration, layered modules, typed IPC contract, component framework path, CUDA streaming bridge |
+| M2 | WS URL scheme validated upfront | `normalizeWsUrl()` in `src/repeaterRows.js` rejects non-(ws/wss/http/https) URLs with a clear status message; `connectLiveFeed()` in `src/repeaters.js` uses it |
+| M3 | `sql.js` no-op WAL pragmas annotated | `src/main/cacheDb.js` — comment explains the pragmas have no effect on the in-memory engine; kept for parity with a future native sqlite backend |
+| M5 | Tile URL templates owned by `map.js`, not Leaflet's private `_url` | `src/map.js` — new `baseLayerSpecs` map; `getActiveBaseLayerInfo()` reads from it; `mapTileTexture.js` no longer depends on Leaflet internals |
+| T5 | URL guard helpers extracted + tested | `src/main/urlGuards.js` (`isSafeExternalUrl`, `isSameDocument`) + `tests/unit/urlGuards.test.js`; consumed by `src/main/window.js` |
+| T6 | WS payload clamping + URL normalisation under unit test | `tests/unit/repeaterRows.test.js` — +17 unit tests covering length caps, null preservation, scheme upgrades, rejection of `file:`/`javascript:` |
+| B9 | `setEditMode` no longer throws on stale ids | `src/repeaters.js` — early return + `clearEditMode()` if the repeater was removed before the UI got the click |
+| B10 | `cudaCoverage` tolerates stray non-JSON stdout | `src/main/cudaCoverage.js` — new `_consumePythonLines` helper logs strays and resolves with the last valid JSON result; the helper used to reject the whole job on a single bad trailing line |
+| Q1 | `_fillNulls` returns interpolation stats | `src/elevation.js` — `{ filledFromNeighbour, defaultedToZero }` returned and tracked on the per-fetch `stats` object; sets up future user-facing data-quality reporting |
+| T7 | Defensive code under unit test | `tests/unit/elevation.test.js` (+2 tests for fill stats) and new `tests/unit/cudaCoverageLineParser.test.js` (+5 tests for stdout parsing) |
+| TS1 | Phase 0a of `REWRITE.md` — TypeScript as static checker | `tsconfig.json` (`strict`, `allowJs`, `checkJs: false`, `noEmit`), `npm run typecheck` script, `npm run check` now includes typecheck |
+| TS2 | Pure modules opt into `// @ts-check` with JSDoc types | `src/repeaterRows.js`, `src/radioMetrics.js`, `src/main/urlGuards.js`, `src/coverageGrid.js` |
+| TS3 | Physics + link-budget surface under `// @ts-check` | `src/coveragePoint.js`, `src/signalModel.js`, `src/propagation.js`, `src/linkBudget.js`. `src/terrainProfileView.js` exports annotated for cross-file inference |
+| TS4 | OSM geometry + foliage + buildings + elevation under `// @ts-check` | `src/osmGeometry.js`, `src/buildings.js`, `src/foliage.js`, `src/elevation.js`, `src/osmTilePipeline.js`. `signalModel.js` casts dropped now that callees are typed |
+| TS5 | Ambient `window.electronAPI` types | New `src/types/global.d.ts` describing the `preload.js` contextBridge surface so renderer IPC calls are type-checked |
+| TS6 | Pure-ish compute/IO helpers under `// @ts-check` | `src/requestScheduler.js`, `src/scenarios.js`, `src/signalOverlay.js`, `src/optimizer.js`, `src/pathfinder.js` |
+| TS7 | Renderer utilities + workers + backends + presets/settings + 3D terrain under `// @ts-check` | `src/ui.js`, `src/mapAdapter.js`, `src/mapContext.js`, `src/devConsole.js`, `src/settings.js`, `src/settingsPersistence.js`, `src/presets.js`, `src/coverageWorker.js`, `src/optimizerWorker.js`, `src/coverageWorkerPool.js`, `src/coverageBackend.js`, `src/optimizerBackend.js`, `src/mapTileTexture.js`, `src/terrain3dModel.js`. `tsconfig.json` switched to `module: ESNext` + `moduleResolution: bundler` + `moduleDetection: force` so renderer `new Worker(new URL(..., import.meta.url))` type-checks. Added ambient `const L: any;` to `src/types/global.d.ts` for the Leaflet global. |
+| TS8 | UI panels + map singleton + config under `// @ts-check` | `src/map.js`, `src/shellInit.js`, `src/config.js`, `src/mapLayers.js`, `src/optimizerUI.js`, `src/pathfinderUI.js`, `src/repeaters.js`. `src/coverage.js` / `src/p2p.js` / `src/map3d.js` remain JS-only — deferred to Phase 0b TS conversion. |
+| EV1 | Phase 0b — electron-vite bundler | `electron.vite.config.mjs` (main/preload/renderer → `out/`); `main.js` uses `app.getAppPath()`; `window.js` loads `ELECTRON_RENDERER_URL` (dev) or `out/renderer/index.html`; bundled main's local `require('./src/main/*')` fixed via `commonjsOptions.include`; renderer plugin strips importmap + `crossorigin`, keeps leaflet/shellInit verbatim, disables modulePreload; scripts `dev`/`build`/`start`/`smoke` rewired; `out/` gitignored |
+| EV2 | Smoke hardening for persisted state | `clearAllNodes()` resets node list (WS repeaters restore on launch); `setMapView()` pins zoom+radius so coverage grid is bounded. Both in `tests/smoke/smoke-utils.js`. 15/15 smoke green. |
+| MP1 | Multipolygon-hole assignment fix | `holeCandidatesForOuter()` in `src/osmGeometry.js` now confirms point-in-polygon containment, not just bbox overlap, so a clearing is subtracted only from the outer that actually contains it — fixes phantom gaps in C-shaped/disjoint foliage + building outers. Reproducing test in `tests/unit/osmGeometry.test.js`. |
 | B1–B4 | Bug fixes (gain, foliage clear, multi-repeater cache, preset stale) | Various |
 | A1–A3 | Architecture fixes (globals→delegation, storage key migration, elevation fallback) | Various |
 | P1–P11 | Performance (pre-alloc, spatial index, flat-Earth dist, FSPL hoist, λ cache, typed arrays, batch SQL) | Various |

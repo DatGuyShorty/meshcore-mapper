@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 let originalL;
 let originalDocument;
 let originalLocalStorage;
-let originalNavigator;
+let _originalNavigator;
 
-function createFakeLayer(name) {
+function createFakeLayer(_name) {
   return {
     _blobUrl: null,
     _repeaterId: null,
@@ -24,7 +24,7 @@ describe('map module helpers', () => {
     originalL = globalThis.L;
     originalDocument = globalThis.document;
     originalLocalStorage = globalThis.localStorage;
-    originalNavigator = globalThis.navigator;
+    _originalNavigator = globalThis.navigator;
 
     baseLayer = { _url: 'https://test/{z}/{x}/{y}.png', options: { attribution: 'test' } };
     fakeMap = {
@@ -58,10 +58,13 @@ describe('map module helpers', () => {
   });
 
   it('returns active base layer info for the default map layer', () => {
+    void baseLayer; // mocked Leaflet layer is still required for module init
     const info = mapModule.getActiveBaseLayerInfo();
     expect(info.name).toBe('Streets (OSM)');
-    expect(info.url).toBe(baseLayer._url);
-    expect(info.options).toEqual(baseLayer.options);
+    // getActiveBaseLayerInfo() now reads from our own spec map rather than
+    // Leaflet's private layer._url, so it returns the real tile URL.
+    expect(info.url).toBe('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+    expect(info.options).toMatchObject({ maxZoom: 19 });
   });
 
   it('clears coverage overlay tiles and revokes blob URLs', () => {

@@ -29,7 +29,7 @@ describe('map adapter helpers', () => {
     fakeMap.off.mockClear();
     fakeState.coverageLayers = [];
     globalThis.L = {
-      imageOverlay: vi.fn((blobUrl, bounds, options) => {
+      imageOverlay: vi.fn((_blobUrl, _bounds, _options) => {
         const overlay = {
           _repeaterId: null,
           _blobUrl: null,

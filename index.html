@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://server.arcgisonline.com https://*.tile.opentopomap.org https://s3.amazonaws.com; connect-src 'self' https://api.opentopodata.org https://api.open-elevation.com https://overpass-api.de https://overpass.kumi.systems https://s3.amazonaws.com ws: wss:; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-IYtInVG18LvXHnz2b+cX+T8IyWenczFbiPFns4p3Op8='; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none';" />
   <title>MeshCore Coverage Mapper</title>
   <link rel="stylesheet" href="vendor/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
@@ -597,85 +598,13 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "./node_modules/three/build/three.module.js"
+        "three": "./node_modules/three/build/three.module.js",
+        "three/examples/jsm/controls/MapControls.js": "./node_modules/three/examples/jsm/controls/MapControls.js",
+        "three/examples/jsm/controls/OrbitControls.js": "./node_modules/three/examples/jsm/controls/OrbitControls.js"
       }
     }
   </script>
-  <script>
-    (function() {
-      const app = document.getElementById('app');
-      const tabs = document.querySelectorAll('#tab-bar .tab-btn');
-      const panels = document.querySelectorAll('.tab-panel');
-      const drawerTitle = document.getElementById('drawer-title');
-      const toggleBtn = document.getElementById('btn-toggle-sidebar');
-      const titles = {
-        nodes: 'Nodes',
-        map: 'Map Layers',
-        coverage: 'Coverage',
-        planning: 'Planning',
-        settings: 'Settings',
-      };
-      const resizeMapSoon = () => {
-        requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
-        setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
-      };
-
-      function selectTab(btn) {
-        tabs.forEach(t => {
-          t.classList.remove('active');
-          t.setAttribute('aria-selected', 'false');
-        });
-        panels.forEach(p => p.classList.add('hidden'));
-        btn.classList.add('active');
-        btn.setAttribute('aria-selected', 'true');
-        document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
-        drawerTitle.textContent = titles[btn.dataset.tab] || btn.textContent.trim();
-      }
-
-      tabs.forEach(btn => {
-        btn.addEventListener('click', () => selectTab(btn));
-      });
-
-      toggleBtn.addEventListener('click', () => {
-        const collapsed = app.classList.toggle('sidebar-collapsed');
-        toggleBtn.setAttribute('aria-expanded', String(!collapsed));
-        toggleBtn.textContent = collapsed ? 'Show Panel' : 'Hide Panel';
-        resizeMapSoon();
-      });
-    })();
-
-    (function() {
-      const handle = document.getElementById('sidebar-resizer');
-      const app = document.getElementById('app');
-      const storageKey = 'meshcoreMapper_sidebarWidth';
-      const savedWidth = parseInt(localStorage.getItem(storageKey), 10);
-      if (Number.isFinite(savedWidth)) {
-        app.style.setProperty('--sidebar-w', Math.max(280, Math.min(620, savedWidth)) + 'px');
-      }
-      let dragging = false, startX = 0, startW = 0;
-      handle.addEventListener('mousedown', e => {
-        if (app.classList.contains('sidebar-collapsed')) return;
-        dragging = true; startX = e.clientX;
-        startW = parseInt(getComputedStyle(app).getPropertyValue('--sidebar-w'), 10);
-        handle.classList.add('dragging');
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-      });
-      window.addEventListener('mousemove', e => {
-        if (!dragging) return;
-        const w = Math.max(280, Math.min(620, startW + (e.clientX - startX)));
-        app.style.setProperty('--sidebar-w', w + 'px');
-      });
-      window.addEventListener('mouseup', () => {
-        if (!dragging) return;
-        dragging = false;
-        handle.classList.remove('dragging');
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        localStorage.setItem(storageKey, parseInt(getComputedStyle(app).getPropertyValue('--sidebar-w'), 10));
-      });
-    })();
-  </script>
+  <script src="src/shellInit.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
