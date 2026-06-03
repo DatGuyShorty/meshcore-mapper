@@ -2,12 +2,12 @@
 import { writePixel } from './propagation.js';
 
 /**
- * @typedef {'margin' | 'rssi' | 'snr'} CoverageOverlayMode
+ * @typedef {'margin' | 'rssi' | 'snr' | 'los'} CoverageOverlayMode
  * @typedef {readonly [number, number, number, number, number]} GradientStop  Bound dBm/dB, R, G, B, A.
  */
 
 /** @type {ReadonlyArray<CoverageOverlayMode>} */
-export const COVERAGE_OVERLAY_MODES = Object.freeze(['margin', 'rssi', 'snr']);
+export const COVERAGE_OVERLAY_MODES = Object.freeze(['margin', 'rssi', 'snr', 'los']);
 
 /** @type {ReadonlyArray<GradientStop>} */
 const RSSI_GRADIENT = Object.freeze([
@@ -28,6 +28,20 @@ const SNR_GRADIENT = Object.freeze([
 ]);
 
 /**
+ * LoS clearance gradient, keyed on minFresnelClearanceRatio:
+ * <0 obstructed (terrain crosses the direct ray), 0–0.6 partial Fresnel,
+ * 0.6–1 grazing, ≥1 first Fresnel zone clear.
+ * @type {ReadonlyArray<GradientStop>}
+ */
+const LOS_GRADIENT = Object.freeze([
+  [-1.0, 150, 30, 30, 150],  // obstructed — dark red
+  [0.0, 230, 70, 40, 150],   // blocked boundary — red-orange
+  [0.6, 245, 200, 0, 150],   // 60% Fresnel — amber
+  [1.0, 120, 210, 60, 165],  // first Fresnel clear — green
+  [2.0, 0, 200, 130, 175],   // wide clearance — deep green
+]);
+
+/**
  * @param {unknown} mode
  * @returns {CoverageOverlayMode}
  */
@@ -40,7 +54,7 @@ export function normalizeCoverageOverlayMode(mode) {
 /**
  * @param {ArrayLike<number> | null | undefined} signalGrid
  * @param {number} gridRes
- * @param {{ mode?: CoverageOverlayMode, effectiveSens?: number, noiseFloorDbm?: number, requiredSnrWithMarginDb?: number }} [opts]
+ * @param {{ mode?: CoverageOverlayMode, effectiveSens?: number, noiseFloorDbm?: number, requiredSnrWithMarginDb?: number, losGrid?: ArrayLike<number> | null, markNlos?: boolean }} [opts]
  * @returns {Uint8ClampedArray}
  */
 export function colorizeSignalGrid(signalGrid, gridRes, {
@@ -48,6 +62,8 @@ export function colorizeSignalGrid(signalGrid, gridRes, {
   effectiveSens = -133,
   noiseFloorDbm = -115.5,
   requiredSnrWithMarginDb = -17.5,
+  losGrid = null,
+  markNlos = true,
 } = {}) {
   const signal = signalGrid instanceof Float32Array
     ? signalGrid
@@ -56,19 +72,69 @@ export function colorizeSignalGrid(signalGrid, gridRes, {
   if (signal.length !== expected) {
     throw new Error(`Signal grid length mismatch: expected ${expected}, got ${signal.length}`);
   }
+  const los = losGrid && losGrid.length === expected
+    ? (losGrid instanceof Float32Array ? losGrid : new Float32Array(/** @type {ArrayLike<number>} */ (losGrid)))
+    : null;
 
   const out = new Uint8ClampedArray(expected * 4);
   const overlayMode = normalizeCoverageOverlayMode(mode);
+
+  // Dedicated LoS-clearance overlay: colorize the LoS grid directly.
+  if (overlayMode === 'los') {
+    for (let i = 0; i < expected; i++) {
+      _writeLosPixel(out, i * 4, los ? los[i] : NaN);
+    }
+    return out;
+  }
+
   const snrStops = overlayMode === 'snr' ? _snrStops(requiredSnrWithMarginDb) : null;
   for (let i = 0; i < signal.length; i++) {
-    _writeSignalOverlayPixelResolved(out, i * 4, signal[i], {
+    const base = i * 4;
+    _writeSignalOverlayPixelResolved(out, base, signal[i], {
       overlayMode,
       effectiveSens,
       noiseFloorDbm,
       snrStops,
     });
+    // Mark non-LoS (obstructed / diffraction-served) coverage so true LoS stands
+    // out: desaturate + darken visible pixels whose clearance ratio is negative.
+    if (markNlos && los && out[base + 3] > 0) {
+      const ratio = los[i];
+      if (Number.isFinite(ratio) && ratio < 0) _markNlosPixel(out, base);
+    }
   }
   return out;
+}
+
+/**
+ * Colorize one pixel of the LoS-clearance overlay. NaN clearance (no LoS data)
+ * → transparent; finite ratios map through {@link LOS_GRADIENT}.
+ * @param {Uint8ClampedArray} buf
+ * @param {number} base
+ * @param {number} ratio
+ */
+function _writeLosPixel(buf, base, ratio) {
+  if (Number.isNaN(ratio) || ratio === undefined) {
+    buf[base] = 0; buf[base + 1] = 0; buf[base + 2] = 0; buf[base + 3] = 0;
+    return;
+  }
+  const first = LOS_GRADIENT[0][0];
+  const last = LOS_GRADIENT[LOS_GRADIENT.length - 1][0];
+  const clamped = ratio > last ? last : (ratio < first ? first : ratio);
+  _writeGradientPixel(buf, base, clamped, LOS_GRADIENT);
+}
+
+/**
+ * Desaturate + darken a colored pixel to flag non-LoS coverage.
+ * @param {Uint8ClampedArray} buf
+ * @param {number} base
+ */
+function _markNlosPixel(buf, base) {
+  const r = buf[base], g = buf[base + 1], b = buf[base + 2];
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  buf[base] = Math.round(0.45 * r + 0.275 * lum);
+  buf[base + 1] = Math.round(0.45 * g + 0.275 * lum);
+  buf[base + 2] = Math.round(0.45 * b + 0.275 * lum);
 }
 
 /**
@@ -104,6 +170,16 @@ function _writeSignalOverlayPixelResolved(buf, base, rxPower, {
   noiseFloorDbm,
   snrStops,
 }) {
+  // No usable link (beyond radius, or below receiver sensitivity, or not
+  // computed) → fully transparent, so the overlay shows only real coverage
+  // instead of tinting the whole rectangular analysis grid.
+  if (!Number.isFinite(rxPower) || rxPower < effectiveSens) {
+    buf[base] = 0;
+    buf[base + 1] = 0;
+    buf[base + 2] = 0;
+    buf[base + 3] = 0;
+    return;
+  }
   if (overlayMode === 'rssi') {
     _writeGradientPixel(buf, base, rxPower, RSSI_GRADIENT);
   } else if (overlayMode === 'snr' && snrStops) {

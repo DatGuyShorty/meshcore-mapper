@@ -7,7 +7,6 @@ import { writePixel } from './propagation.js';
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
 /** @type {DedicatedWorkerGlobalScope} */
-// eslint-disable-next-line no-restricted-globals
 const ctx = /** @type {any} */ (self);
 
 ctx.onmessage = (/** @type {MessageEvent<any>} */ { data }) => {
@@ -16,6 +15,7 @@ ctx.onmessage = (/** @type {MessageEvent<any>} */ { data }) => {
     gridRes, ELEV_RES, rowStart, rowEnd,
     rep, txElev, latMin, latMax, lonMin, lonMax,
     radiusKm, rxHeight, effectiveSens, useLos, useFresnel,
+    useGroundReflection, reflectionCoeff,
     diffractionModel,
     useFoliage, foliageLossPerM, profileTargetSpacingM, profileMaxSamples, foliage,
     useBuildings, buildingLossPerM, buildings,
@@ -26,6 +26,9 @@ ctx.onmessage = (/** @type {MessageEvent<any>} */ { data }) => {
   const rowCount = rowEnd - rowStart;
   const rgba = new Uint8ClampedArray(rowCount * gridRes * 4);
   const signalGrid = new Float32Array(rowCount * gridRes);
+  // Parallel LoS-clearance grid: per pixel = minFresnelClearanceRatio (>=1 clear,
+  // 0..1 grazing, <0 obstructed). NaN where no LoS data (beyond radius, or LoS off).
+  const losGrid = new Float32Array(rowCount * gridRes);
   const fsplBase = fsplBaseDb(rep.freq);
   const profileBuffers = ensureProfileBuffers(profileMaxSamples);
   const bounds = { latMin, latMax, lonMin, lonMax };
@@ -48,15 +51,17 @@ ctx.onmessage = (/** @type {MessageEvent<any>} */ { data }) => {
 
       if (dist > radiusM) {
         signalGrid[localIdx] = -200;
+        losGrid[localIdx] = NaN;
         writePixel(rgba, localBase, -200, effectiveSens);
         continue;
       }
 
       insidePoints++;
-      const { rxPower } = computeSignalToPoint({
+      const { rxPower, los } = computeSignalToPoint({
         tx: rep, txElev, rxLat: ptLat, rxLon: ptLon,
         distM: dist, fsplBase, elevGrid: gridElevs, elevRes: ELEV_RES, bounds,
         rxHeight, effectiveSens, useLos, useFresnel, diffractionModel,
+        useGroundReflection, reflectionCoeff,
         foliage: useFoliage ? foliage : null,
         foliageLossPerM,
         buildings: useBuildings ? buildings : null,
@@ -65,6 +70,9 @@ ctx.onmessage = (/** @type {MessageEvent<any>} */ { data }) => {
       });
 
       signalGrid[localIdx] = rxPower;
+      losGrid[localIdx] = Number.isFinite(los?.minFresnelClearanceRatio)
+        ? los.minFresnelClearanceRatio
+        : NaN;
       writePixel(rgba, localBase, rxPower, effectiveSens);
     }
 
@@ -80,9 +88,10 @@ ctx.onmessage = (/** @type {MessageEvent<any>} */ { data }) => {
     rowEnd,
     rgbaBuffer: rgba.buffer,
     signalBuffer: signalGrid.buffer,
+    losBuffer: losGrid.buffer,
     stats: {
       computeMs: performance.now() - t0,
       insidePoints,
     },
-  }, [rgba.buffer, signalGrid.buffer]);
+  }, [rgba.buffer, signalGrid.buffer, losGrid.buffer]);
 };

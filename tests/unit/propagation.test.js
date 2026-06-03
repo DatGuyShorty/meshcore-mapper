@@ -11,6 +11,7 @@ import {
   profileSampleCount,
   segmentPolygonIntervals,
   shadowFadingDb,
+  twoRayReflectionGainDb,
   writePixel,
 } from '../../src/propagation.js';
 import { foliageLossDb, weissbergerFoliageLossDb } from '../../src/foliage.js';
@@ -18,6 +19,41 @@ import { foliageLossDb, weissbergerFoliageLossDb } from '../../src/foliage.js';
 describe('propagation math', () => {
   it('computes FSPL at a known LoRa-scale distance', () => {
     expect(fspl(1000, 868)).toBeCloseTo(91.21, 1);
+  });
+
+  describe('two-ray ground reflection', () => {
+    it('returns 0 when disabled or geometry/frequency is invalid', () => {
+      expect(twoRayReflectionGainDb(1000, 10, 2, 868, 0)).toBe(0);
+      expect(twoRayReflectionGainDb(0, 10, 2, 868, 0.7)).toBe(0);
+      expect(twoRayReflectionGainDb(1000, 10, 2, 0, 0.7)).toBe(0);
+    });
+
+    it('stays within the physical bound for the reflection coefficient', () => {
+      const R = 0.7;
+      const peak = 20 * Math.log10(1 + R); // constructive ceiling
+      for (let d = 100; d <= 5000; d += 50) {
+        const g = twoRayReflectionGainDb(d, 30, 2, 868, R);
+        expect(g).toBeGreaterThanOrEqual(-20.001);
+        expect(g).toBeLessThanOrEqual(peak + 0.001);
+      }
+    });
+
+    it('is symmetric in TX and RX heights', () => {
+      expect(twoRayReflectionGainDb(1500, 30, 3, 868, 0.8))
+        .toBeCloseTo(twoRayReflectionGainDb(1500, 3, 30, 868, 0.8), 6);
+    });
+
+    it('produces both constructive and destructive interference across range', () => {
+      let sawGain = false;
+      let sawLoss = false;
+      for (let d = 50; d <= 3000; d += 10) {
+        const g = twoRayReflectionGainDb(d, 30, 5, 868, 0.9);
+        if (g > 0.5) sawGain = true;
+        if (g < -0.5) sawLoss = true;
+      }
+      expect(sawGain).toBe(true);
+      expect(sawLoss).toBe(true);
+    });
   });
 
   it('computes known distances and bearings', () => {

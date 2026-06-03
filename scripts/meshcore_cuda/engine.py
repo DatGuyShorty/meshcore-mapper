@@ -56,6 +56,7 @@ def compute(params_path):
     d_elev = cp.asarray(elev)
     d_rgba = cp.empty(grid_res * grid_res * 4, dtype=cp.uint8)
     d_signal = cp.empty(grid_res * grid_res, dtype=cp.float32)
+    d_los = cp.empty(grid_res * grid_res, dtype=cp.float32)
 
     d_f_verts = cp.asarray(np.asarray(foliage["verts"], dtype=np.float32))
     d_f_offsets = cp.asarray(np.asarray(foliage["offsets"], dtype=np.int32))
@@ -65,6 +66,9 @@ def compute(params_path):
     d_f_tile_offsets = cp.asarray(np.asarray(foliage["tile_offsets"], dtype=np.int32))
     d_f_tile_counts = cp.asarray(np.asarray(foliage["tile_counts"], dtype=np.int32))
     d_f_tile_indices = cp.asarray(np.asarray(foliage["tile_indices"], dtype=np.int32))
+    d_f_hole_verts = cp.asarray(np.asarray(foliage["hole_verts"], dtype=np.float32))
+    d_f_hole_ring_offsets = cp.asarray(np.asarray(foliage["hole_ring_offsets"], dtype=np.int32))
+    d_f_poly_hole_offsets = cp.asarray(np.asarray(foliage["poly_hole_offsets"], dtype=np.int32))
 
     d_b_verts = cp.asarray(np.asarray(buildings["verts"], dtype=np.float32))
     d_b_offsets = cp.asarray(np.asarray(buildings["offsets"], dtype=np.int32))
@@ -73,6 +77,9 @@ def compute(params_path):
     d_b_tile_offsets = cp.asarray(np.asarray(buildings["tile_offsets"], dtype=np.int32))
     d_b_tile_counts = cp.asarray(np.asarray(buildings["tile_counts"], dtype=np.int32))
     d_b_tile_indices = cp.asarray(np.asarray(buildings["tile_indices"], dtype=np.int32))
+    d_b_hole_verts = cp.asarray(np.asarray(buildings["hole_verts"], dtype=np.float32))
+    d_b_hole_ring_offsets = cp.asarray(np.asarray(buildings["hole_ring_offsets"], dtype=np.int32))
+    d_b_poly_hole_offsets = cp.asarray(np.asarray(buildings["poly_hole_offsets"], dtype=np.int32))
     t_upload = time.perf_counter()
     _json({"type": "progress", "stage": "uploading-buffers", "pct": 0.48})
 
@@ -81,7 +88,7 @@ def compute(params_path):
     grid = (math.ceil(grid_res / block[0]), math.ceil(grid_res / block[1]))
     _json({"type": "progress", "stage": "cuda-kernel", "pct": 0.72})
     kernel(grid, block, (
-        d_elev, d_rgba, d_signal,
+        d_elev, d_rgba, d_signal, d_los,
         np.int32(grid_res), np.int32(elev_res),
         np.float32(p["latMin"]), np.float32(p["latMax"]), np.float32(p["lonMin"]), np.float32(p["lonMax"]),
         np.float32(rep["lat"]), np.float32(rep["lon"]), np.float32(p["txElev"]), np.float32(rep["height"]),
@@ -112,6 +119,7 @@ def compute(params_path):
         np.int32(foliage["tile_n"]),
         np.float32(foliage["tile_lat_min"]), np.float32(foliage["tile_lat_span"]),
         np.float32(foliage["tile_lon_min"]), np.float32(foliage["tile_lon_span"]),
+        d_f_hole_verts, d_f_hole_ring_offsets, d_f_poly_hole_offsets,
         np.int32(1 if p.get("useBuildings") else 0),
         np.float32(p.get("buildingLossPerM", 0.5)),
         d_b_verts, d_b_offsets, d_b_bboxes, d_b_heights,
@@ -120,12 +128,17 @@ def compute(params_path):
         np.int32(buildings["tile_n"]),
         np.float32(buildings["tile_lat_min"]), np.float32(buildings["tile_lat_span"]),
         np.float32(buildings["tile_lon_min"]), np.float32(buildings["tile_lon_span"]),
+        d_b_hole_verts, d_b_hole_ring_offsets, d_b_poly_hole_offsets,
+        np.int32(1 if p.get("useGroundReflection") else 0),
+        np.float32(p.get("reflectionCoeff", 0.7)),
     ))
     cp.cuda.Stream.null.synchronize()
     t_kernel = time.perf_counter()
     _json({"type": "progress", "stage": "downloading-result", "pct": 0.9})
     cp.asnumpy(d_rgba).tofile(p["outPath"])
     cp.asnumpy(d_signal).tofile(p["signalPath"])
+    if p.get("losPath"):
+        cp.asnumpy(d_los).tofile(p["losPath"])
     t_download = time.perf_counter()
     _json({
         "ok": True,

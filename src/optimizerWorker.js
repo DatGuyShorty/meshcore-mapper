@@ -7,7 +7,6 @@
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
 /** @type {DedicatedWorkerGlobalScope} */
-// eslint-disable-next-line no-restricted-globals
 const ctx = /** @type {any} */ (self);
 
 ctx.onmessage = function (/** @type {MessageEvent<any>} */ { data }) {
@@ -21,6 +20,8 @@ ctx.onmessage = function (/** @type {MessageEvent<any>} */ { data }) {
     radiusKm:   opts.radiusKm,
     useLos:     opts.useLos,
     useFresnel: opts.useFresnel,
+    useGroundReflection: opts.useGroundReflection,
+    reflectionCoeff: opts.reflectionCoeff,
     diffractionModel: opts.diffractionModel,
     foliage:    opts.useFoliage ? opts.foliage : null,
     foliageLossPerM: opts.foliageLossPerM ?? 0.3,
@@ -147,6 +148,8 @@ function _computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts,
     effectiveSens: opts.rxSens + opts.fadeMargin,
     useLos: opts.useLos,
     useFresnel: opts.useFresnel,
+    useGroundReflection: opts.useGroundReflection,
+    reflectionCoeff: opts.reflectionCoeff,
     diffractionModel: opts.diffractionModel,
     foliage: opts.foliage,
     foliageLossPerM: opts.foliageLossPerM,

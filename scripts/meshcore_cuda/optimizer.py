@@ -28,6 +28,9 @@ def _upload_obstacles(cp, np, packed, with_factors=False):
         "tile_offsets": cp.asarray(np.asarray(packed["tile_offsets"], dtype=np.int32)),
         "tile_counts": cp.asarray(np.asarray(packed["tile_counts"], dtype=np.int32)),
         "tile_indices": cp.asarray(np.asarray(packed["tile_indices"], dtype=np.int32)),
+        "hole_verts": _as_device_float(cp, np, packed["hole_verts"]),
+        "hole_ring_offsets": cp.asarray(np.asarray(packed["hole_ring_offsets"], dtype=np.int32)),
+        "poly_hole_offsets": cp.asarray(np.asarray(packed["poly_hole_offsets"], dtype=np.int32)),
     }
     if with_factors:
         out["factors"] = _as_device_float(cp, np, packed["factors"])
@@ -142,6 +145,7 @@ def compute_optimizer(params_path):
             np.int32(foliage["tile_n"]),
             np.float32(foliage["tile_lat_min"]), np.float32(foliage["tile_lat_span"]),
             np.float32(foliage["tile_lon_min"]), np.float32(foliage["tile_lon_span"]),
+            f_dev["hole_verts"], f_dev["hole_ring_offsets"], f_dev["poly_hole_offsets"],
             np.int32(1 if opts.get("useBuildings") else 0),
             np.float32(opts.get("buildingLossPerM", 0.5)),
             b_dev["verts"], b_dev["offsets"], b_dev["bboxes"], b_dev["heights"],
@@ -150,6 +154,9 @@ def compute_optimizer(params_path):
             np.int32(buildings["tile_n"]),
             np.float32(buildings["tile_lat_min"]), np.float32(buildings["tile_lat_span"]),
             np.float32(buildings["tile_lon_min"]), np.float32(buildings["tile_lon_span"]),
+            b_dev["hole_verts"], b_dev["hole_ring_offsets"], b_dev["poly_hole_offsets"],
+            np.int32(1 if opts.get("useGroundReflection") else 0),
+            np.float32(opts.get("reflectionCoeff", 0.7)),
         ))
         cp.cuda.Stream.null.synchronize()
 
