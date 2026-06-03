@@ -241,6 +241,54 @@ button:active { opacity: 0.7; }
   border-left: 3px solid #61dafb;
 }
 
+/* ===== Coverage Layer List ===== */
+.coverage-layer-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.coverage-layer-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1e2330;
+  border-radius: 5px;
+  padding: 6px 9px;
+  border-left: 3px solid #a78bfa;
+}
+
+.coverage-layer-item .cov-layer-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coverage-layer-item .cov-layer-opacity {
+  width: 70px;
+  flex-shrink: 0;
+}
+
+.coverage-layer-item .cov-layer-del {
+  background: transparent;
+  color: #f87171;
+  padding: 2px 6px;
+  font-size: 13px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.coverage-layer-item .cov-layer-del:hover {
+  background: #3a1f24;
+}
+
 .repeater-item .ri-color {
   width: 10px;
   height: 10px;

@@ -22,7 +22,7 @@
  * @property {string} [pattern]
  * @property {number} [azimuthDeg]
  */
-import { map, state, clearCoverageLayers } from './map.js';
+import { map, state } from './map.js';
 import { confirmAction, escHtml, setStatus } from './ui.js';
 import { handleRepeaterClick, startPickingFrom } from './p2p.js';
 import { runCoverageAnalysis } from './coverage.js';
@@ -290,7 +290,7 @@ function _syncWsRepeaters(data) {
     displayChanged = true;
   }
 
-  if (coverageChanged) clearCoverageLayers();
+  // Coverage layers are persistent snapshots — node changes no longer wipe them.
   if (coverageChanged || displayChanged) {
     renderRepeaterList();
     document.dispatchEvent(new CustomEvent('repeaters:changed'));
@@ -341,7 +341,6 @@ export function disconnectLiveFeed() {
   _syncUndoBtn();
   _wsRepeaterIds.clear();
   if (removed) {
-    clearCoverageLayers();
     renderRepeaterList();
     document.dispatchEvent(new CustomEvent('repeaters:changed'));
   }
@@ -397,8 +396,7 @@ export function addRepeater(name, lat, lon, height, power, freq, gain = 2, optio
         detail: { id: r.id, lat: r.lat, lon: r.lon },
       }));
     }
-    clearCoverageLayers();
-    setStatus('Repeater moved. Click Compute Coverage to refresh.');
+    setStatus('Repeater moved. Existing coverage layers kept; compute to add a fresh one.');
     renderRepeaterList();
   });
 
@@ -433,7 +431,6 @@ export function removeRepeater(id, options = {}) {
   r.marker.remove();
   state.repeaters.splice(idx, 1);
   if (r.fromWs) _wsRepeaterIds.delete(id);
-  if (options.clearCoverage !== false) clearCoverageLayers();
   if (options.render !== false) renderRepeaterList();
   _syncUndoBtn();
   if (options.notify !== false) document.dispatchEvent(new CustomEvent('repeaters:changed'));
@@ -629,9 +626,8 @@ export function init() {
         r.power = power; r.freq = freq; r.gain = gain;
         r.marker.setLatLng([lat, lon]);
         r.marker.setPopupContent(`<b>${escHtml(name)}</b><br>TX: ${power} dBm + ${gain} dBi @ ${freq} MHz<br>Ant. height: ${height} m`);
-        clearCoverageLayers();
         renderRepeaterList();
-        setStatus(`Updated ${name}. Click Compute Coverage to refresh.`);
+        setStatus(`Updated ${name}. Existing coverage layers kept; compute to add a fresh one.`);
       }
       clearEditMode();
       return;
@@ -686,10 +682,9 @@ export function init() {
   });
 
   document.getElementById('btn-clear-nodes')?.addEventListener('click', () => {
-    if (!confirmAction('Clear all nodes and coverage overlays?')) return;
+    if (!confirmAction('Clear all nodes? Coverage layers are kept — delete them from the Coverage panel.')) return;
     clearEditMode();
     [...state.repeaters].forEach((/** @type {Repeater} */ r) => removeRepeater(r.id, { render: false, clearCoverage: false, notify: false }));
-    clearCoverageLayers();
     _lastRemoved = null;
     _syncUndoBtn();
     renderRepeaterList();

@@ -12,8 +12,20 @@ import {
   addCoverageOverlayTile,
   getMapViewportMetrics,
   onMapViewportChanged,
-  setCoverageLayerOpacity,
+  setCoverageTileOpacityByLayer,
+  setCoverageTileVisibilityByLayer,
+  removeCoverageTilesByLayer,
 } from './mapAdapter.js';
+import {
+  persistLayerData,
+  deleteLayerData,
+  loadAllLayerData,
+  clearAllLayerData,
+  readLayerPrefs,
+  writeLayerPref,
+  deleteLayerPref,
+  clearAllLayerPrefs,
+} from './coveragePersistence.js';
 import {
   setProgress, hideProgress, setStatus, yieldToUI, setCancelHandler,
   setButtonBusy, setInlineStatus,
@@ -156,7 +168,6 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
     } : null,
   }));
   console.info(`[coverage] starting analysis - ${active.length} repeater(s), radius=${runtimeRadiusKm} km, zoom=${_mapZoom}, ~${_mapMPerPx.toFixed(1)} m/px, grid=${gridRes}x${gridRes} (zoom-matched, mult=${settings.qualityMult})`);
-  clearCoverageLayers();
   setProgress(2, 'Initialising grid...');
 
   const repBboxes = active.map(rep => coverageBbox(rep, runtimeRadiusKm));
@@ -366,9 +377,7 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
         gridRes,
         directionalMask,
       };
-      state.coverageResults.push(coverageResult);
-      await _renderCoverageOverlay(coverageResult);
-      _dispatchCoverageChanged();
+      await _addCoverageLayer(coverageResult);
       metrics.renderMs += performance.now() - renderStart;
       step(`${rep.name}: overlay rendered`);
       console.debug(`[coverage] ${rep.name}: rendered ${gridRes}x${gridRes} signal overlay`);
@@ -539,6 +548,8 @@ async function _renderCoverageOverlay(result) {
   const { signalGrid, losGrid, gridRes } = result;
   const { latMin, latMax, lonMin, lonMax } = result.bounds ?? result;
   const repId = result.rep?.id ?? result.repId;
+  const layerId = result.layerId ?? null;
+  const visible = result.visible !== false;
   const rgba = colorizeSignalGrid(signalGrid, gridRes, {
     mode: getCoverageOverlayMode(),
     effectiveSens: result.effectiveSens,
@@ -550,8 +561,7 @@ async function _renderCoverageOverlay(result) {
   for (let i = 3; i < rgba.length; i += 4) {
     if (rgba[i] > 0) nonZeroAlpha++;
   }
-  const opacitySlider = document.getElementById('coverage-opacity');
-  const rawOpacity = opacitySlider ? parseFloat(opacitySlider.value) / 100 : 0.65;
+  const rawOpacity = Number.isFinite(result.opacity) ? result.opacity : _defaultLayerOpacity();
   const opacity = Number.isFinite(rawOpacity) ? Math.max(0.05, Math.min(1, rawOpacity)) : 0.65;
 
   const rowDen = Math.max(1, gridRes - 1);
@@ -594,6 +604,8 @@ async function _renderCoverageOverlay(result) {
         bounds: [[bottom, left], [top, right]],
         opacity,
         repId,
+        layerId,
+        visible,
       });
       tileCount++;
     }
@@ -603,6 +615,194 @@ async function _renderCoverageOverlay(result) {
     `[coverage] overlay added: ${gridRes}x${gridRes}, tiles=${tileCount}, ` +
     `nonZeroAlpha=${nonZeroAlpha.toLocaleString()}, opacity=${opacity}`
   );
+}
+
+function _defaultLayerOpacity() {
+  const slider = /** @type {HTMLInputElement | null} */ (document.getElementById('coverage-opacity'));
+  const raw = slider ? parseFloat(slider.value) / 100 : 0.65;
+  return Number.isFinite(raw) ? Math.max(0.05, Math.min(1, raw)) : 0.65;
+}
+
+function _makeLayerLabel(result) {
+  const t = new Date(result.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const bits = [`${result.radiusKm}km`, `${result.gridRes}px`];
+  if (result.useLos) bits.push('LoS');
+  if (result.foliage) bits.push('foliage');
+  if (result.useBuildings) bits.push('bldg');
+  if (result.directionalMask) bits.push('dir');
+  return `${result.rep?.name ?? 'Node'} · ${bits.join(' ')} · ${t}`;
+}
+
+/**
+ * Strip non-persistable / oversized fields before writing a layer to storage.
+ * Foliage and building payloads are dropped (heavy polygon arrays); restored
+ * layers fall back to grid sampling for point inspection.
+ */
+function _serializeLayer(result) {
+  const { foliage: _foliage, buildings: _buildings, ...rest } = result;
+  return rest;
+}
+
+/**
+ * Register a freshly computed coverage result as a new persistent layer:
+ * assign identity + UI state, render it, and persist its grid data.
+ */
+async function _addCoverageLayer(result) {
+  result.layerId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `cov_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  result.createdAt = Date.now();
+  result.label = _makeLayerLabel(result);
+  result.opacity = _defaultLayerOpacity();
+  result.visible = true;
+  state.coverageResults.push(result);
+  await _renderCoverageOverlay(result);
+  persistLayerData(_serializeLayer(result)).catch(err => console.warn('[coverage] persist failed:', err));
+  _dispatchCoverageChanged();
+  renderCoverageLayerList();
+}
+
+/** Reload persisted coverage layers from storage and render them. */
+export async function restoreCoverageLayers() {
+  let records;
+  try {
+    records = await loadAllLayerData();
+  } catch (err) {
+    console.warn('[coverage] restore failed:', err);
+    return;
+  }
+  if (!records.length) return;
+  const prefs = readLayerPrefs();
+  records.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  for (const rec of records) {
+    rec.foliage = null;
+    rec.buildings = null;
+    const p = prefs[rec.layerId] || {};
+    rec.opacity = Number.isFinite(p.opacity) ? p.opacity : (Number.isFinite(rec.opacity) ? rec.opacity : 0.65);
+    rec.visible = p.visible !== false;
+    state.coverageResults.push(rec);
+    await _renderCoverageOverlay(rec);
+  }
+  _dispatchCoverageChanged();
+  renderCoverageLayerList();
+  console.info(`[coverage] restored ${records.length} coverage layer(s) from storage`);
+}
+
+function _setLayerVisible(layerId, visible) {
+  const r = state.coverageResults.find((/** @type {any} */ x) => x.layerId === layerId);
+  if (r) r.visible = visible;
+  setCoverageTileVisibilityByLayer(layerId, visible);
+  writeLayerPref(layerId, { visible });
+  _dispatchCoverageChanged();
+}
+
+function _setLayerOpacity(layerId, opacity) {
+  const r = state.coverageResults.find((/** @type {any} */ x) => x.layerId === layerId);
+  if (r) r.opacity = opacity;
+  setCoverageTileOpacityByLayer(layerId, opacity);
+  writeLayerPref(layerId, { opacity });
+}
+
+function _setAllLayersOpacity(opacity) {
+  for (const r of state.coverageResults) {
+    r.opacity = opacity;
+    setCoverageTileOpacityByLayer(r.layerId, opacity);
+    writeLayerPref(r.layerId, { opacity });
+  }
+  renderCoverageLayerList();
+}
+
+function _deleteCoverageLayer(layerId) {
+  removeCoverageTilesByLayer(layerId);
+  state.coverageResults = state.coverageResults.filter((/** @type {any} */ x) => x.layerId !== layerId);
+  deleteLayerData(layerId).catch(err => console.warn('[coverage] delete persist failed:', err));
+  deleteLayerPref(layerId);
+  _dispatchCoverageChanged();
+  renderCoverageLayerList();
+}
+
+/** Remove every coverage layer from the map and from durable storage. */
+function clearAllCoverageLayers() {
+  clearCoverageLayers(); // removes tiles + resets state.coverageResults + dispatches
+  clearAllLayerData().catch(err => console.warn('[coverage] clear persist failed:', err));
+  clearAllLayerPrefs();
+  renderCoverageLayerList();
+}
+
+export function renderCoverageLayerList() {
+  const ul = document.getElementById('coverage-layer-list');
+  if (!ul) return;
+  ul.textContent = '';
+  if (state.coverageResults.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'empty-msg';
+    li.textContent = 'No coverage layers yet. Compute coverage to add one.';
+    ul.appendChild(li);
+    return;
+  }
+  for (const r of state.coverageResults) {
+    const li = document.createElement('li');
+    li.className = 'coverage-layer-item';
+    li.dataset.layerId = r.layerId;
+
+    const vis = document.createElement('input');
+    vis.type = 'checkbox';
+    vis.className = 'cov-layer-vis';
+    vis.checked = r.visible !== false;
+    vis.title = 'Show / hide this layer';
+
+    const label = document.createElement('span');
+    label.className = 'cov-layer-label';
+    label.textContent = r.label ?? _makeLayerLabel(r);
+    label.title = label.textContent;
+
+    const opacity = document.createElement('input');
+    opacity.type = 'range';
+    opacity.className = 'cov-layer-opacity';
+    opacity.min = '5';
+    opacity.max = '100';
+    opacity.step = '5';
+    opacity.value = String(Math.round((Number.isFinite(r.opacity) ? r.opacity : 0.65) * 100));
+    opacity.title = 'Layer opacity';
+
+    const del = document.createElement('button');
+    del.className = 'cov-layer-del btn-icon';
+    del.textContent = '✕';
+    del.title = 'Delete this layer';
+
+    li.append(vis, label, opacity, del);
+    ul.appendChild(li);
+  }
+}
+
+function _initCoverageLayerListUi() {
+  const ul = document.getElementById('coverage-layer-list');
+  if (!ul) return;
+  ul.addEventListener('change', e => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    const li = target.closest('.coverage-layer-item');
+    const layerId = /** @type {HTMLElement | null} */ (li)?.dataset.layerId;
+    if (!layerId) return;
+    if (target.classList.contains('cov-layer-vis')) {
+      _setLayerVisible(layerId, /** @type {HTMLInputElement} */ (target).checked);
+    }
+  });
+  ul.addEventListener('input', e => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    if (!target.classList.contains('cov-layer-opacity')) return;
+    const li = target.closest('.coverage-layer-item');
+    const layerId = /** @type {HTMLElement | null} */ (li)?.dataset.layerId;
+    if (!layerId) return;
+    const opacity = parseFloat(/** @type {HTMLInputElement} */ (target).value) / 100;
+    if (Number.isFinite(opacity)) _setLayerOpacity(layerId, opacity);
+  });
+  ul.addEventListener('click', e => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    if (!target.classList.contains('cov-layer-del')) return;
+    const li = target.closest('.coverage-layer-item');
+    const layerId = /** @type {HTMLElement | null} */ (li)?.dataset.layerId;
+    if (layerId) _deleteCoverageLayer(layerId);
+  });
 }
 
 function _throwIfCancelled() {
@@ -859,10 +1059,14 @@ export function init() {
   updateLegendLabels();
 
   document.getElementById('coverage-opacity')?.addEventListener('input', e => {
-    const opacity = parseFloat(e.target.value) / 100;
-    setCoverageLayerOpacity(opacity);
+    const opacity = parseFloat(/** @type {HTMLInputElement} */ (e.target).value) / 100;
+    if (!Number.isFinite(opacity)) return;
+    _setAllLayersOpacity(Math.max(0.05, Math.min(1, opacity)));
     _dispatchCoverageChanged();
   });
+
+  _initCoverageLayerListUi();
+  restoreCoverageLayers().catch(err => console.warn('[coverage] restore failed:', err));
 
   const foliageToggle = document.getElementById('use-foliage');
   const foliageRow = document.getElementById('foliage-loss-per-m').closest('label');
@@ -895,9 +1099,9 @@ export function init() {
   toggleReflectionControls();
 
   document.getElementById('btn-clear-coverage').addEventListener('click', () => {
-    clearCoverageLayers();
+    clearAllCoverageLayers();
     setStatus('Coverage cleared.');
-    setInlineStatus('coverage-status', 'Coverage overlay cleared.', 'info');
+    setInlineStatus('coverage-status', 'All coverage layers cleared.', 'info');
   });
 }
 
