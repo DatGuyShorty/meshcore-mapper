@@ -5,7 +5,9 @@ import { deriveRadioMetrics, selectedModemText } from './radioMetrics.js';
 export const COVERAGE_SETTING_IDS = [
   'scenario-profile', 'compute-backend', 'obstacle-height-mode',
   'rx-height', 'rx-sensitivity', 'fade-margin', 'analysis-radius', 'grid-res',
-  'use-los', 'use-fresnel', 'use-reflection', 'reflection-coeff', 'use-foliage', 'foliage-loss-per-m',
+  'use-los', 'use-fresnel', 'use-reflection', 'reflection-model',
+  'reflection-coeff', 'side-reflection-coeff', 'reflection-corridor-width-m',
+  'use-foliage', 'foliage-loss-per-m',
   'use-buildings', 'building-loss-per-m',
   'compute-worker-count',
   'dataset-batch-concurrency',
@@ -71,6 +73,16 @@ function checked(id) {
 
 /**
  * @param {string} id
+ * @param {string} fallback
+ * @param {ReadonlyArray<string>} allowed
+ */
+function selectValue(id, fallback, allowed) {
+  const value = /** @type {HTMLSelectElement | null} */ (document.getElementById(id))?.value || fallback;
+  return allowed.includes(value) ? value : fallback;
+}
+
+/**
+ * @param {string} id
  * @param {number} fallback
  * @param {number} min
  * @param {number} max
@@ -104,7 +116,10 @@ export function getCoverageSettings() {
     useLos: checked('use-los'),
     useFresnel: checked('use-fresnel'),
     useGroundReflection: checked('use-reflection'),
+    reflectionModel: selectValue('reflection-model', 'two-ray', ['two-ray', 'six-ray', 'facade']),
     reflectionCoeff: num('reflection-coeff', 0.7),
+    sideReflectionCoeff: num('side-reflection-coeff', 0.35),
+    reflectionCorridorWidthM: num('reflection-corridor-width-m', 24),
     useFoliage: checked('use-foliage'),
     foliageLossPerM: num('foliage-loss-per-m', 0.3),
     useBuildings: checked('use-buildings'),
@@ -165,7 +180,10 @@ export function getOptimizerSettings() {
       useLos: checked('use-los'),
       useFresnel: checked('use-fresnel'),
       useGroundReflection: checked('use-reflection'),
+      reflectionModel: selectValue('reflection-model', 'two-ray', ['two-ray', 'six-ray', 'facade']),
       reflectionCoeff: num('reflection-coeff', 0.7),
+      sideReflectionCoeff: num('side-reflection-coeff', 0.35),
+      reflectionCorridorWidthM: num('reflection-corridor-width-m', 24),
       useFoliage: checked('use-foliage'),
       foliageLossPerM: num('foliage-loss-per-m', 0.3),
       useBuildings: checked('use-buildings'),

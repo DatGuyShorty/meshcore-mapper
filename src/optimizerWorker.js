@@ -12,6 +12,7 @@ const ctx = /** @type {any} */ (self);
 ctx.onmessage = function (/** @type {MessageEvent<any>} */ { data }) {
   const { evalPoints, evalElevs, candidates, candidateElevs, nRepeaters, txParams, opts } = data;
   const { height, power, freq, gain } = txParams;
+  const needsFacadeBuildings = opts.useLos && opts.useGroundReflection && opts.reflectionModel === 'facade';
 
   const scoreOpts = {
     rxHeight:   opts.rxHeight,
@@ -21,11 +22,15 @@ ctx.onmessage = function (/** @type {MessageEvent<any>} */ { data }) {
     useLos:     opts.useLos,
     useFresnel: opts.useFresnel,
     useGroundReflection: opts.useGroundReflection,
+    reflectionModel: opts.reflectionModel,
     reflectionCoeff: opts.reflectionCoeff,
+    sideReflectionCoeff: opts.sideReflectionCoeff,
+    reflectionCorridorWidthM: opts.reflectionCorridorWidthM,
     diffractionModel: opts.diffractionModel,
     foliage:    opts.useFoliage ? opts.foliage : null,
     foliageLossPerM: opts.foliageLossPerM ?? 0.3,
-    buildings:  opts.useBuildings ? opts.buildings : null,
+    buildings:  (opts.useBuildings || needsFacadeBuildings) ? opts.buildings : null,
+    applyBuildingLoss: opts.useBuildings,
     buildingLossPerM: opts.buildingLossPerM ?? 0.5,
     gridRes:    opts.evalRes,
     latMin:     opts.latMin,
@@ -149,11 +154,15 @@ function _computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts,
     useLos: opts.useLos,
     useFresnel: opts.useFresnel,
     useGroundReflection: opts.useGroundReflection,
+    reflectionModel: opts.reflectionModel,
     reflectionCoeff: opts.reflectionCoeff,
+    sideReflectionCoeff: opts.sideReflectionCoeff,
+    reflectionCorridorWidthM: opts.reflectionCorridorWidthM,
     diffractionModel: opts.diffractionModel,
     foliage: opts.foliage,
     foliageLossPerM: opts.foliageLossPerM,
     buildings: opts.buildings,
+    applyBuildingLoss: opts.applyBuildingLoss,
     buildingLossPerM: opts.buildingLossPerM,
     profileTargetSpacingM: opts.profileTargetSpacingM,
     profileMaxSamples: opts.profileMaxSamples,

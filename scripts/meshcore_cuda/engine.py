@@ -12,6 +12,14 @@ def _json(obj):
     print(json.dumps(obj), flush=True)
 
 
+def _reflection_model_id(value):
+    if value == "six-ray":
+        return 2
+    if value == "facade":
+        return 3
+    return 1
+
+
 def probe():
     try:
         import cupy as cp
@@ -130,7 +138,10 @@ def compute(params_path):
         np.float32(buildings["tile_lon_min"]), np.float32(buildings["tile_lon_span"]),
         d_b_hole_verts, d_b_hole_ring_offsets, d_b_poly_hole_offsets,
         np.int32(1 if p.get("useGroundReflection") else 0),
+        np.int32(_reflection_model_id(p.get("reflectionModel"))),
         np.float32(p.get("reflectionCoeff", 0.7)),
+        np.float32(p.get("sideReflectionCoeff", 0.35)),
+        np.float32(p.get("reflectionCorridorWidthM", 24.0)),
     ))
     cp.cuda.Stream.null.synchronize()
     t_kernel = time.perf_counter()

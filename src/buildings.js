@@ -699,10 +699,11 @@ function _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygonCo
  * @param {number}  totalDistM
  * @param {number}  [lossPerMeterDb]
  * @param {Ring[][]} [holes]
+ * @param {number}  [skipPolygonIndex]
  * @returns {number} total building loss in dB
  */
 export function buildingLossDb(profileLats, profileLons, profileElevs, txAntH, rxAntH,
-                               polygons, bboxes, heights, tileIndex, totalDistM, lossPerMeterDb = DEFAULT_WALL_LOSS_DB_PER_M, holes = []) {
+                               polygons, bboxes, heights, tileIndex, totalDistM, lossPerMeterDb = DEFAULT_WALL_LOSS_DB_PER_M, holes = [], skipPolygonIndex = -1) {
   if (!polygons || polygons.length === 0) return 0;
   const n = profileLats.length;
   const segLen = totalDistM / (n - 1);
@@ -715,6 +716,7 @@ export function buildingLossDb(profileLats, profileLons, profileElevs, txAntH, r
     const lat2 = profileLats[si + 1], lon2 = profileLons[si + 1];
     const candidates = _segmentCandidates(tileIndex, bboxes, lat1, lon1, lat2, lon2, polygons.length);
     for (const i of candidates) {
+      if (i === skipPolygonIndex) continue;
       const intervals = segmentPolygonIntervalsWithHoles(lat1, lon1, lat2, lon2, polygons[i], holes?.[i]);
       for (const [a, b] of intervals) {
         const f = (a + b) / 2;

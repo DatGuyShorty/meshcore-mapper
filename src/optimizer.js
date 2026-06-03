@@ -35,6 +35,11 @@
  * @property {boolean} [useFoliage]
  * @property {boolean} [useBuildings]
  * @property {string}  [diffractionModel]
+ * @property {boolean | undefined} [useGroundReflection]
+ * @property {string | undefined} [reflectionModel]
+ * @property {number | undefined} [reflectionCoeff]
+ * @property {number | undefined} [sideReflectionCoeff]
+ * @property {number | undefined} [reflectionCorridorWidthM]
  * @property {number}  [candidateRes]
  * @property {number}  [evalRes]
  * @property {number}  [foliageLossPerM]
@@ -56,7 +61,10 @@
  * @property {boolean | undefined} useLos
  * @property {boolean | undefined} useFresnel
  * @property {boolean | undefined} [useGroundReflection]
+ * @property {string | undefined} [reflectionModel]
  * @property {number | undefined} [reflectionCoeff]
+ * @property {number | undefined} [sideReflectionCoeff]
+ * @property {number | undefined} [reflectionCorridorWidthM]
  * @property {string | undefined}  diffractionModel
  * @property {number}  gridRes
  * @property {number}  latMin
@@ -69,18 +77,19 @@
  * @property {number | undefined} foliageLossPerM
  * @property {ObstacleSet | null} buildings
  * @property {number | undefined} buildingLossPerM
- */
+ * @property {boolean | undefined} applyBuildingLoss
+  */
 import { fetchElevations } from './elevation.js';
 import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
 import { computeSignalToPoint, ensureProfileBuffers, flatDistanceM, fsplBaseDb } from './signalModel.js';
 
 /**
- * @param {{ useLos?: boolean, useFoliage?: boolean, useBuildings?: boolean }} [opts]
+ * @param {{ useLos?: boolean, useFoliage?: boolean, useBuildings?: boolean, useGroundReflection?: boolean, reflectionModel?: string }} [opts]
  * @returns {boolean}
  */
 export function optimizerNeedsTerrain(opts = {}) {
-  return Boolean(opts.useLos || opts.useFoliage || opts.useBuildings);
+  return Boolean(opts.useLos || opts.useFoliage || opts.useBuildings || (opts.useLos && opts.useGroundReflection && opts.reflectionModel === 'facade'));
 }
 
 /**
@@ -120,20 +129,22 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
 
   let foliage = null;
   let buildings = null;
-  if (opts.useFoliage || opts.useBuildings) {
+  const needsFacadeBuildings = opts.useLos && opts.useGroundReflection && opts.reflectionModel === 'facade';
+  const needsBuildings = opts.useBuildings || needsFacadeBuildings;
+  if (opts.useFoliage || needsBuildings) {
     progress(12, 'Fetching obstacle layers...');
     [foliage, buildings] = await Promise.all([
       opts.useFoliage
         ? fetchFoliage(latMin, latMax, lonMin, lonMax)
             .catch(e => { console.warn('[optimizer] foliage fetch failed, skipping:', e); return null; })
         : Promise.resolve(null),
-      opts.useBuildings
+      needsBuildings
         ? fetchBuildings(latMin, latMax, lonMin, lonMax)
             .catch(e => { console.warn('[optimizer] buildings fetch failed, skipping:', e); return null; })
         : Promise.resolve(null),
     ]);
     if (opts.useFoliage && !foliage) progress(18, 'Warning: foliage loss requested but vegetation data was unavailable.');
-    if (opts.useBuildings && !buildings) progress(18, 'Warning: building loss requested but structure data was unavailable.');
+    if (needsBuildings && !buildings) progress(18, 'Warning: structure data was unavailable.');
   }
 
   progress(20, 'Scoring candidate locations…');
@@ -142,6 +153,11 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
   /** @type {ScoreOpts} */
   const scoreOpts = {
     rxHeight, rxSens, fadeMargin, radiusKm, useLos, useFresnel,
+    useGroundReflection: opts.useGroundReflection,
+    reflectionModel: opts.reflectionModel,
+    reflectionCoeff: opts.reflectionCoeff,
+    sideReflectionCoeff: opts.sideReflectionCoeff,
+    reflectionCorridorWidthM: opts.reflectionCorridorWidthM,
     diffractionModel: opts.diffractionModel,
     gridRes: evalRes,
     latMin, latMax, lonMin, lonMax,
@@ -151,6 +167,7 @@ export async function findBestLocations(bounds, nRepeaters, txParams, opts, onPr
     foliageLossPerM: opts.foliageLossPerM,
     buildings: /** @type {ObstacleSet | null} */ (buildings),
     buildingLossPerM: opts.buildingLossPerM,
+    applyBuildingLoss: opts.useBuildings,
   };
 
   // ── Greedy incremental search ──
@@ -305,11 +322,15 @@ function computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts, 
     useLos: opts.useLos,
     useFresnel: opts.useFresnel,
     useGroundReflection: opts.useGroundReflection,
+    reflectionModel: opts.reflectionModel,
     reflectionCoeff: opts.reflectionCoeff,
+    sideReflectionCoeff: opts.sideReflectionCoeff,
+    reflectionCorridorWidthM: opts.reflectionCorridorWidthM,
     diffractionModel: opts.diffractionModel,
     foliage: opts.foliage,
     foliageLossPerM: opts.foliageLossPerM,
     buildings: opts.buildings,
+    applyBuildingLoss: opts.applyBuildingLoss,
     buildingLossPerM: opts.buildingLossPerM,
     profileTargetSpacingM: opts.profileTargetSpacingM,
     profileMaxSamples: opts.profileMaxSamples,

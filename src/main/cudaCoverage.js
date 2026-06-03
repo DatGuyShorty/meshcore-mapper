@@ -79,7 +79,12 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
         useFresnel: payload.useFresnel,
         useDeygout: Boolean(payload.useDeygout || payload.diffractionModel === 'deygout'),
         useGroundReflection: Boolean(payload.useGroundReflection),
+        reflectionModel: payload.reflectionModel === 'six-ray' || payload.reflectionModel === 'facade'
+          ? payload.reflectionModel
+          : 'two-ray',
         reflectionCoeff: Number.isFinite(payload.reflectionCoeff) ? payload.reflectionCoeff : 0.7,
+        sideReflectionCoeff: Number.isFinite(payload.sideReflectionCoeff) ? payload.sideReflectionCoeff : 0.35,
+        reflectionCorridorWidthM: Number.isFinite(payload.reflectionCorridorWidthM) ? payload.reflectionCorridorWidthM : 24,
         useFoliage: payload.useFoliage,
         useBuildings: payload.useBuildings,
         profileTargetSpacingM: payload.profileTargetSpacingM,

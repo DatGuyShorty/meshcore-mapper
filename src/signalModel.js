@@ -1,5 +1,5 @@
 // @ts-check
-import { antennaPatternOffsetDb, bearingDeg, bilinearElev, checkLoS, profileSampleCount, twoRayReflectionGainDb } from './propagation.js';
+import { antennaPatternOffsetDb, bearingDeg, bilinearElev, checkLoS, coherentFieldGainDb, profileSampleCount, sixRayReflectionGainDb, traceBuildingFacadeRays, twoRayReflectionGainDb } from './propagation.js';
 import { foliageLossDb } from './foliage.js';
 import { buildingLossDb } from './buildings.js';
 
@@ -134,12 +134,17 @@ export function fillTerrainProfile(buffers, count, txLat, txLon, rxLat, rxLon, e
  * @property {boolean} [useLos]
  * @property {boolean} [useFresnel]
  * @property {boolean} [useGroundReflection]
+ * @property {string} [reflectionModel]
  * @property {number} [reflectionCoeff]
+ * @property {number} [sideReflectionCoeff]
+ * @property {number} [reflectionCorridorWidthM]
  * @property {string} [diffractionModel]
  * @property {ObstacleSet | null} [foliage]
  * @property {number} [foliageLossPerM]
+ * @property {boolean} [applyFoliageLoss]
  * @property {ObstacleSet | null} [buildings]
  * @property {number} [buildingLossPerM]
+ * @property {boolean} [applyBuildingLoss]
  * @property {number} [profileTargetSpacingM]
  * @property {number} [profileMinSamples]
  * @property {number} [profileMaxSamples]
@@ -178,12 +183,17 @@ export function computeSignalToPoint({
   useLos = true,
   useFresnel = false,
   useGroundReflection = false,
+  reflectionModel = 'two-ray',
   reflectionCoeff = 0.7,
+  sideReflectionCoeff = 0.35,
+  reflectionCorridorWidthM = 24,
   diffractionModel = 'knife-edge',
   foliage = null,
   foliageLossPerM = 0.3,
+  applyFoliageLoss = true,
   buildings = null,
   buildingLossPerM = 0.5,
+  applyBuildingLoss = true,
   profileTargetSpacingM = DEFAULT_PROFILE_TARGET_SPACING_M,
   profileMinSamples = DEFAULT_PROFILE_MIN_SAMPLES,
   profileMaxSamples = DEFAULT_PROFILE_MAX_SAMPLES,
@@ -220,37 +230,351 @@ export function computeSignalToPoint({
     const profileLats = buffers.lats.subarray(0, sampleCount);
     const profileLons = buffers.lons.subarray(0, sampleCount);
     const rxGroundElev = rxElev ?? bilinearElev(rxLat, rxLon, elevGrid, elevRes, bounds.latMin, bounds.latMax, bounds.lonMin, bounds.lonMax);
+    const txAbsElev = txElev + tx.height;
+    const rxAbsElev = rxGroundElev + rxHeight;
+    const directFoliageLoss = applyFoliageLoss && foliage
+      ? foliageLossDb(
+          profileLats, profileLons, profile, tx.height, rxHeight,
+          foliage.polygons, foliage.bboxes,
+          foliage.canopyHeights ?? [], foliage.factors ?? [],
+          foliage.tileIndex, dist, foliageLossPerM, tx.freq, foliage.holes
+        )
+      : 0;
+    const directBuildingLoss = applyBuildingLoss && buildings
+      ? buildingLossDb(
+          profileLats, profileLons, profile, tx.height, rxHeight,
+          buildings.polygons, buildings.bboxes,
+          buildings.heights ?? [],
+          buildings.tileIndex, dist, buildingLossPerM, buildings.holes
+        )
+      : 0;
+    let directObstacleLossHandledByReflection = false;
 
     if (useLos) {
       los = checkLoS(txElev, rxGroundElev, profile, tx.height, rxHeight, dist, tx.freq, useFresnel, diffractionModel);
       rxPower -= los.diffractionLossDb;
       if (!los.geometricLos && los.diffractionLossDb > 60) rxPower = Math.min(rxPower, effectiveSens - 10);
-      // Ground reflection (2-ray) only on clear (geometric-LoS) paths.
+      // Reflection multipath only on clear geometric-LoS paths.
       if (useGroundReflection && los.geometricLos) {
-        rxPower += twoRayReflectionGainDb(dist, tx.height, rxHeight, tx.freq, reflectionCoeff);
+        if (reflectionModel === 'facade') {
+          rxPower += _buildingFacadeMultipathGainDb({
+            tx,
+            txAbsElev,
+            rxLat,
+            rxLon,
+            rxAbsElev,
+            rxHeight,
+            distM: dist,
+            directObstacleLossDb: directFoliageLoss + directBuildingLoss,
+            reflectionCoeff,
+            sideReflectionCoeff,
+            buildings,
+            foliage,
+            applyFoliageLoss,
+            applyBuildingLoss,
+            foliageLossPerM,
+            buildingLossPerM,
+            elevGrid,
+            elevRes,
+            bounds,
+            profileTargetSpacingM,
+            profileMinSamples,
+            profileMaxSamples,
+          });
+          directObstacleLossHandledByReflection = true;
+        } else {
+          rxPower += reflectionModel === 'six-ray'
+            ? sixRayReflectionGainDb(
+                dist,
+                tx.height,
+                rxHeight,
+                tx.freq,
+                reflectionCoeff,
+                sideReflectionCoeff,
+                reflectionCorridorWidthM
+              )
+            : twoRayReflectionGainDb(dist, tx.height, rxHeight, tx.freq, reflectionCoeff);
+        }
       }
     }
 
-    if (foliage) {
-      rxPower -= foliageLossDb(
-        profileLats, profileLons, profile, tx.height, rxHeight,
-        foliage.polygons, foliage.bboxes,
-        foliage.canopyHeights ?? [], foliage.factors ?? [],
-        foliage.tileIndex, dist, foliageLossPerM, tx.freq, foliage.holes
-      );
-    }
-
-    if (buildings) {
-      rxPower -= buildingLossDb(
-        profileLats, profileLons, profile, tx.height, rxHeight,
-        buildings.polygons, buildings.bboxes,
-        buildings.heights ?? [],
-        buildings.tileIndex, dist, buildingLossPerM, buildings.holes
-      );
+    if (!directObstacleLossHandledByReflection) {
+      rxPower -= directFoliageLoss + directBuildingLoss;
     }
   }
 
   return { rxPower, distM: dist, los, txPatternOffset, rxPatternOffset, effectiveTxGain, effectiveRxGain };
+}
+
+/**
+ * @param {Object} args
+ * @param {TxSpec} args.tx
+ * @param {number} args.txAbsElev
+ * @param {number} args.rxLat
+ * @param {number} args.rxLon
+ * @param {number} args.rxAbsElev
+ * @param {number} args.rxHeight
+ * @param {number} args.distM
+ * @param {number} args.directObstacleLossDb
+ * @param {number} args.reflectionCoeff
+ * @param {number} args.sideReflectionCoeff
+ * @param {ObstacleSet | null} args.buildings
+ * @param {ObstacleSet | null} args.foliage
+ * @param {boolean} args.applyFoliageLoss
+ * @param {boolean} args.applyBuildingLoss
+ * @param {number} args.foliageLossPerM
+ * @param {number} args.buildingLossPerM
+ * @param {ArrayLike<number>} args.elevGrid
+ * @param {number} args.elevRes
+ * @param {Bbox} args.bounds
+ * @param {number} args.profileTargetSpacingM
+ * @param {number} args.profileMinSamples
+ * @param {number} args.profileMaxSamples
+ * @returns {number}
+ */
+function _buildingFacadeMultipathGainDb({
+  tx,
+  txAbsElev,
+  rxLat,
+  rxLon,
+  rxAbsElev,
+  rxHeight,
+  distM,
+  directObstacleLossDb,
+  reflectionCoeff,
+  sideReflectionCoeff,
+  buildings,
+  foliage,
+  applyFoliageLoss,
+  applyBuildingLoss,
+  foliageLossPerM,
+  buildingLossPerM,
+  elevGrid,
+  elevRes,
+  bounds,
+  profileTargetSpacingM,
+  profileMinSamples,
+  profileMaxSamples,
+}) {
+  const directPathM = Math.hypot(distM, txAbsElev - rxAbsElev);
+  const directCoeff = _fieldCoeffFromLossDb(directObstacleLossDb);
+  /** @type {Array<{ pathM: number, coeff: number }>} */
+  const paths = [{ pathM: directPathM, coeff: directCoeff }];
+  const groundR = _clampUnit(reflectionCoeff);
+  const wallR = _clampUnit(sideReflectionCoeff);
+  if (groundR > 0) {
+    paths.push({
+      pathM: Math.hypot(distM, tx.height + rxHeight),
+      coeff: -groundR * directCoeff,
+    });
+  }
+
+  if (wallR > 0 && buildings?.polygons?.length) {
+    const facadeRays = traceBuildingFacadeRays({
+      txLat: tx.lat,
+      txLon: tx.lon,
+      txAbsElevM: txAbsElev,
+      rxLat,
+      rxLon,
+      rxAbsElevM: rxAbsElev,
+      buildings,
+      elevGrid,
+      elevRes,
+      bounds,
+    });
+    if (facadeRays.length) {
+      const legBuffers = ensureProfileBuffers(profileMaxSamples);
+      for (const ray of facadeRays) {
+        const rayObstacleLoss = _facadeRayObstacleLossDb(ray, {
+          tx,
+          txAbsElev,
+          rxLat,
+          rxLon,
+          rxAbsElev,
+          buildings,
+          foliage,
+          applyFoliageLoss,
+          applyBuildingLoss,
+          foliageLossPerM,
+          buildingLossPerM,
+          elevGrid,
+          elevRes,
+          bounds,
+          profileTargetSpacingM,
+          profileMinSamples,
+          profileMaxSamples,
+          legBuffers,
+        });
+        paths.push({
+          pathM: ray.pathM,
+          coeff: -wallR * _fieldCoeffFromLossDb(rayObstacleLoss),
+        });
+      }
+    }
+  }
+
+  return coherentFieldGainDb(paths, directPathM, tx.freq, 0.0001);
+}
+
+/**
+ * @param {import('./propagation.js').FacadeRay} ray
+ * @param {Object} args
+ * @param {TxSpec} args.tx
+ * @param {number} args.txAbsElev
+ * @param {number} args.rxLat
+ * @param {number} args.rxLon
+ * @param {number} args.rxAbsElev
+ * @param {ObstacleSet | null} args.buildings
+ * @param {ObstacleSet | null} args.foliage
+ * @param {boolean} args.applyFoliageLoss
+ * @param {boolean} args.applyBuildingLoss
+ * @param {number} args.foliageLossPerM
+ * @param {number} args.buildingLossPerM
+ * @param {ArrayLike<number>} args.elevGrid
+ * @param {number} args.elevRes
+ * @param {Bbox} args.bounds
+ * @param {number} args.profileTargetSpacingM
+ * @param {number} args.profileMinSamples
+ * @param {number} args.profileMaxSamples
+ * @param {ProfileBuffers} args.legBuffers
+ */
+function _facadeRayObstacleLossDb(ray, args) {
+  return _legObstacleLossDb({
+    startLat: args.tx.lat,
+    startLon: args.tx.lon,
+    startAbsElevM: args.txAbsElev,
+    endLat: ray.lat,
+    endLon: ray.lon,
+    endAbsElevM: ray.reflectionAbsElevM,
+    buildings: args.buildings,
+    foliage: args.foliage,
+    applyFoliageLoss: args.applyFoliageLoss,
+    applyBuildingLoss: args.applyBuildingLoss,
+    foliageLossPerM: args.foliageLossPerM,
+    buildingLossPerM: args.buildingLossPerM,
+    freqMHz: args.tx.freq,
+    skipBuildingIndex: ray.buildingIndex,
+    elevGrid: args.elevGrid,
+    elevRes: args.elevRes,
+    bounds: args.bounds,
+    profileTargetSpacingM: args.profileTargetSpacingM,
+    profileMinSamples: args.profileMinSamples,
+    profileMaxSamples: args.profileMaxSamples,
+    buffers: args.legBuffers,
+  }) + _legObstacleLossDb({
+    startLat: ray.lat,
+    startLon: ray.lon,
+    startAbsElevM: ray.reflectionAbsElevM,
+    endLat: args.rxLat,
+    endLon: args.rxLon,
+    endAbsElevM: args.rxAbsElev,
+    buildings: args.buildings,
+    foliage: args.foliage,
+    applyFoliageLoss: args.applyFoliageLoss,
+    applyBuildingLoss: args.applyBuildingLoss,
+    foliageLossPerM: args.foliageLossPerM,
+    buildingLossPerM: args.buildingLossPerM,
+    freqMHz: args.tx.freq,
+    skipBuildingIndex: ray.buildingIndex,
+    elevGrid: args.elevGrid,
+    elevRes: args.elevRes,
+    bounds: args.bounds,
+    profileTargetSpacingM: args.profileTargetSpacingM,
+    profileMinSamples: args.profileMinSamples,
+    profileMaxSamples: args.profileMaxSamples,
+    buffers: args.legBuffers,
+  });
+}
+
+/**
+ * @param {Object} args
+ * @param {number} args.startLat
+ * @param {number} args.startLon
+ * @param {number} args.startAbsElevM
+ * @param {number} args.endLat
+ * @param {number} args.endLon
+ * @param {number} args.endAbsElevM
+ * @param {ObstacleSet | null} args.buildings
+ * @param {ObstacleSet | null} args.foliage
+ * @param {boolean} args.applyFoliageLoss
+ * @param {boolean} args.applyBuildingLoss
+ * @param {number} args.foliageLossPerM
+ * @param {number} args.buildingLossPerM
+ * @param {number} args.freqMHz
+ * @param {number} args.skipBuildingIndex
+ * @param {ArrayLike<number>} args.elevGrid
+ * @param {number} args.elevRes
+ * @param {Bbox} args.bounds
+ * @param {number} args.profileTargetSpacingM
+ * @param {number} args.profileMinSamples
+ * @param {number} args.profileMaxSamples
+ * @param {ProfileBuffers} args.buffers
+ * @returns {number}
+ */
+function _legObstacleLossDb({
+  startLat,
+  startLon,
+  startAbsElevM,
+  endLat,
+  endLon,
+  endAbsElevM,
+  buildings,
+  foliage,
+  applyFoliageLoss,
+  applyBuildingLoss,
+  foliageLossPerM,
+  buildingLossPerM,
+  freqMHz,
+  skipBuildingIndex,
+  elevGrid,
+  elevRes,
+  bounds,
+  profileTargetSpacingM,
+  profileMinSamples,
+  profileMaxSamples,
+  buffers,
+}) {
+  const dist = flatDistanceM(startLat, startLon, endLat, endLon);
+  if (!Number.isFinite(dist) || dist <= 1) return 0;
+  const maxSamples = Math.min(profileMaxSamples, buffers.elevs.length);
+  const sampleCount = profileSampleCount(dist, profileTargetSpacingM, profileMinSamples, maxSamples);
+  fillTerrainProfile(buffers, sampleCount, startLat, startLon, endLat, endLon, elevGrid, elevRes, bounds);
+  const profile = buffers.elevs.subarray(0, sampleCount);
+  const profileLats = buffers.lats.subarray(0, sampleCount);
+  const profileLons = buffers.lons.subarray(0, sampleCount);
+  const startHeight = Math.max(0, startAbsElevM - profile[0]);
+  const endHeight = Math.max(0, endAbsElevM - profile[sampleCount - 1]);
+  let loss = 0;
+  if (applyFoliageLoss && foliage) {
+    loss += foliageLossDb(
+      profileLats, profileLons, profile, startHeight, endHeight,
+      foliage.polygons, foliage.bboxes,
+      foliage.canopyHeights ?? [], foliage.factors ?? [],
+      foliage.tileIndex, dist, foliageLossPerM, freqMHz, foliage.holes
+    );
+  }
+  if (applyBuildingLoss && buildings) {
+    loss += buildingLossDb(
+      profileLats, profileLons, profile, startHeight, endHeight,
+      buildings.polygons, buildings.bboxes,
+      buildings.heights ?? [],
+      buildings.tileIndex, dist, buildingLossPerM, buildings.holes, skipBuildingIndex
+    );
+  }
+  return loss;
+}
+
+/** @param {number} lossDb */
+function _fieldCoeffFromLossDb(lossDb) {
+  const loss = Number(lossDb);
+  if (!Number.isFinite(loss) || loss <= 0) return 1;
+  return 10 ** (-loss / 20);
+}
+
+/** @param {number} value */
+function _clampUnit(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
 }
 
 /**

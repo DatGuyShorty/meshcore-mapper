@@ -31,6 +31,35 @@ function _insideBounds(lat, lon, bounds) {
 }
 
 /**
+ * Read the rxPower the heatmap was actually painted from, by sampling the stored
+ * signal grid at the clicked cell. This is the source of truth for what the user
+ * sees; recomputing on the CPU can diverge from the grid (e.g. CUDA vs CPU
+ * backend), so prefer the grid whenever it is available.
+ * @param {any} result a coverage result with `signalGrid`, `gridRes`, `bounds`
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {number} the grid dBm value, or NaN if the grid is missing/out of range
+ */
+function _sampleSignalGrid(result, lat, lon) {
+  const grid = result?.signalGrid;
+  const gridRes = Number(result?.gridRes);
+  const bounds = result?.bounds;
+  if (!grid || typeof grid.length !== 'number' || !Number.isInteger(gridRes) || gridRes < 1 || !bounds) {
+    return NaN;
+  }
+  if (!_insideBounds(lat, lon, bounds)) return NaN;
+  const den = Math.max(1, gridRes - 1);
+  // Grid rows run north→south (latMax at row 0), columns west→east — matching the
+  // coverage kernel's pixel mapping.
+  const rf = (bounds.latMax - lat) / Math.max(1e-12, bounds.latMax - bounds.latMin);
+  const cf = (lon - bounds.lonMin) / Math.max(1e-12, bounds.lonMax - bounds.lonMin);
+  const row = Math.round(Math.min(1, Math.max(0, rf)) * den);
+  const col = Math.round(Math.min(1, Math.max(0, cf)) * den);
+  const value = grid[row * gridRes + col];
+  return Number.isFinite(value) ? value : NaN;
+}
+
+/**
  * @typedef {Object} CoverageInspectRow
  * @property {number | string} repId
  * @property {string} repName
@@ -83,9 +112,15 @@ export function inspectCoverageAtPoint(latlng, coverageResults, { limit = 4 } = 
       useLos: result.useLos,
       useFresnel: result.useFresnel,
       diffractionModel: result.diffractionModel,
+      useGroundReflection: result.useGroundReflection,
+      reflectionModel: result.reflectionModel,
+      reflectionCoeff: result.reflectionCoeff,
+      sideReflectionCoeff: result.sideReflectionCoeff,
+      reflectionCorridorWidthM: result.reflectionCorridorWidthM,
       foliage: result.foliage,
       foliageLossPerM: result.foliageLossPerM,
       buildings: result.buildings,
+      applyBuildingLoss: result.useBuildings ?? Boolean(result.buildings),
       buildingLossPerM: result.buildingLossPerM,
       profileTargetSpacingM: result.profileTargetSpacingM,
       profileMaxSamples,
@@ -99,13 +134,18 @@ export function inspectCoverageAtPoint(latlng, coverageResults, { limit = 4 } = 
       ? result.requiredSnrWithMarginDb
       : result.effectiveSens - noiseFloorDbm;
 
+    // Prefer the value the heatmap was painted from (stored grid). Fall back to
+    // the freshly-computed point signal only when no grid is available.
+    const gridRxPower = _sampleSignalGrid(result, lat, lon);
+    const rxPower = Number.isFinite(gridRxPower) ? gridRxPower : signal.rxPower;
+
     rows.push({
       repId: result.rep.id,
       repName: result.rep.name,
-      rxPower: signal.rxPower,
-      snrDb: signal.rxPower - noiseFloorDbm,
+      rxPower,
+      snrDb: rxPower - noiseFloorDbm,
       requiredSnrDb,
-      margin: signal.rxPower - result.effectiveSens,
+      margin: rxPower - result.effectiveSens,
       distM,
       los: signal.los,
       threshold: result.effectiveSens,

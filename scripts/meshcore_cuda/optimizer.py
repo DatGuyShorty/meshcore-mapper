@@ -11,6 +11,14 @@ def _json(obj):
     print(json.dumps(obj), flush=True)
 
 
+def _reflection_model_id(value):
+    if value == "six-ray":
+        return 2
+    if value == "facade":
+        return 3
+    return 1
+
+
 def _progress(stage, pct):
     _json({"type": "progress", "stage": stage, "pct": max(0.0, min(1.0, float(pct)))})
 
@@ -156,7 +164,10 @@ def compute_optimizer(params_path):
             np.float32(buildings["tile_lon_min"]), np.float32(buildings["tile_lon_span"]),
             b_dev["hole_verts"], b_dev["hole_ring_offsets"], b_dev["poly_hole_offsets"],
             np.int32(1 if opts.get("useGroundReflection") else 0),
+            np.int32(_reflection_model_id(opts.get("reflectionModel"))),
             np.float32(opts.get("reflectionCoeff", 0.7)),
+            np.float32(opts.get("sideReflectionCoeff", 0.35)),
+            np.float32(opts.get("reflectionCorridorWidthM", 24.0)),
         ))
         cp.cuda.Stream.null.synchronize()
 
