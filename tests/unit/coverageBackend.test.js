@@ -8,6 +8,7 @@ import {
   cancelCoverageCompute,
   computeCoverage,
   formatCoverageBackendStatus,
+  initCoverageBackends,
   resolveBackendOrder,
 } from '../../src/coverageBackend.js';
 import { createCoverageWorkerPoolJob } from '../../src/coverageWorkerPool.js';
@@ -66,5 +67,33 @@ describe('coverage backend helpers', () => {
     expect(result.rgba).toBeInstanceOf(Uint8ClampedArray);
     expect(result.signalGrid).toBeInstanceOf(Float32Array);
     expect(result.stats).toEqual({ computed: true });
+  });
+
+  it('runs building-facade ray tracing on the CUDA backend (no CPU fallback)', async () => {
+    globalThis.window.electronAPI.cudaCoverageProbe = vi.fn(async () => ({ available: true, device: 'Test GPU' }));
+    globalThis.window.electronAPI.cudaCoverageCompute = vi.fn(async () => ({
+      ok: true,
+      rgba: new Uint8ClampedArray(16),
+      signalGrid: new Float32Array(4),
+      stats: { facade: true },
+    }));
+    globalThis.window.electronAPI.onCudaCoverageProgress = vi.fn();
+    globalThis.window.electronAPI.offCudaCoverageProgress = vi.fn();
+    await initCoverageBackends();
+
+    const payload = {
+      gridRes: 2,
+      useGroundReflection: true,
+      reflectionModel: 'facade',
+      foliage: null,
+      buildings: null,
+    };
+
+    const result = await computeCoverage(payload, { backendPreference: 'cuda', workerCount: 1 });
+
+    expect(globalThis.window.electronAPI.cudaCoverageCompute).toHaveBeenCalled();
+    expect(result.backend).toBe('cuda');
+    expect(result.stats).toEqual({ facade: true });
+    expect(createCoverageWorkerPoolJob).not.toHaveBeenCalled();
   });
 });

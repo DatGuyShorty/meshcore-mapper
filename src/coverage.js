@@ -96,13 +96,15 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
     rxHeight, rxSens, fadeMargin,
     noiseFloorDbm, requiredSnrDb, requiredSnrWithMarginDb, spreadingFactor,
     useLos, useFresnel, useFoliage, foliageLossPerM,
-    useGroundReflection, reflectionCoeff,
+    useGroundReflection, reflectionModel, reflectionCoeff, sideReflectionCoeff, reflectionCorridorWidthM,
     useBuildings, buildingLossPerM,
     computeWorkerCount, computeBackend, deriveObstacleHeights,
     diffractionModel, useDeygout,
     datasetBatchConcurrency,
     demTileConcurrency, foliageTileConcurrency, buildingTileConcurrency,
   } = settings;
+  const needsFacadeBuildings = useLos && useGroundReflection && reflectionModel === 'facade';
+  const needsBuildingPayload = useBuildings || needsFacadeBuildings;
 
   // Derive gridRes from the actual map zoom level so coverage pixels match screen pixels.
   // qualityMult: Fast=0.5×, Balanced=1×, High Detail=2×, Maximum=3×.
@@ -124,7 +126,7 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
   const profileMaxSamples = Math.max(256, Math.min(4096, Math.round(_diameterM / profileTargetSpacingM * 1.2)));
 
   const effectiveSens = rxSens + fadeMargin;
-  const needsElevationGrid = useLos || useFoliage || useBuildings;
+  const needsElevationGrid = useLos || useFoliage || needsBuildingPayload;
   const metrics = _makeMetrics(active.length, gridRes, runtimeRadiusKm);
 
   step('Settings: ' + JSON.stringify({
@@ -137,8 +139,10 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
     useLos,
     useFresnel,
     diffractionModel,
+    reflectionModel: useGroundReflection ? reflectionModel : 'none',
     useFoliage,
     useBuildings,
+    needsFacadeBuildings,
     computeBackend,
     computeWorkerCount,
     deriveObstacleHeights,
@@ -162,15 +166,15 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
     step('Fetching obstacle payloads...');
     const obstacleFetchStart = performance.now();
     const { foliagePayload, buildingsPayload, obstacleWarnings } = await _fetchObstaclePayloads({
-      useFoliage, useBuildings, unionBBox, metrics, signal: _abortController.signal,
+      useFoliage, useBuildings: needsBuildingPayload, unionBBox, metrics, signal: _abortController.signal,
       foliageTileConcurrency,
       buildingTileConcurrency,
       datasetBatchConcurrency,
       deriveObstacleHeights,
       onProgress: p => {
         const foliageRatio = useFoliage ? _ratio(p.foliageDone, p.foliageTotal) : 1;
-        const buildingsRatio = useBuildings ? _ratio(p.buildingsDone, p.buildingsTotal) : 1;
-        const enabled = (useFoliage ? 1 : 0) + (useBuildings ? 1 : 0);
+        const buildingsRatio = needsBuildingPayload ? _ratio(p.buildingsDone, p.buildingsTotal) : 1;
+        const enabled = (useFoliage ? 1 : 0) + (needsBuildingPayload ? 1 : 0);
         const combined = enabled ? ((foliageRatio + buildingsRatio) / enabled) : 1;
         const etaMs = _etaMs(obstacleFetchStart, combined);
         const pct = 5 + combined * 8;
@@ -250,10 +254,19 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
       const computeStart = performance.now();
       const computePayload = {
         gridElevs: gridElevsF32, gridRes, ELEV_RES,
-        rep: { lat: rep.lat, lon: rep.lon, height: rep.height, power: rep.power, freq: rep.freq, gain: rep.gain ?? 0 },
+        rep: {
+          lat: rep.lat,
+          lon: rep.lon,
+          height: rep.height,
+          power: rep.power,
+          freq: rep.freq,
+          gain: rep.gain ?? 0,
+          pattern: rep.pattern ?? 'omni',
+          azimuthDeg: rep.azimuthDeg ?? 0,
+        },
         txElev, latMin, latMax, lonMin, lonMax,
         radiusKm: runtimeRadiusKm, rxHeight, effectiveSens, useLos, useFresnel,
-        useGroundReflection, reflectionCoeff,
+        useGroundReflection, reflectionModel, reflectionCoeff, sideReflectionCoeff, reflectionCorridorWidthM,
         diffractionModel, useDeygout,
         useFoliage, foliageLossPerM, profileTargetSpacingM, profileMaxSamples,
         foliage: foliagePayload,
@@ -333,12 +346,18 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
         useLos,
         useFresnel,
         diffractionModel,
+        useGroundReflection,
+        reflectionModel,
+        reflectionCoeff,
+        sideReflectionCoeff,
+        reflectionCorridorWidthM,
         txElev,
         elevGrid: gridElevsF32,
         elevRes: ELEV_RES,
         foliage: useFoliage ? foliagePayload : null,
         foliageLossPerM,
-        buildings: useBuildings ? buildingsPayload : null,
+        useBuildings,
+        buildings: needsBuildingPayload ? buildingsPayload : null,
         buildingLossPerM,
         profileTargetSpacingM,
         profileMaxSamples,
@@ -486,7 +505,7 @@ async function _fetchObstaclePayloads({
         .catch(e => {
           if (e?.cancelled || e?.name === 'AbortError') throw e;
           console.warn('Buildings fetch failed, skipping:', e);
-          obstacleWarnings.push('Building losses were requested but structure data could not be loaded.');
+          obstacleWarnings.push('Structure data was requested but could not be loaded.');
           return null;
         })
       : Promise.resolve(null),
@@ -856,6 +875,24 @@ export function init() {
   const toggleBuildingRow = () => { buildingRow.style.display = buildingToggle.checked ? '' : 'none'; };
   buildingToggle.addEventListener('change', toggleBuildingRow);
   toggleBuildingRow();
+
+  const reflectionToggle = /** @type {HTMLInputElement} */ (document.getElementById('use-reflection'));
+  const reflectionModelSelect = /** @type {HTMLSelectElement} */ (document.getElementById('reflection-model'));
+  const reflectionCoeff = /** @type {HTMLInputElement} */ (document.getElementById('reflection-coeff'));
+  const sideReflectionCoeff = /** @type {HTMLInputElement} */ (document.getElementById('side-reflection-coeff'));
+  const reflectionCorridorWidth = /** @type {HTMLInputElement} */ (document.getElementById('reflection-corridor-width-m'));
+  const toggleReflectionControls = () => {
+    const enabled = reflectionToggle.checked;
+    const sixRay = enabled && reflectionModelSelect.value === 'six-ray';
+    const wallModel = enabled && (reflectionModelSelect.value === 'six-ray' || reflectionModelSelect.value === 'facade');
+    reflectionModelSelect.disabled = !enabled;
+    reflectionCoeff.disabled = !enabled;
+    sideReflectionCoeff.disabled = !wallModel;
+    reflectionCorridorWidth.disabled = !sixRay;
+  };
+  reflectionToggle.addEventListener('change', toggleReflectionControls);
+  reflectionModelSelect.addEventListener('change', toggleReflectionControls);
+  toggleReflectionControls();
 
   document.getElementById('btn-clear-coverage').addEventListener('click', () => {
     clearCoverageLayers();

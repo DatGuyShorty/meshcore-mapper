@@ -11,6 +11,8 @@ import {
   profileSampleCount,
   segmentPolygonIntervals,
   shadowFadingDb,
+  sixRayReflectionGainDb,
+  traceBuildingFacadeRays,
   twoRayReflectionGainDb,
   writePixel,
 } from '../../src/propagation.js';
@@ -26,6 +28,7 @@ describe('propagation math', () => {
       expect(twoRayReflectionGainDb(1000, 10, 2, 868, 0)).toBe(0);
       expect(twoRayReflectionGainDb(0, 10, 2, 868, 0.7)).toBe(0);
       expect(twoRayReflectionGainDb(1000, 10, 2, 0, 0.7)).toBe(0);
+      expect(twoRayReflectionGainDb(1000, 10, 2, 868, Number.NaN)).toBe(0);
     });
 
     it('stays within the physical bound for the reflection coefficient', () => {
@@ -53,6 +56,74 @@ describe('propagation math', () => {
       }
       expect(sawGain).toBe(true);
       expect(sawLoss).toBe(true);
+    });
+
+    it('adds finite six-ray corridor reflections with bounded coherent gain', () => {
+      let sawDifferentFromTwoRay = false;
+      for (let d = 100; d <= 5000; d += 100) {
+        const twoRay = twoRayReflectionGainDb(d, 20, 2, 868, 0.7);
+        const sixRay = sixRayReflectionGainDb(d, 20, 2, 868, 0.7, 0.35, 24);
+        expect(Number.isFinite(sixRay)).toBe(true);
+        expect(sixRay).toBeGreaterThanOrEqual(-30.001);
+        expect(sixRay).toBeLessThanOrEqual(10);
+        if (Math.abs(sixRay - twoRay) > 0.25) sawDifferentFromTwoRay = true;
+      }
+      expect(sawDifferentFromTwoRay).toBe(true);
+    });
+
+    it('keeps six-ray reflections finite for invalid optional parameters', () => {
+      expect(Number.isFinite(sixRayReflectionGainDb(1000, 20, 2, 868, Number.NaN, Number.NaN, Number.NaN))).toBe(true);
+    });
+
+    it('traces finite first-order reflections from real building facades', () => {
+      const building = [[0.001, 0.003], [0.001, 0.007], [0.002, 0.007], [0.002, 0.003]];
+      const rays = traceBuildingFacadeRays({
+        txLat: 0,
+        txLon: 0,
+        txAbsElevM: 8,
+        rxLat: 0,
+        rxLon: 0.01,
+        rxAbsElevM: 8,
+        buildings: {
+          polygons: [building],
+          bboxes: [{ latMin: 0.001, latMax: 0.002, lonMin: 0.003, lonMax: 0.007 }],
+          heights: [20],
+          tileIndex: null,
+        },
+        elevGrid: new Float32Array([0, 0, 0, 0]),
+        elevRes: 2,
+        bounds: { latMin: -0.001, latMax: 0.003, lonMin: -0.001, lonMax: 0.011 },
+      });
+
+      expect(rays.length).toBeGreaterThan(0);
+      expect(rays[0].buildingIndex).toBe(0);
+      expect(rays[0].lat).toBeCloseTo(0.001, 5);
+      expect(rays[0].lon).toBeGreaterThan(0.003);
+      expect(rays[0].lon).toBeLessThan(0.007);
+      expect(Number.isFinite(rays[0].pathM)).toBe(true);
+    });
+
+    it('rejects facade reflections above the building rooftop', () => {
+      const building = [[0.001, 0.003], [0.001, 0.007], [0.002, 0.007], [0.002, 0.003]];
+      const rays = traceBuildingFacadeRays({
+        txLat: 0,
+        txLon: 0,
+        txAbsElevM: 15,
+        rxLat: 0,
+        rxLon: 0.01,
+        rxAbsElevM: 15,
+        buildings: {
+          polygons: [building],
+          bboxes: [{ latMin: 0.001, latMax: 0.002, lonMin: 0.003, lonMax: 0.007 }],
+          heights: [4],
+          tileIndex: null,
+        },
+        elevGrid: new Float32Array([0, 0, 0, 0]),
+        elevRes: 2,
+        bounds: { latMin: -0.001, latMax: 0.003, lonMin: -0.001, lonMax: 0.011 },
+      });
+
+      expect(rays).toEqual([]);
     });
   });
 

@@ -63,7 +63,10 @@ void optimizer_signal_kernel(
     const int* bHoleRingOffsets,
     const int* bPolyHoleOffsets,
     int useGroundReflection,
-    float reflectionCoeff
+    int reflectionModel,
+    float reflectionCoeff,
+    float sideReflectionCoeff,
+    float reflectionCorridorWidthM
 ) {
     int evalIdx = blockDim.x * blockIdx.x + threadIdx.x;
     int candIdx = blockDim.y * blockIdx.y + threadIdx.y;
@@ -106,6 +109,29 @@ void optimizer_signal_kernel(
         samples = max(16, min(profileMaxSamples, samples));
         float lambda = 299792458.0f / (freqMHz * 1000000.0f);
         float reEff = 6371000.0f * 1.3333333333333333f;
+
+        // Direct-path clutter loss; folded into the coherent facade sum when
+        // reflectionModel == 3, otherwise subtracted from sig below.
+        float directFoliageLoss = (useFoliage != 0 && foliageCount > 0 && dist > 50.0f)
+            ? foliage_ray_loss(
+                txLat, txLon, ptLat, ptLon, txAbs, rxAbs, dist, samples, freqMHz,
+                0, foliageLossPerM,
+                elev, evalRes, latMin, latMax, lonMin, lonMax,
+                fVerts, fOffsets, fBboxes, fCanopy, fFactors, foliageCount,
+                fTileOffsets, fTileCounts, fTileIndices, foliageTileN,
+                foliageTileLatMin, foliageTileLatSpan, foliageTileLonMin, foliageTileLonSpan,
+                fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets, reEff)
+            : 0.0f;
+        float directBuildingLoss = (useBuildings != 0 && buildingCount > 0 && dist > 50.0f)
+            ? building_ray_loss(
+                txLat, txLon, ptLat, ptLon, txAbs, rxAbs, dist, samples, buildingLossPerM,
+                elev, evalRes, latMin, latMax, lonMin, lonMax,
+                bVerts, bOffsets, bBboxes, bHeights, buildingCount,
+                bTileOffsets, bTileCounts, bTileIndices, buildingTileN,
+                buildingTileLatMin, buildingTileLatSpan, buildingTileLonMin, buildingTileLonSpan,
+                bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets, reEff, -1)
+            : 0.0f;
+        int facadeHandledDirect = 0;
 
         if (useLos != 0 && dist > 50.0f) {
             float maxV = -1.0e9f;
@@ -154,85 +180,47 @@ void optimizer_signal_kernel(
 
             // Ground reflection (2-ray) only on clear (geometric-LoS) paths.
             if (useGroundReflection != 0 && maxV < 0.0f) {
-                sig += two_ray_reflection_gain_db(dist, txHeight, rxHeight, freqMHz, reflectionCoeff);
+                if (reflectionModel == 3) {
+                    sig += building_facade_multipath_gain_db(
+                        txLat, txLon, txAbs, txHeight,
+                        ptLat, ptLon, rxAbs, rxHeight,
+                        dist, freqMHz,
+                        directFoliageLoss + directBuildingLoss,
+                        reflectionCoeff, sideReflectionCoeff,
+                        profileTargetSpacingM, profileMaxSamples,
+                        elev, evalRes, latMin, latMax, lonMin, lonMax, reEff,
+                        useFoliage, foliageLossPerM,
+                        fVerts, fOffsets, fBboxes, fCanopy, fFactors, foliageCount,
+                        fTileOffsets, fTileCounts, fTileIndices, foliageTileN,
+                        foliageTileLatMin, foliageTileLatSpan, foliageTileLonMin, foliageTileLonSpan,
+                        fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets,
+                        useBuildings, buildingLossPerM,
+                        bVerts, bOffsets, bBboxes, bHeights, buildingCount,
+                        bTileOffsets, bTileCounts, bTileIndices, buildingTileN,
+                        buildingTileLatMin, buildingTileLatSpan, buildingTileLonMin, buildingTileLonSpan,
+                        bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets
+                    );
+                    facadeHandledDirect = 1;
+                } else if (reflectionModel == 2) {
+                    sig += six_ray_reflection_gain_db(
+                        dist,
+                        txHeight,
+                        rxHeight,
+                        freqMHz,
+                        reflectionCoeff,
+                        sideReflectionCoeff,
+                        reflectionCorridorWidthM
+                    );
+                } else {
+                    sig += two_ray_reflection_gain_db(dist, txHeight, rxHeight, freqMHz, reflectionCoeff);
+                }
             }
         }
 
-        if (useFoliage != 0 && foliageCount > 0 && dist > 50.0f) {
-            sig -= foliage_ray_loss(
-                txLat,
-                txLon,
-                ptLat,
-                ptLon,
-                txAbs,
-                rxAbs,
-                dist,
-                samples,
-                freqMHz,
-                0,
-                foliageLossPerM,
-                elev,
-                evalRes,
-                latMin,
-                latMax,
-                lonMin,
-                lonMax,
-                fVerts,
-                fOffsets,
-                fBboxes,
-                fCanopy,
-                fFactors,
-                foliageCount,
-                fTileOffsets,
-                fTileCounts,
-                fTileIndices,
-                foliageTileN,
-                foliageTileLatMin,
-                foliageTileLatSpan,
-                foliageTileLonMin,
-                foliageTileLonSpan,
-                fHoleVerts,
-                fHoleRingOffsets,
-                fPolyHoleOffsets,
-                reEff
-            );
-        }
-
-        if (useBuildings != 0 && buildingCount > 0 && dist > 50.0f) {
-            sig -= building_ray_loss(
-                txLat,
-                txLon,
-                ptLat,
-                ptLon,
-                txAbs,
-                rxAbs,
-                dist,
-                samples,
-                buildingLossPerM,
-                elev,
-                evalRes,
-                latMin,
-                latMax,
-                lonMin,
-                lonMax,
-                bVerts,
-                bOffsets,
-                bBboxes,
-                bHeights,
-                buildingCount,
-                bTileOffsets,
-                bTileCounts,
-                bTileIndices,
-                buildingTileN,
-                buildingTileLatMin,
-                buildingTileLatSpan,
-                buildingTileLonMin,
-                buildingTileLonSpan,
-                bHoleVerts,
-                bHoleRingOffsets,
-                bPolyHoleOffsets,
-                reEff
-            );
+        // Facade mode folds direct-path clutter loss into the coherent reflection
+        // sum above; otherwise subtract it here (parity with the coverage kernel).
+        if (facadeHandledDirect == 0) {
+            sig -= directFoliageLoss + directBuildingLoss;
         }
     }
 

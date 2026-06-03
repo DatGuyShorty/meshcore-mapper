@@ -101,7 +101,7 @@ export function twoRayReflectionGainDb(distM, txHeightM, rxHeightM, freqMHz, ref
   const d = Number(distM);
   const ht = Math.max(0, Number(txHeightM));
   const hr = Math.max(0, Number(rxHeightM));
-  const R = Math.min(1, Math.max(0, Number(reflectionCoeff)));
+  const R = _clampUnit(reflectionCoeff, 0);
   if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(freqMHz) || freqMHz <= 0 || R <= 0) return 0;
   const lambda = _getLambda(freqMHz);
   const rDirect = Math.hypot(d, ht - hr);
@@ -110,6 +110,368 @@ export function twoRayReflectionGainDb(distM, txHeightM, rxHeightM, freqMHz, ref
   // F² = 1 + R² − 2R·cos(Δφ); floor (≈ −20 dB) so deep nulls stay finite.
   const f2 = Math.max(0.01, 1 + R * R - 2 * R * Math.cos(dPhi));
   return 10 * Math.log10(f2);
+}
+
+/**
+ * Six-ray urban-corridor reflection gain relative to free-space rxPower.
+ * The geometry is an image-source approximation with TX/RX on the centerline
+ * between two parallel side reflectors:
+ *   direct, ground, left wall, right wall, left wall+ground, right wall+ground.
+ *
+ * This is intentionally a corridor model, not a full building ray tracer. It
+ * is useful when the link lies along a street or valley-like reflective channel
+ * and the user can provide an effective wall-to-wall width.
+ * @param {number} distM      horizontal TX-RX distance (m)
+ * @param {number} txHeightM  TX antenna height above ground (m)
+ * @param {number} rxHeightM  RX antenna height above ground (m)
+ * @param {number} freqMHz
+ * @param {number} [groundReflectionCoeff] |Gamma_g| in [0,1]
+ * @param {number} [wallReflectionCoeff]   |Gamma_w| in [0,1]
+ * @param {number} [corridorWidthM]         side-reflector spacing in metres
+ * @returns {number} reflection gain in dB
+ */
+export function sixRayReflectionGainDb(
+  distM,
+  txHeightM,
+  rxHeightM,
+  freqMHz,
+  groundReflectionCoeff = 0.7,
+  wallReflectionCoeff = 0.35,
+  corridorWidthM = 24
+) {
+  const d = Number(distM);
+  const ht = Math.max(0, Number(txHeightM));
+  const hr = Math.max(0, Number(rxHeightM));
+  const groundR = _clampUnit(groundReflectionCoeff, 0);
+  const wallR = _clampUnit(wallReflectionCoeff, 0);
+  const widthRaw = Number(corridorWidthM);
+  const width = Number.isFinite(widthRaw) ? Math.max(1, widthRaw) : 24;
+  if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(freqMHz) || freqMHz <= 0) return 0;
+  if (groundR <= 0 && wallR <= 0) return 0;
+
+  const rDirect = Math.hypot(d, ht - hr);
+  const rGround = Math.hypot(d, ht + hr);
+  const rWall = Math.hypot(d, width, ht - hr);
+  const rWallGround = Math.hypot(d, width, ht + hr);
+  const paths = [
+    { pathM: rDirect, coeff: 1 },
+    { pathM: rGround, coeff: -groundR },
+    { pathM: rWall, coeff: -wallR },
+    { pathM: rWall, coeff: -wallR },
+    { pathM: rWallGround, coeff: groundR * wallR },
+    { pathM: rWallGround, coeff: groundR * wallR },
+  ];
+  return _coherentFieldGainDb(paths, rDirect, freqMHz, 0.001);
+}
+
+/**
+ * Combine coherent ray fields into a gain/loss relative to the direct
+ * free-space path. Each coefficient is a field-amplitude multiplier.
+ * @param {Array<{ pathM: number, coeff: number }>} paths
+ * @param {number} referencePathM
+ * @param {number} freqMHz
+ * @param {number} [minPowerRatio]
+ * @returns {number}
+ */
+export function coherentFieldGainDb(paths, referencePathM, freqMHz, minPowerRatio = 0.001) {
+  return _coherentFieldGainDb(paths, referencePathM, freqMHz, minPowerRatio);
+}
+
+/**
+ * @typedef {Object} FacadeRay
+ * @property {number} lat
+ * @property {number} lon
+ * @property {number} pathM
+ * @property {number} leg1M
+ * @property {number} leg2M
+ * @property {number} reflectionAbsElevM
+ * @property {number} reflectionGroundElevM
+ * @property {number} buildingIndex
+ * @property {number} edgeIndex
+ */
+
+/**
+ * Find specular first-order reflections from real building footprint edges.
+ * Buildings are treated as finite vertical mirror planes whose height comes
+ * from the existing OSM/DSM building-height payload. This is ray optics, not
+ * a full-wave EM solver: it traces direct visibility to wall facets and
+ * leaves foliage/building attenuation to the caller.
+ *
+ * @param {Object} args
+ * @param {number} args.txLat
+ * @param {number} args.txLon
+ * @param {number} args.txAbsElevM
+ * @param {number} args.rxLat
+ * @param {number} args.rxLon
+ * @param {number} args.rxAbsElevM
+ * @param {{ polygons?: Array<Array<[number, number]>>, bboxes?: Array<{ latMin: number, latMax: number, lonMin: number, lonMax: number }>, heights?: ArrayLike<number>, tileIndex?: { tiles: number[][], latMin: number, latSpan: number, lonMin: number, lonSpan: number } | null } | null} args.buildings
+ * @param {ArrayLike<number> | null | undefined} args.elevGrid
+ * @param {number} args.elevRes
+ * @param {{ latMin: number, latMax: number, lonMin: number, lonMax: number }} args.bounds
+ * @param {number} [args.maxRays]
+ * @param {number} [args.maxSearchRadiusM]
+ * @param {number} [args.maxExtraPathM]
+ * @param {number} [args.minFacadeLengthM]
+ * @returns {FacadeRay[]}
+ */
+export function traceBuildingFacadeRays({
+  txLat,
+  txLon,
+  txAbsElevM,
+  rxLat,
+  rxLon,
+  rxAbsElevM,
+  buildings,
+  elevGrid,
+  elevRes,
+  bounds,
+  maxRays = 16,
+  maxSearchRadiusM,
+  maxExtraPathM,
+  minFacadeLengthM = 3,
+}) {
+  const polygons = buildings?.polygons;
+  if (!polygons || polygons.length === 0) return [];
+  const directHorizM = haversine(txLat, txLon, rxLat, rxLon);
+  if (!Number.isFinite(directHorizM) || directHorizM <= 0) return [];
+
+  const searchRadiusM = Number.isFinite(maxSearchRadiusM)
+    ? Math.max(10, Number(maxSearchRadiusM))
+    : Math.min(250, Math.max(50, directHorizM * 0.2));
+  const extraPathLimitM = Number.isFinite(maxExtraPathM)
+    ? Math.max(0, Number(maxExtraPathM))
+    : Math.min(600, Math.max(80, directHorizM * 0.35));
+  const lat0 = (txLat + rxLat) / 2;
+  const lon0 = (txLon + rxLon) / 2;
+  const basis = _localBasis(lat0, lon0);
+  const tx = _toLocal(txLat, txLon, basis);
+  const rx = _toLocal(rxLat, rxLon, basis);
+  const inflateLat = searchRadiusM / 111320;
+  const cosLat = Math.max(0.05, Math.abs(Math.cos(lat0 * Math.PI / 180)));
+  const inflateLon = searchRadiusM / (111320 * cosLat);
+  const qLatMin = Math.min(txLat, rxLat) - inflateLat;
+  const qLatMax = Math.max(txLat, rxLat) + inflateLat;
+  const qLonMin = Math.min(txLon, rxLon) - inflateLon;
+  const qLonMax = Math.max(txLon, rxLon) + inflateLon;
+  const candidateIndices = _polygonCandidatesForBbox(
+    buildings.tileIndex ?? null,
+    buildings.bboxes ?? [],
+    qLatMin,
+    qLatMax,
+    qLonMin,
+    qLonMax,
+    polygons.length
+  );
+  /** @type {FacadeRay[]} */
+  const rays = [];
+
+  for (const buildingIndex of candidateIndices) {
+    const poly = polygons[buildingIndex];
+    if (!poly || poly.length < 3) continue;
+    const heightM = buildings.heights?.[buildingIndex] ?? 5;
+    if (!Number.isFinite(heightM) || heightM <= 0) continue;
+
+    for (let edgeIndex = 0; edgeIndex < poly.length; edgeIndex++) {
+      const aLL = poly[edgeIndex];
+      const bLL = poly[(edgeIndex + 1) % poly.length];
+      if (!aLL || !bLL) continue;
+      const a = _toLocal(aLL[0], aLL[1], basis);
+      const b = _toLocal(bLL[0], bLL[1], basis);
+      const wallVec = { x: b.x - a.x, y: b.y - a.y };
+      const wallLenM = Math.hypot(wallVec.x, wallVec.y);
+      if (wallLenM < minFacadeLengthM) continue;
+
+      const sideTx = _cross(wallVec, { x: tx.x - a.x, y: tx.y - a.y });
+      const sideRx = _cross(wallVec, { x: rx.x - a.x, y: rx.y - a.y });
+      if (sideTx * sideRx < 0) continue;
+
+      const imageRx = _reflectPointAcrossLine(rx, a, b);
+      const hit = _segmentLineIntersection(tx, imageRx, a, b);
+      if (!hit) continue;
+      const ref = {
+        x: tx.x + (imageRx.x - tx.x) * hit.t,
+        y: tx.y + (imageRx.y - tx.y) * hit.t,
+      };
+      const leg1M = Math.hypot(ref.x - tx.x, ref.y - tx.y);
+      const leg2M = Math.hypot(rx.x - ref.x, rx.y - ref.y);
+      const horizPathM = leg1M + leg2M;
+      if (horizPathM - directHorizM > extraPathLimitM) continue;
+
+      const tPath = horizPathM > 0 ? leg1M / horizPathM : 0;
+      const reflectionAbsElevM = txAbsElevM + (rxAbsElevM - txAbsElevM) * tPath;
+      const ll = _fromLocal(ref.x, ref.y, basis);
+      const reflectionGroundElevM = bilinearElev(
+        ll.lat,
+        ll.lon,
+        elevGrid,
+        elevRes,
+        bounds.latMin,
+        bounds.latMax,
+        bounds.lonMin,
+        bounds.lonMax
+      );
+      if (reflectionAbsElevM < reflectionGroundElevM) continue;
+      if (reflectionAbsElevM > reflectionGroundElevM + heightM) continue;
+
+      const leg1PathM = Math.hypot(leg1M, reflectionAbsElevM - txAbsElevM);
+      const leg2PathM = Math.hypot(leg2M, rxAbsElevM - reflectionAbsElevM);
+      rays.push({
+        lat: ll.lat,
+        lon: ll.lon,
+        pathM: leg1PathM + leg2PathM,
+        leg1M,
+        leg2M,
+        reflectionAbsElevM,
+        reflectionGroundElevM,
+        buildingIndex,
+        edgeIndex,
+      });
+    }
+  }
+
+  rays.sort((a, b) => a.pathM - b.pathM);
+  return rays.slice(0, Math.max(0, Math.floor(maxRays)));
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ */
+function _clampUnit(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+}
+
+/** @param {number} lat0 @param {number} lon0 */
+function _localBasis(lat0, lon0) {
+  return {
+    lat0,
+    lon0,
+    mPerDegLat: 111320,
+    mPerDegLon: 111320 * Math.max(0.05, Math.abs(Math.cos(lat0 * Math.PI / 180))),
+  };
+}
+
+/**
+ * @param {number} lat
+ * @param {number} lon
+ * @param {{ lat0: number, lon0: number, mPerDegLat: number, mPerDegLon: number }} basis
+ */
+function _toLocal(lat, lon, basis) {
+  return {
+    x: (lon - basis.lon0) * basis.mPerDegLon,
+    y: (lat - basis.lat0) * basis.mPerDegLat,
+  };
+}
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {{ lat0: number, lon0: number, mPerDegLat: number, mPerDegLon: number }} basis
+ */
+function _fromLocal(x, y, basis) {
+  return {
+    lat: basis.lat0 + y / basis.mPerDegLat,
+    lon: basis.lon0 + x / basis.mPerDegLon,
+  };
+}
+
+/** @param {{ x: number, y: number }} a @param {{ x: number, y: number }} b */
+function _cross(a, b) {
+  return a.x * b.y - a.y * b.x;
+}
+
+/**
+ * @param {{ x: number, y: number }} p
+ * @param {{ x: number, y: number }} a
+ * @param {{ x: number, y: number }} b
+ */
+function _reflectPointAcrossLine(p, a, b) {
+  const vx = b.x - a.x;
+  const vy = b.y - a.y;
+  const len2 = vx * vx + vy * vy;
+  if (len2 <= 0) return p;
+  const t = ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2;
+  const proj = { x: a.x + vx * t, y: a.y + vy * t };
+  return { x: 2 * proj.x - p.x, y: 2 * proj.y - p.y };
+}
+
+/**
+ * Intersection of p->q and a->b. Returns parameters along both finite segments.
+ * @param {{ x: number, y: number }} p
+ * @param {{ x: number, y: number }} q
+ * @param {{ x: number, y: number }} a
+ * @param {{ x: number, y: number }} b
+ * @returns {{ t: number, u: number } | null}
+ */
+function _segmentLineIntersection(p, q, a, b) {
+  const r = { x: q.x - p.x, y: q.y - p.y };
+  const s = { x: b.x - a.x, y: b.y - a.y };
+  const denom = _cross(r, s);
+  if (Math.abs(denom) < 1e-9) return null;
+  const ap = { x: a.x - p.x, y: a.y - p.y };
+  const t = _cross(ap, s) / denom;
+  const u = _cross(ap, r) / denom;
+  if (t <= 1e-6 || t >= 1 - 1e-6 || u <= 1e-6 || u >= 1 - 1e-6) return null;
+  return { t, u };
+}
+
+/**
+ * @param {{ tiles: number[][], latMin: number, latSpan: number, lonMin: number, lonSpan: number } | null} tileIndex
+ * @param {Array<{ latMin: number, latMax: number, lonMin: number, lonMax: number }>} bboxes
+ * @param {number} latMin
+ * @param {number} latMax
+ * @param {number} lonMin
+ * @param {number} lonMax
+ * @param {number} polygonCount
+ * @returns {Iterable<number>}
+ */
+function _polygonCandidatesForBbox(tileIndex, bboxes, latMin, latMax, lonMin, lonMax, polygonCount) {
+  const bboxOverlaps = (/** @type {number} */ i) => {
+    const bb = bboxes[i];
+    if (!bb) return true;
+    return !(latMax < bb.latMin || latMin > bb.latMax || lonMax < bb.lonMin || lonMin > bb.lonMax);
+  };
+  if (!tileIndex || !Array.isArray(tileIndex.tiles) || tileIndex.latSpan === 0 || tileIndex.lonSpan === 0) {
+    return Array.from({ length: polygonCount }, (_, i) => i).filter(bboxOverlaps);
+  }
+
+  const tileN = Math.max(1, Math.round(Math.sqrt(tileIndex.tiles.length)));
+  const rMin = Math.max(0, Math.min(tileN - 1, Math.floor((latMin - tileIndex.latMin) / tileIndex.latSpan * tileN)));
+  const rMax = Math.max(0, Math.min(tileN - 1, Math.floor((latMax - tileIndex.latMin) / tileIndex.latSpan * tileN)));
+  const cMin = Math.max(0, Math.min(tileN - 1, Math.floor((lonMin - tileIndex.lonMin) / tileIndex.lonSpan * tileN)));
+  const cMax = Math.max(0, Math.min(tileN - 1, Math.floor((lonMax - tileIndex.lonMin) / tileIndex.lonSpan * tileN)));
+  /** @type {Set<number>} */
+  const set = new Set();
+  for (let r = Math.min(rMin, rMax); r <= Math.max(rMin, rMax); r++) {
+    for (let c = Math.min(cMin, cMax); c <= Math.max(cMin, cMax); c++) {
+      for (const i of tileIndex.tiles[r * tileN + c] ?? []) {
+        if (i >= 0 && i < polygonCount && bboxOverlaps(i)) set.add(i);
+      }
+    }
+  }
+  return set;
+}
+
+/**
+ * @param {Array<{ pathM: number, coeff: number }>} paths
+ * @param {number} referencePathM
+ * @param {number} freqMHz
+ * @param {number} minPowerRatio
+ */
+function _coherentFieldGainDb(paths, referencePathM, freqMHz, minPowerRatio) {
+  const lambda = _getLambda(freqMHz);
+  let real = 0;
+  let imag = 0;
+  for (const ray of paths) {
+    if (!Number.isFinite(ray.pathM) || ray.pathM <= 0 || ray.coeff === 0) continue;
+    const amp = ray.coeff * (referencePathM / ray.pathM);
+    const phase = -2 * Math.PI * (ray.pathM - referencePathM) / lambda;
+    real += amp * Math.cos(phase);
+    imag += amp * Math.sin(phase);
+  }
+  const powerRatio = Math.max(minPowerRatio, real * real + imag * imag);
+  return 10 * Math.log10(powerRatio);
 }
 
 /**

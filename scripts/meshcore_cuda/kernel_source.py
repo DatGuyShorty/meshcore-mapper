@@ -669,7 +669,8 @@ extern "C" __device__ float building_ray_loss(
     const float* bHoleVerts,
     const int* bHoleRingOffsets,
     const int* bPolyHoleOffsets,
-    float reEff
+    float reEff,
+    int skipBuildingIndex
 ) {
     if (buildingCount <= 0 || samples <= 1) return 0.0f;
 
@@ -704,6 +705,7 @@ extern "C" __device__ float building_ray_loss(
 
         for (int ci = 0; ci < nCand; ci++) {
             int pi = candidates[ci];
+            if (pi == skipBuildingIndex) continue;
             int nTs = segment_polygon_intervals_holes(lat1, lon1, lat2, lon2, pi, bVerts, bOffsets, bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets, ts);
             if (nTs < 2) continue;
 
@@ -753,6 +755,452 @@ extern "C" __device__ float two_ray_reflection_gain_db(
     float dPhi = 6.283185307179586f * (rRefl - rDirect) / lambda;
     float f2 = fmaxf(0.01f, 1.0f + Rc * Rc - 2.0f * Rc * cosf(dPhi));
     return 10.0f * log10f(f2);
+}
+
+// Six-ray urban corridor model: direct, ground, two side-wall rays, and two
+// wall+ground rays. This mirrors sixRayReflectionGainDb in src/propagation.js.
+extern "C" __device__ float six_ray_reflection_gain_db(
+    float dist,
+    float txHeight,
+    float rxHeight,
+    float freqMHz,
+    float groundReflectionCoeff,
+    float wallReflectionCoeff,
+    float corridorWidthM
+) {
+    if (dist <= 0.0f || freqMHz <= 0.0f) return 0.0f;
+    float ht = fmaxf(0.0f, txHeight);
+    float hr = fmaxf(0.0f, rxHeight);
+    float Rg = fminf(1.0f, fmaxf(0.0f, groundReflectionCoeff));
+    float Rw = fminf(1.0f, fmaxf(0.0f, wallReflectionCoeff));
+    if (Rg <= 0.0f && Rw <= 0.0f) return 0.0f;
+
+    float width = fmaxf(1.0f, corridorWidthM);
+    float lambda = 299792458.0f / (freqMHz * 1000000.0f);
+    float k = 6.283185307179586f / lambda;
+    float rDirect = sqrtf(dist * dist + (ht - hr) * (ht - hr));
+    float rGround = sqrtf(dist * dist + (ht + hr) * (ht + hr));
+    float rWall = sqrtf(dist * dist + width * width + (ht - hr) * (ht - hr));
+    float rWallGround = sqrtf(dist * dist + width * width + (ht + hr) * (ht + hr));
+    float real = 1.0f;
+    float imag = 0.0f;
+    float amp;
+    float phase;
+
+    amp = -Rg * rDirect / rGround;
+    phase = -k * (rGround - rDirect);
+    real += amp * cosf(phase);
+    imag += amp * sinf(phase);
+
+    amp = -Rw * rDirect / rWall;
+    phase = -k * (rWall - rDirect);
+    real += 2.0f * amp * cosf(phase);
+    imag += 2.0f * amp * sinf(phase);
+
+    amp = Rg * Rw * rDirect / rWallGround;
+    phase = -k * (rWallGround - rDirect);
+    real += 2.0f * amp * cosf(phase);
+    imag += 2.0f * amp * sinf(phase);
+
+    float powerRatio = fmaxf(0.001f, real * real + imag * imag);
+    return 10.0f * log10f(powerRatio);
+}
+
+#define MAX_FACADE_RAYS 16
+
+// Great-circle distance in metres. Mirrors haversine() in src/propagation.js;
+// the facade tracer uses it for search-radius and extra-path budgets so the GPU
+// keeps parity with traceBuildingFacadeRays.
+extern "C" __device__ float haversine_m(float lat1, float lon1, float lat2, float lon2) {
+    float deg = 0.017453292519943295f;
+    float p1 = lat1 * deg;
+    float p2 = lat2 * deg;
+    float dphi = (lat2 - lat1) * deg;
+    float dlam = (lon2 - lon1) * deg;
+    float sdphi = sinf(dphi * 0.5f);
+    float sdlam = sinf(dlam * 0.5f);
+    float a = sdphi * sdphi + cosf(p1) * cosf(p2) * sdlam * sdlam;
+    return 6371000.0f * 2.0f * atan2f(sqrtf(a), sqrtf(fmaxf(0.0f, 1.0f - a)));
+}
+
+// Voltage/field coefficient from a positive attenuation in dB (parity with
+// _fieldCoeffFromLossDb in src/signalModel.js): 0 dB -> 1.0.
+extern "C" __device__ float field_coeff_from_loss_db(float lossDb) {
+    if (!(lossDb > 0.0f)) return 1.0f;
+    return powf(10.0f, -lossDb / 20.0f);
+}
+
+// Add one phasor contribution to a coherent sum (parity with the loop in
+// _coherentFieldGainDb): amplitude scales by referencePath/pathM, phase by the
+// extra path length relative to the reference.
+extern "C" __device__ void coherent_add(
+    float* real, float* imag, float pathM, float coeff, float refPath, float lambda
+) {
+    if (pathM <= 0.0f || coeff == 0.0f) return;
+    float amp = coeff * refPath / pathM;
+    float phase = -6.283185307179586f * (pathM - refPath) / lambda;
+    *real += amp * cosf(phase);
+    *imag += amp * sinf(phase);
+}
+
+// Foliage + building attenuation (dB) along one straight leg between two
+// endpoints, mirroring _legObstacleLossDb. skipBuildingIndex drops the reflecting
+// building so its own facade is not double-counted as a blocker.
+extern "C" __device__ float facade_leg_obstacle_loss(
+    float startLat,
+    float startLon,
+    float startAbs,
+    float endLat,
+    float endLon,
+    float endAbs,
+    int skipBuildingIndex,
+    float freqMHz,
+    float profileTargetSpacingM,
+    int profileMaxSamples,
+    const float* elev,
+    int elevRes,
+    float latMin,
+    float latMax,
+    float lonMin,
+    float lonMax,
+    float reEff,
+    int useFoliage,
+    float foliageLossPerM,
+    const float* fVerts,
+    const int* fOffsets,
+    const float* fBboxes,
+    const float* fCanopy,
+    const float* fFactors,
+    int foliageCount,
+    const int* fTileOffsets,
+    const int* fTileCounts,
+    const int* fTileIndices,
+    int foliageTileN,
+    float foliageTileLatMin,
+    float foliageTileLatSpan,
+    float foliageTileLonMin,
+    float foliageTileLonSpan,
+    const float* fHoleVerts,
+    const int* fHoleRingOffsets,
+    const int* fPolyHoleOffsets,
+    int useBuildings,
+    float buildingLossPerM,
+    const float* bVerts,
+    const int* bOffsets,
+    const float* bBboxes,
+    const float* bHeights,
+    int buildingCount,
+    const int* bTileOffsets,
+    const int* bTileCounts,
+    const int* bTileIndices,
+    int buildingTileN,
+    float buildingTileLatMin,
+    float buildingTileLatSpan,
+    float buildingTileLonMin,
+    float buildingTileLonSpan,
+    const float* bHoleVerts,
+    const int* bHoleRingOffsets,
+    const int* bPolyHoleOffsets
+) {
+    float mPerLat = 110574.0f;
+    float mPerLon = 111320.0f * cosf(startLat * 0.017453292519943295f);
+    float dLat = (endLat - startLat) * mPerLat;
+    float dLon = (endLon - startLon) * mPerLon;
+    float dist = sqrtf(dLat * dLat + dLon * dLon);
+    if (!(dist > 1.0f)) return 0.0f;
+
+    int samples = (int)ceilf(dist / fmaxf(1.0f, profileTargetSpacingM)) + 1;
+    samples = max(16, min(profileMaxSamples, samples));
+
+    float loss = 0.0f;
+    if (useFoliage != 0 && foliageCount > 0) {
+        loss += foliage_ray_loss(
+            startLat, startLon, endLat, endLon,
+            startAbs, endAbs, dist, samples, freqMHz,
+            0, foliageLossPerM,
+            elev, elevRes, latMin, latMax, lonMin, lonMax,
+            fVerts, fOffsets, fBboxes, fCanopy, fFactors, foliageCount,
+            fTileOffsets, fTileCounts, fTileIndices, foliageTileN,
+            foliageTileLatMin, foliageTileLatSpan, foliageTileLonMin, foliageTileLonSpan,
+            fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets, reEff
+        );
+    }
+    if (useBuildings != 0 && buildingCount > 0) {
+        loss += building_ray_loss(
+            startLat, startLon, endLat, endLon,
+            startAbs, endAbs, dist, samples, buildingLossPerM,
+            elev, elevRes, latMin, latMax, lonMin, lonMax,
+            bVerts, bOffsets, bBboxes, bHeights, buildingCount,
+            bTileOffsets, bTileCounts, bTileIndices, buildingTileN,
+            buildingTileLatMin, buildingTileLatSpan, buildingTileLonMin, buildingTileLonSpan,
+            bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets, reEff, skipBuildingIndex
+        );
+    }
+    return loss;
+}
+
+// First-order specular reflections off real building facades, summed coherently
+// with the direct and ground-reflected rays. Mirrors the CPU pipeline of
+// traceBuildingFacadeRays + _buildingFacadeMultipathGainDb in src/signalModel.js:
+// buildings are finite vertical mirror planes, each facade ray is attenuated by
+// the obstacle loss along its two legs, and everything is combined as a coherent
+// phasor sum. Returns the gain (dB) to add to the free-space rxPower.
+extern "C" __device__ float building_facade_multipath_gain_db(
+    float txLat,
+    float txLon,
+    float txAbs,
+    float txHeight,
+    float rxLat,
+    float rxLon,
+    float rxAbs,
+    float rxHeight,
+    float distM,
+    float freqMHz,
+    float directObstacleLossDb,
+    float groundReflectionCoeff,
+    float wallReflectionCoeff,
+    float profileTargetSpacingM,
+    int profileMaxSamples,
+    const float* elev,
+    int elevRes,
+    float latMin,
+    float latMax,
+    float lonMin,
+    float lonMax,
+    float reEff,
+    int useFoliage,
+    float foliageLossPerM,
+    const float* fVerts,
+    const int* fOffsets,
+    const float* fBboxes,
+    const float* fCanopy,
+    const float* fFactors,
+    int foliageCount,
+    const int* fTileOffsets,
+    const int* fTileCounts,
+    const int* fTileIndices,
+    int foliageTileN,
+    float foliageTileLatMin,
+    float foliageTileLatSpan,
+    float foliageTileLonMin,
+    float foliageTileLonSpan,
+    const float* fHoleVerts,
+    const int* fHoleRingOffsets,
+    const int* fPolyHoleOffsets,
+    int useBuildings,
+    float buildingLossPerM,
+    const float* bVerts,
+    const int* bOffsets,
+    const float* bBboxes,
+    const float* bHeights,
+    int buildingCount,
+    const int* bTileOffsets,
+    const int* bTileCounts,
+    const int* bTileIndices,
+    int buildingTileN,
+    float buildingTileLatMin,
+    float buildingTileLatSpan,
+    float buildingTileLonMin,
+    float buildingTileLonSpan,
+    const float* bHoleVerts,
+    const int* bHoleRingOffsets,
+    const int* bPolyHoleOffsets
+) {
+    float lambda = 299792458.0f / (freqMHz * 1000000.0f);
+    float dz = txAbs - rxAbs;
+    float refPath = sqrtf(distM * distM + dz * dz);
+    float directCoeff = field_coeff_from_loss_db(directObstacleLossDb);
+
+    float real = 0.0f;
+    float imag = 0.0f;
+    coherent_add(&real, &imag, refPath, directCoeff, refPath, lambda);
+
+    float groundR = fminf(1.0f, fmaxf(0.0f, groundReflectionCoeff));
+    if (groundR > 0.0f) {
+        float hSum = txHeight + rxHeight;
+        float groundPath = sqrtf(distM * distM + hSum * hSum);
+        coherent_add(&real, &imag, groundPath, -groundR * directCoeff, refPath, lambda);
+    }
+
+    float wallR = fminf(1.0f, fmaxf(0.0f, wallReflectionCoeff));
+    if (wallR > 0.0f && buildingCount > 0) {
+        float directHoriz = haversine_m(txLat, txLon, rxLat, rxLon);
+        if (directHoriz > 0.0f) {
+            float searchRadius = fminf(250.0f, fmaxf(50.0f, directHoriz * 0.2f));
+            float extraPathLimit = fminf(600.0f, fmaxf(80.0f, directHoriz * 0.35f));
+            float lat0 = (txLat + rxLat) * 0.5f;
+            float lon0 = (txLon + rxLon) * 0.5f;
+            float cosLat = fmaxf(0.05f, fabsf(cosf(lat0 * 0.017453292519943295f)));
+            float mPerLat = 111320.0f;
+            float mPerLon = 111320.0f * cosLat;
+            float txX = (txLon - lon0) * mPerLon;
+            float txY = (txLat - lat0) * mPerLat;
+            float rxX = (rxLon - lon0) * mPerLon;
+            float rxY = (rxLat - lat0) * mPerLat;
+            float inflateLat = searchRadius / 111320.0f;
+            float inflateLon = searchRadius / (111320.0f * cosLat);
+            float qLatMin = fminf(txLat, rxLat) - inflateLat;
+            float qLatMax = fmaxf(txLat, rxLat) + inflateLat;
+            float qLonMin = fminf(txLon, rxLon) - inflateLon;
+            float qLonMax = fmaxf(txLon, rxLon) + inflateLon;
+
+            int candidates[MAX_CANDIDATES];
+            int nCand = gather_candidates(
+                qLatMin, qLonMin, qLatMax, qLonMax,
+                bBboxes, buildingCount,
+                bTileOffsets, bTileCounts, bTileIndices,
+                buildingTileN,
+                buildingTileLatMin, buildingTileLatSpan,
+                buildingTileLonMin, buildingTileLonSpan,
+                candidates
+            );
+
+            float rPath[MAX_FACADE_RAYS];
+            float rLat[MAX_FACADE_RAYS];
+            float rLon[MAX_FACADE_RAYS];
+            float rRefAbs[MAX_FACADE_RAYS];
+            int rBidx[MAX_FACADE_RAYS];
+            int rCount = 0;
+
+            for (int ci = 0; ci < nCand; ci++) {
+                int pi = candidates[ci];
+                int start = bOffsets[pi];
+                int end = bOffsets[pi + 1];
+                int np = end - start;
+                if (np < 3) continue;
+                float heightM = bHeights[pi];
+                if (!(heightM > 0.0f)) continue;
+
+                for (int e = 0; e < np; e++) {
+                    int ia = start + e;
+                    int ib = start + ((e + 1) % np);
+                    float ay = bVerts[ia * 2];
+                    float ax = (bVerts[ia * 2 + 1] - lon0) * mPerLon;
+                    float by = bVerts[ib * 2];
+                    float bx = (bVerts[ib * 2 + 1] - lon0) * mPerLon;
+                    float aYloc = (ay - lat0) * mPerLat;
+                    float bYloc = (by - lat0) * mPerLat;
+                    float wx = bx - ax;
+                    float wy = bYloc - aYloc;
+                    float wallLen = sqrtf(wx * wx + wy * wy);
+                    if (wallLen < 3.0f) continue;
+
+                    float sideTx = wx * (txY - aYloc) - wy * (txX - ax);
+                    float sideRx = wx * (rxY - aYloc) - wy * (rxX - ax);
+                    if (sideTx * sideRx < 0.0f) continue;
+
+                    float len2 = wx * wx + wy * wy;
+                    float tproj = ((rxX - ax) * wx + (rxY - aYloc) * wy) / len2;
+                    float projx = ax + wx * tproj;
+                    float projy = aYloc + wy * tproj;
+                    float imgx = 2.0f * projx - rxX;
+                    float imgy = 2.0f * projy - rxY;
+
+                    float rX = imgx - txX;
+                    float rY = imgy - txY;
+                    float denom = rX * wy - rY * wx;
+                    if (fabsf(denom) < 1.0e-9f) continue;
+                    float apx = ax - txX;
+                    float apy = aYloc - txY;
+                    float t = (apx * wy - apy * wx) / denom;
+                    float u = (apx * rY - apy * rX) / denom;
+                    if (t <= 1.0e-6f || t >= 1.0f - 1.0e-6f || u <= 1.0e-6f || u >= 1.0f - 1.0e-6f) continue;
+
+                    float refx = txX + (imgx - txX) * t;
+                    float refy = txY + (imgy - txY) * t;
+                    float leg1 = sqrtf((refx - txX) * (refx - txX) + (refy - txY) * (refy - txY));
+                    float leg2 = sqrtf((rxX - refx) * (rxX - refx) + (rxY - refy) * (rxY - refy));
+                    float horizPath = leg1 + leg2;
+                    if (horizPath - directHoriz > extraPathLimit) continue;
+
+                    float tPath = horizPath > 0.0f ? leg1 / horizPath : 0.0f;
+                    float refAbs = txAbs + (rxAbs - txAbs) * tPath;
+                    float refLat = lat0 + refy / mPerLat;
+                    float refLon = lon0 + refx / mPerLon;
+                    float refGround = bilinear_elev(refLat, refLon, elev, elevRes, latMin, latMax, lonMin, lonMax);
+                    if (refAbs < refGround) continue;
+                    if (refAbs > refGround + heightM) continue;
+
+                    float dz1 = refAbs - txAbs;
+                    float dz2 = rxAbs - refAbs;
+                    float pathM = sqrtf(leg1 * leg1 + dz1 * dz1) + sqrtf(leg2 * leg2 + dz2 * dz2);
+
+                    // Keep the MAX_FACADE_RAYS shortest paths, ascending (parity
+                    // with rays.sort(pathM).slice(0, maxRays)).
+                    if (rCount < MAX_FACADE_RAYS) {
+                        int pos = rCount;
+                        while (pos > 0 && rPath[pos - 1] > pathM) {
+                            rPath[pos] = rPath[pos - 1];
+                            rLat[pos] = rLat[pos - 1];
+                            rLon[pos] = rLon[pos - 1];
+                            rRefAbs[pos] = rRefAbs[pos - 1];
+                            rBidx[pos] = rBidx[pos - 1];
+                            pos--;
+                        }
+                        rPath[pos] = pathM;
+                        rLat[pos] = refLat;
+                        rLon[pos] = refLon;
+                        rRefAbs[pos] = refAbs;
+                        rBidx[pos] = pi;
+                        rCount++;
+                    } else if (pathM < rPath[MAX_FACADE_RAYS - 1]) {
+                        int pos = MAX_FACADE_RAYS - 1;
+                        while (pos > 0 && rPath[pos - 1] > pathM) {
+                            rPath[pos] = rPath[pos - 1];
+                            rLat[pos] = rLat[pos - 1];
+                            rLon[pos] = rLon[pos - 1];
+                            rRefAbs[pos] = rRefAbs[pos - 1];
+                            rBidx[pos] = rBidx[pos - 1];
+                            pos--;
+                        }
+                        rPath[pos] = pathM;
+                        rLat[pos] = refLat;
+                        rLon[pos] = refLon;
+                        rRefAbs[pos] = refAbs;
+                        rBidx[pos] = pi;
+                    }
+                }
+            }
+
+            for (int i = 0; i < rCount; i++) {
+                float legLoss =
+                    facade_leg_obstacle_loss(
+                        txLat, txLon, txAbs, rLat[i], rLon[i], rRefAbs[i], rBidx[i],
+                        freqMHz, profileTargetSpacingM, profileMaxSamples,
+                        elev, elevRes, latMin, latMax, lonMin, lonMax, reEff,
+                        useFoliage, foliageLossPerM,
+                        fVerts, fOffsets, fBboxes, fCanopy, fFactors, foliageCount,
+                        fTileOffsets, fTileCounts, fTileIndices, foliageTileN,
+                        foliageTileLatMin, foliageTileLatSpan, foliageTileLonMin, foliageTileLonSpan,
+                        fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets,
+                        useBuildings, buildingLossPerM,
+                        bVerts, bOffsets, bBboxes, bHeights, buildingCount,
+                        bTileOffsets, bTileCounts, bTileIndices, buildingTileN,
+                        buildingTileLatMin, buildingTileLatSpan, buildingTileLonMin, buildingTileLonSpan,
+                        bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets
+                    )
+                    + facade_leg_obstacle_loss(
+                        rLat[i], rLon[i], rRefAbs[i], rxLat, rxLon, rxAbs, rBidx[i],
+                        freqMHz, profileTargetSpacingM, profileMaxSamples,
+                        elev, elevRes, latMin, latMax, lonMin, lonMax, reEff,
+                        useFoliage, foliageLossPerM,
+                        fVerts, fOffsets, fBboxes, fCanopy, fFactors, foliageCount,
+                        fTileOffsets, fTileCounts, fTileIndices, foliageTileN,
+                        foliageTileLatMin, foliageTileLatSpan, foliageTileLonMin, foliageTileLonSpan,
+                        fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets,
+                        useBuildings, buildingLossPerM,
+                        bVerts, bOffsets, bBboxes, bHeights, buildingCount,
+                        bTileOffsets, bTileCounts, bTileIndices, buildingTileN,
+                        buildingTileLatMin, buildingTileLatSpan, buildingTileLonMin, buildingTileLonSpan,
+                        bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets
+                    );
+                coherent_add(&real, &imag, rPath[i], -wallR * field_coeff_from_loss_db(legLoss), refPath, lambda);
+            }
+        }
+    }
+
+    float powerRatio = fmaxf(0.0001f, real * real + imag * imag);
+    return 10.0f * log10f(powerRatio);
 }
 
 extern "C" __global__
@@ -832,7 +1280,10 @@ void coverage_kernel(
     const int* bHoleRingOffsets,
     const int* bPolyHoleOffsets,
     int useGroundReflection,
-    float reflectionCoeff
+    int reflectionModel,
+    float reflectionCoeff,
+    float sideReflectionCoeff,
+    float reflectionCorridorWidthM
 ) {
     int col = blockDim.x * blockIdx.x + threadIdx.x;
     int row = blockDim.y * blockIdx.y + threadIdx.y;
@@ -870,6 +1321,30 @@ void coverage_kernel(
             surfaceRefractivityN
         );
         float reEff = earthRadius * kEff;
+
+        // Direct-path clutter loss. In facade mode this is folded into the
+        // coherent reflection sum (directObstacleLossHandledByReflection); on all
+        // other paths it is subtracted from sig below.
+        float directFoliageLoss = (useFoliage != 0 && foliageCount > 0 && dist > 50.0f)
+            ? foliage_ray_loss(
+                txLat, txLon, ptLat, ptLon, txAbs, rxAbs, dist, samples, freqMHz,
+                useWeissberger, foliageLossPerM,
+                elev, elevRes, latMin, latMax, lonMin, lonMax,
+                fVerts, fOffsets, fBboxes, fCanopy, fFactors, foliageCount,
+                fTileOffsets, fTileCounts, fTileIndices, foliageTileN,
+                foliageTileLatMin, foliageTileLatSpan, foliageTileLonMin, foliageTileLonSpan,
+                fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets, reEff)
+            : 0.0f;
+        float directBuildingLoss = (useBuildings != 0 && buildingCount > 0 && dist > 50.0f)
+            ? building_ray_loss(
+                txLat, txLon, ptLat, ptLon, txAbs, rxAbs, dist, samples, buildingLossPerM,
+                elev, elevRes, latMin, latMax, lonMin, lonMax,
+                bVerts, bOffsets, bBboxes, bHeights, buildingCount,
+                bTileOffsets, bTileCounts, bTileIndices, buildingTileN,
+                buildingTileLatMin, buildingTileLatSpan, buildingTileLonMin, buildingTileLonSpan,
+                bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets, reEff, -1)
+            : 0.0f;
+        int facadeHandledDirect = 0;
 
         if (useLos != 0 && dist > 50.0f) {
             // 7) Terrain LOS check with effective-Earth curvature (k-factor).
@@ -941,7 +1416,40 @@ void coverage_kernel(
 
             // Ground reflection (2-ray) only on clear (geometric-LoS) paths.
             if (useGroundReflection != 0 && maxV < 0.0f) {
-                sig += two_ray_reflection_gain_db(dist, txHeight, rxHeight, freqMHz, reflectionCoeff);
+                if (reflectionModel == 3) {
+                    sig += building_facade_multipath_gain_db(
+                        txLat, txLon, txAbs, txHeight,
+                        ptLat, ptLon, rxAbs, rxHeight,
+                        dist, freqMHz,
+                        directFoliageLoss + directBuildingLoss,
+                        reflectionCoeff, sideReflectionCoeff,
+                        profileTargetSpacingM, profileMaxSamples,
+                        elev, elevRes, latMin, latMax, lonMin, lonMax, reEff,
+                        useFoliage, foliageLossPerM,
+                        fVerts, fOffsets, fBboxes, fCanopy, fFactors, foliageCount,
+                        fTileOffsets, fTileCounts, fTileIndices, foliageTileN,
+                        foliageTileLatMin, foliageTileLatSpan, foliageTileLonMin, foliageTileLonSpan,
+                        fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets,
+                        useBuildings, buildingLossPerM,
+                        bVerts, bOffsets, bBboxes, bHeights, buildingCount,
+                        bTileOffsets, bTileCounts, bTileIndices, buildingTileN,
+                        buildingTileLatMin, buildingTileLatSpan, buildingTileLonMin, buildingTileLonSpan,
+                        bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets
+                    );
+                    facadeHandledDirect = 1;
+                } else if (reflectionModel == 2) {
+                    sig += six_ray_reflection_gain_db(
+                        dist,
+                        txHeight,
+                        rxHeight,
+                        freqMHz,
+                        reflectionCoeff,
+                        sideReflectionCoeff,
+                        reflectionCorridorWidthM
+                    );
+                } else {
+                    sig += two_ray_reflection_gain_db(dist, txHeight, rxHeight, freqMHz, reflectionCoeff);
+                }
             }
 
             // 11) Earth curvature/refraction already included via reEff (k-factor).
@@ -996,82 +1504,11 @@ void coverage_kernel(
             }
         }
 
-        // 10) Clutter attenuation (foliage/buildings/walls).
-        if (useFoliage != 0 && foliageCount > 0 && dist > 50.0f) {
-            sig -= foliage_ray_loss(
-                txLat,
-                txLon,
-                ptLat,
-                ptLon,
-                txAbs,
-                rxAbs,
-                dist,
-                samples,
-                freqMHz,
-                useWeissberger,
-                foliageLossPerM,
-                elev,
-                elevRes,
-                latMin,
-                latMax,
-                lonMin,
-                lonMax,
-                fVerts,
-                fOffsets,
-                fBboxes,
-                fCanopy,
-                fFactors,
-                foliageCount,
-                fTileOffsets,
-                fTileCounts,
-                fTileIndices,
-                foliageTileN,
-                foliageTileLatMin,
-                foliageTileLatSpan,
-                foliageTileLonMin,
-                foliageTileLonSpan,
-                fHoleVerts,
-                fHoleRingOffsets,
-                fPolyHoleOffsets,
-                reEff
-            );
-        }
-
-        if (useBuildings != 0 && buildingCount > 0 && dist > 50.0f) {
-            sig -= building_ray_loss(
-                txLat,
-                txLon,
-                ptLat,
-                ptLon,
-                txAbs,
-                rxAbs,
-                dist,
-                samples,
-                buildingLossPerM,
-                elev,
-                elevRes,
-                latMin,
-                latMax,
-                lonMin,
-                lonMax,
-                bVerts,
-                bOffsets,
-                bBboxes,
-                bHeights,
-                buildingCount,
-                bTileOffsets,
-                bTileCounts,
-                bTileIndices,
-                buildingTileN,
-                buildingTileLatMin,
-                buildingTileLatSpan,
-                buildingTileLonMin,
-                buildingTileLonSpan,
-                bHoleVerts,
-                bHoleRingOffsets,
-                bPolyHoleOffsets,
-                reEff
-            );
+        // 10) Clutter attenuation (foliage/buildings/walls). In facade mode the
+        // direct-path clutter loss is already folded into the coherent reflection
+        // sum above, so it must not be subtracted twice.
+        if (facadeHandledDirect == 0) {
+            sig -= directFoliageLoss + directBuildingLoss;
         }
     }
 
