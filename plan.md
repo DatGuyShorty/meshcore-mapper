@@ -12,41 +12,7 @@ Last reviewed: May 2026.
 
 ## Backlog
 
-### Bugs
-
-| ID | File | Issue | Fix |
-|----|------|-------|-----|
-| B5 | `coverage.js`, `map.js` | ~~`_polyRenderer` (Leaflet Canvas instance) is created once and never reset when `clearFoliageLayers()` / `clearBuildingLayers()` run — the backing canvas DOM element accumulates in the map container across runs~~ | **Done** — `_polyRenderer.remove()` + null reset at start of each `runCoverageAnalysis` |
-| B6 | `p2p.js` | ~~Terrain profile SVG hardcodes `Re_eff = 8495000`; `propagation.js` derives `6371000 * 4/3 = 8494666.67` — 333 m discrepancy on long paths~~ | **Done** — exported `RE_EFF` from `propagation.js`; imported in `p2p.js` |
-| B7 | `coverage.js` | ~~`canvas.toDataURL()` synchronously base64-encodes the full PNG per repeater overlay~~ | **Done** — replaced with `canvas.toBlob()` + `URL.createObjectURL()`; revoked in `clearCoverageLayers()` |
-| B8 | `repeaters.js` | ~~Dragging a repeater marker updates `r.lat`/`r.lon` but does not update the marker's bound popup~~ | **Done** — `setPopupContent` added to `dragend` handler |
-
-### Performance
-
-| ID | File | Issue | Fix |
-|----|------|-------|-----|
-| P13 | `elevation.js` | ~~`_elevMem` grows without bound for the lifetime of the renderer process~~ | **Done** — `_elevMemSet()` helper caps at 500 000 entries; evicts oldest 25% when exceeded |
-| P14 | `optimizer.js`, `optimizerUI.js` | ~~`findBestLocations` runs entirely on the main thread — at Fine (32×32 candidates) with LoS enabled this blocks the UI for several seconds~~ | **Done** — elevation fetch stays on main thread (IPC constraint); greedy scoring loop moved to `optimizerWorker.js`; `optimizerUI.js` spawns the worker with pre-fetched elevation data |
-| P15 | `coverage.js` | ~~When `useLos=false`, `gridElevs` is already a `Float32Array`; it was being copied redundantly~~ | **Done** — `const gridElevsF32 = useLos ? new Float32Array(gridElevs) : gridElevs` |
-
-### Features
-
-| ID | Description | Detail |
-|----|-------------|--------|
-| F7 | ~~**Cancel in-flight coverage analysis**~~ | **Done** — `_cancelToken` + `_currentWorker` in `coverage.js`; ✕ Cancel button in progress overlay (ui.js); Escape key handler; cancelled error shown as status not exception |
-| F8 | ~~**"Copy current node settings" copies only height**~~ | **Done** — optimizer already reads `repeater-power`/`freq`/`gain` live from the Nodes form; only `opt-height` needed its own copy (it had one). Comment updated to clarify |
-| F9 | ~~**WS-imported node default radio params are hardcoded**~~ | **Done** — "WS Node Defaults" details panel added to Settings tab (height, power, freq, gain inputs); `_getWsDefaults()` helper in `repeaters.js` reads those inputs in both `_loadWsFromDb` and `_syncWsRepeaters` |
-
-### UX
-
-| ID | Description | Detail |
-|----|-------------|--------|
-| U7 | ~~**Map centres on Slovakia for every new user**~~ | **Done** — `map.js` requests geolocation on first launch; persists map centre in `localStorage` on `moveend` so subsequent launches restore the last viewed area |
-| U8 | ~~**Foliage / building loss inputs visible even when feature is off**~~ | **Already done** — `coverage.js init()` already toggles those label rows via `display:none` |
-
----
-
-## Done (summary)
+*(empty — add new items here when work is in progress)*
 
 ---
 
