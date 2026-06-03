@@ -22,6 +22,17 @@ export const map = L.map('map', {
   zoomControl: true,
 });
 
+// Dedicated pane for the coverage heatmap so it always draws ABOVE the
+// foliage/building canvas (default overlayPane, z-index 400) yet stays below the
+// node markers (markerPane, 600). A pane-level blur composites all coverage
+// tiles together before filtering, smoothing the upscaled grid without
+// introducing seams between adjacent tiles.
+const _coveragePane = map.createPane('coveragePane');
+_coveragePane.style.zIndex = '450';
+_coveragePane.style.pointerEvents = 'none';
+_coveragePane.style.filter = 'blur(2px)';
+_coveragePane.style.willChange = 'filter';
+
 let _activeBaseLayerName = 'Streets (OSM)';
 
 /**

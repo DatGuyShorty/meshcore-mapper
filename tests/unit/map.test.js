@@ -33,6 +33,7 @@ describe('map module helpers', () => {
       removeLayer: vi.fn(),
       getBounds: vi.fn(() => ({ getSouth: () => 49, getNorth: () => 51, getWest: () => 13, getEast: () => 15 })),
       on: vi.fn(),
+      createPane: vi.fn(() => ({ style: {} })),
     };
 
     globalThis.L = {

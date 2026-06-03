@@ -16,6 +16,7 @@ describe('mapContext helper functions', () => {
       getZoom: () => 8,
       on: vi.fn(),
       off: vi.fn(),
+      createPane: vi.fn(() => ({ style: {} })),
     };
 
     const mapContainer = {
