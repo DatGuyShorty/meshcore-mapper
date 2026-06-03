@@ -277,6 +277,15 @@
                 Fresnel clearance flag
               </label>
               <div class="option-group">
+                <label class="checkbox-label" title="2-ray ground reflection: direct ray plus ground-bounce interference on clear line-of-sight paths.">
+                  <input type="checkbox" id="use-reflection" />
+                  Ground reflection (2-ray)
+                </label>
+                <label title="Ground reflection coefficient magnitude |Γ| (0 = none, 1 = perfect reflector).">Reflection coefficient
+                  <input type="number" id="reflection-coeff" value="0.7" min="0" max="1" step="0.05" />
+                </label>
+              </div>
+              <div class="option-group">
                 <label class="checkbox-label">
                   <input type="checkbox" id="use-foliage" />
                   Foliage attenuation
@@ -556,6 +565,7 @@
             <option value="margin">Margin</option>
             <option value="rssi">RSSI</option>
             <option value="snr">SNR</option>
+            <option value="los">LoS clearance</option>
           </select>
         </div>
         <div class="legend-gradient">

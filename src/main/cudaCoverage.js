@@ -44,6 +44,7 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
       const gridPath = path.join(tmpDir, 'grid_elevs.f32');
       const outPath = path.join(tmpDir, 'coverage.rgba');
       const signalPath = path.join(tmpDir, 'coverage_signal.f32');
+      const losPath = path.join(tmpDir, 'coverage_los.f32');
       const paramsPath = path.join(tmpDir, 'params.json');
       const gridElevs = _toFloat32Array(payload.gridElevs);
       const gridRes = _boundedInt(payload.gridRes, 'gridRes', 1, MAX_CUDA_GRID_RES);
@@ -62,6 +63,7 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
         gridPath,
         outPath,
         signalPath,
+        losPath,
         gridRes,
         ELEV_RES: elevRes,
         rep: payload.rep,
@@ -76,6 +78,8 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
         useLos: payload.useLos,
         useFresnel: payload.useFresnel,
         useDeygout: Boolean(payload.useDeygout || payload.diffractionModel === 'deygout'),
+        useGroundReflection: Boolean(payload.useGroundReflection),
+        reflectionCoeff: Number.isFinite(payload.reflectionCoeff) ? payload.reflectionCoeff : 0.7,
         useFoliage: payload.useFoliage,
         useBuildings: payload.useBuildings,
         profileTargetSpacingM: payload.profileTargetSpacingM,
@@ -100,6 +104,7 @@ function registerCudaCoverageHandlers(ipcMain, appRoot) {
         ...result,
         rgba: new Uint8Array(fs.readFileSync(outPath)),
         signalGrid: _readFloat32File(signalPath),
+        losGrid: fs.existsSync(losPath) ? _readFloat32File(losPath) : undefined,
       };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -269,6 +274,27 @@ function _validateObstaclePolygons(polygons, label) {
   return { polygons, vertexCount: vertices };
 }
 
+// Normalise multipolygon inner rings (holes) for the Python packer. Input is a
+// list aligned with `polygons`, where holes[i] is the list of inner rings for
+// polygon i and each ring is an array of [lat, lon] pairs. Returns the same
+// shape plus the total hole vertex count for the size cap.
+function _serializeHoles(holes, label) {
+  if (!Array.isArray(holes)) return { holes: [], holeVertexCount: 0 };
+  let holeVertexCount = 0;
+  const out = holes.map((ringList) => {
+    if (!Array.isArray(ringList)) return [];
+    return ringList.map((ring) => {
+      if (!Array.isArray(ring)) return [];
+      holeVertexCount += ring.length;
+      return ring.map(pt => [pt?.[0] ?? 0, pt?.[1] ?? 0]);
+    });
+  });
+  if (holeVertexCount > MAX_CUDA_OBSTACLE_VERTICES) {
+    throw new Error(`${label} has too many hole vertices`);
+  }
+  return { holes: out, holeVertexCount };
+}
+
 function _serializeFoliagePayload(foliage, label = 'foliage') {
   if (!foliage) return null;
   const { polygons, vertexCount } = _validateObstaclePolygons(foliage.polygons, label);
@@ -276,8 +302,9 @@ function _serializeFoliagePayload(foliage, label = 'foliage') {
   const canopyHeights = foliage.canopyHeights ?? [];
   const factors = foliage.factors ?? [];
   const tileIndex = _serializeTileIndex(foliage.tileIndex, label);
+  const { holes, holeVertexCount } = _serializeHoles(foliage.holes, label);
   _validateObstaclePackedSize({
-    label, polygons, vertexCount, bboxes, heights: canopyHeights, factors, tileIndex,
+    label, polygons, vertexCount, bboxes, heights: canopyHeights, factors, tileIndex, holeVertexCount,
   });
   return {
     polygons,
@@ -285,6 +312,7 @@ function _serializeFoliagePayload(foliage, label = 'foliage') {
     canopyHeights,
     factors,
     tileIndex,
+    holes,
   };
 }
 
@@ -294,18 +322,20 @@ function _serializeBuildingPayload(buildings, label = 'buildings') {
   const bboxes = _serializeBboxes(buildings.bboxes);
   const heights = buildings.heights ?? [];
   const tileIndex = _serializeTileIndex(buildings.tileIndex, label);
+  const { holes, holeVertexCount } = _serializeHoles(buildings.holes, label);
   _validateObstaclePackedSize({
-    label, polygons, vertexCount, bboxes, heights, factors: [], tileIndex,
+    label, polygons, vertexCount, bboxes, heights, factors: [], tileIndex, holeVertexCount,
   });
   return {
     polygons,
     bboxes,
     heights,
     tileIndex,
+    holes,
   };
 }
 
-function _validateObstaclePackedSize({ label, polygons, vertexCount, bboxes, heights, factors, tileIndex }) {
+function _validateObstaclePackedSize({ label, polygons, vertexCount, bboxes, heights, factors, tileIndex, holeVertexCount = 0 }) {
   const polygonCount = polygons.length;
   const bboxCount = bboxes.length || polygonCount;
   const heightCount = Math.max(polygonCount, Array.isArray(heights) ? heights.length : 0);
@@ -319,7 +349,8 @@ function _validateObstaclePackedSize({ label, polygons, vertexCount, bboxes, hei
     + heightCount * 4
     + factorCount * 4
     + tileCells * 2 * 4
-    + tileEntries * 4;
+    + tileEntries * 4
+    + holeVertexCount * 2 * 4;
   if (packedBytes > MAX_CUDA_OBSTACLE_PACKED_BYTES) {
     const mb = (packedBytes / (1024 * 1024)).toFixed(1);
     const capMb = (MAX_CUDA_OBSTACLE_PACKED_BYTES / (1024 * 1024)).toFixed(0);

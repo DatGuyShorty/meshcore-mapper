@@ -16,6 +16,12 @@ def _empty_obstacles(with_factors=False):
         "tile_lon_min": 0.0,
         "tile_lon_span": 1.0,
         "count": 0,
+        # Multipolygon holes (inner rings). hole_ring_offsets indexes hole_verts
+        # in vertex units; poly_hole_offsets[pi]..[pi+1] is the hole-ring range
+        # for polygon pi. Empty here -> every polygon has a zero-length range.
+        "hole_verts": [0.0, 0.0],
+        "hole_ring_offsets": [0, 0],
+        "poly_hole_offsets": [0, 0],
     }
     if with_factors:
         out["factors"] = [1.0]
@@ -47,6 +53,30 @@ def pack_obstacles(payload, with_factors=False):
             verts.append(float(pt[0]))
             verts.append(float(pt[1]))
     offsets[count] = len(verts) // 2
+
+    # Pack multipolygon holes (inner rings) parallel to `polygons`. The renderer
+    # sends `holes` as a list aligned with `polygons`, where holes[i] is the list
+    # of inner rings for polygon i. Flatten into:
+    #   hole_verts        - [lat, lon, ...] for every hole ring, concatenated
+    #   hole_ring_offsets - vertex-unit start of each hole ring (len = rings + 1)
+    #   poly_hole_offsets - poly_hole_offsets[pi]..[pi+1] = hole-ring index range
+    #                       owned by polygon pi (len = count + 1)
+    holes_payload = payload.get("holes") or []
+    hole_verts = []
+    hole_ring_offsets = [0]
+    poly_hole_offsets = [0] * (count + 1)
+    for i in range(count):
+        poly_hole_offsets[i] = len(hole_ring_offsets) - 1
+        rings = holes_payload[i] if i < len(holes_payload) else None
+        if rings:
+            for ring in rings:
+                if not ring or len(ring) < 3:
+                    continue
+                for pt in ring:
+                    hole_verts.append(float(pt[0]))
+                    hole_verts.append(float(pt[1]))
+                hole_ring_offsets.append(len(hole_verts) // 2)
+    poly_hole_offsets[count] = len(hole_ring_offsets) - 1
 
     bboxes_payload = payload.get("bboxes") or []
     bboxes = []
@@ -121,6 +151,9 @@ def pack_obstacles(payload, with_factors=False):
         "tile_lon_min": tile_lon_min,
         "tile_lon_span": tile_lon_span,
         "count": count,
+        "hole_verts": hole_verts if hole_verts else [0.0, 0.0],
+        "hole_ring_offsets": hole_ring_offsets if len(hole_ring_offsets) > 1 else [0, 0],
+        "poly_hole_offsets": poly_hole_offsets,
     }
     if with_factors:
         out["factors"] = factors if factors else [1.0]

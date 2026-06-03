@@ -1,5 +1,4 @@
 // @ts-check
-import { obstacleLayerHasHoles } from './osmGeometry.js';
 
 /**
  * @typedef {{ available: boolean, reason?: string, device?: string }} CudaProbeResult
@@ -99,9 +98,6 @@ async function _getOptimizerCaps(preference) {
 async function _runCudaOptimizer(data, { signal, onProgress }) {
   if (!_cudaStatus?.available || !window.electronAPI?.cudaOptimizerCompute) {
     return { unsupported: true, message: _cudaStatus?.reason || 'Python CUDA optimizer unavailable' };
-  }
-  if (obstacleLayerHasHoles(data?.opts?.foliage) || obstacleLayerHasHoles(data?.opts?.buildings)) {
-    return { unsupported: true, message: 'hole-aware OSM multipolygons require CPU backend' };
   }
 
   const cancelOnAbort = () => window.electronAPI.cudaOptimizerCancel?.().catch(() => {});

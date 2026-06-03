@@ -373,27 +373,22 @@ extern "C" __device__ int gather_candidates(
     return n;
 }
 
-extern "C" __device__ int segment_polygon_intervals(
+extern "C" __device__ int add_ring_crossings(
     float lat1,
     float lon1,
     float lat2,
     float lon2,
-    int polyIdx,
     const float* verts,
-    const int* offsets,
-    float* ts
+    int start,
+    int end,
+    float* ts,
+    int nTs
 ) {
-    int start = offsets[polyIdx];
-    int end = offsets[polyIdx + 1];
     int n = end - start;
-    if (n < 3) return 0;
+    if (n < 3) return nTs;
 
     float dx = lon2 - lon1;
     float dy = lat2 - lat1;
-
-    ts[0] = 0.0f;
-    ts[1] = 1.0f;
-    int nTs = 2;
 
     int j = n - 1;
     for (int i = 0; i < n && nTs < (MAX_TS - 1); i++) {
@@ -435,6 +430,91 @@ extern "C" __device__ int segment_polygon_intervals(
         j = i;
     }
 
+    return nTs;
+}
+
+extern "C" __device__ int segment_polygon_intervals(
+    float lat1,
+    float lon1,
+    float lat2,
+    float lon2,
+    int polyIdx,
+    const float* verts,
+    const int* offsets,
+    float* ts
+) {
+    int start = offsets[polyIdx];
+    int end = offsets[polyIdx + 1];
+    if (end - start < 3) return 0;
+
+    ts[0] = 0.0f;
+    ts[1] = 1.0f;
+    int nTs = 2;
+
+    return add_ring_crossings(lat1, lon1, lat2, lon2, verts, start, end, ts, nTs);
+}
+
+// True if (lat, lon) falls inside any inner ring (hole) of polygon polyIdx.
+extern "C" __device__ int point_in_any_hole(
+    const float* holeVerts,
+    const int* holeRingOffsets,
+    const int* polyHoleOffsets,
+    int polyIdx,
+    float lat,
+    float lon
+) {
+    int hStart = polyHoleOffsets[polyIdx];
+    int hEnd = polyHoleOffsets[polyIdx + 1];
+    for (int h = hStart; h < hEnd; h++) {
+        int start = holeRingOffsets[h];
+        int end = holeRingOffsets[h + 1];
+        int n = end - start;
+        if (n < 3) continue;
+        int inside = 0;
+        int j = n - 1;
+        for (int i = 0; i < n; i++) {
+            int ii = start + i;
+            int jj = start + j;
+            float yi = holeVerts[ii * 2];
+            float xi = holeVerts[ii * 2 + 1];
+            float yj = holeVerts[jj * 2];
+            float xj = holeVerts[jj * 2 + 1];
+            if (((yi > lat) != (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi + 1.0e-12f) + xi)) {
+                inside = !inside;
+            }
+            j = i;
+        }
+        if (inside) return 1;
+    }
+    return 0;
+}
+
+// Breakpoints from the outer ring AND every hole ring of polyIdx, so no
+// sub-interval straddles a hole boundary. Mirrors the CPU
+// segmentPolygonIntervalsWithHoles: callers attenuate a sub-interval only when
+// its midpoint is inside the outer ring and not inside any hole.
+extern "C" __device__ int segment_polygon_intervals_holes(
+    float lat1,
+    float lon1,
+    float lat2,
+    float lon2,
+    int polyIdx,
+    const float* verts,
+    const int* offsets,
+    const float* holeVerts,
+    const int* holeRingOffsets,
+    const int* polyHoleOffsets,
+    float* ts
+) {
+    int nTs = segment_polygon_intervals(lat1, lon1, lat2, lon2, polyIdx, verts, offsets, ts);
+    if (nTs < 2) return nTs;
+    int hStart = polyHoleOffsets[polyIdx];
+    int hEnd = polyHoleOffsets[polyIdx + 1];
+    for (int h = hStart; h < hEnd && nTs < (MAX_TS - 1); h++) {
+        int rs = holeRingOffsets[h];
+        int re = holeRingOffsets[h + 1];
+        nTs = add_ring_crossings(lat1, lon1, lat2, lon2, holeVerts, rs, re, ts, nTs);
+    }
     return nTs;
 }
 
@@ -481,6 +561,9 @@ extern "C" __device__ float foliage_ray_loss(
     float foliageTileLatSpan,
     float foliageTileLonMin,
     float foliageTileLonSpan,
+    const float* fHoleVerts,
+    const int* fHoleRingOffsets,
+    const int* fPolyHoleOffsets,
     float reEff
 ) {
     if (foliageCount <= 0 || samples <= 1) return 0.0f;
@@ -516,7 +599,7 @@ extern "C" __device__ float foliage_ray_loss(
 
         for (int ci = 0; ci < nCand; ci++) {
             int pi = candidates[ci];
-            int nTs = segment_polygon_intervals(lat1, lon1, lat2, lon2, pi, fVerts, fOffsets, ts);
+            int nTs = segment_polygon_intervals_holes(lat1, lon1, lat2, lon2, pi, fVerts, fOffsets, fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets, ts);
             if (nTs < 2) continue;
 
             for (int k = 0; k < nTs - 1; k++) {
@@ -529,6 +612,7 @@ extern "C" __device__ float foliage_ray_loss(
                 float lat = lat1 + (lat2 - lat1) * mid;
                 float lon = lon1 + (lon2 - lon1) * mid;
                 if (!point_in_poly(fVerts, fOffsets, pi, lat, lon)) continue;
+                if (point_in_any_hole(fHoleVerts, fHoleRingOffsets, fPolyHoleOffsets, pi, lat, lon)) continue;
 
                 float rayAbs = txAbs + (rxAbs - txAbs) * t;
                 float terrainElev = elev1 + (elev2 - elev1) * mid;
@@ -582,6 +666,9 @@ extern "C" __device__ float building_ray_loss(
     float buildingTileLatSpan,
     float buildingTileLonMin,
     float buildingTileLonSpan,
+    const float* bHoleVerts,
+    const int* bHoleRingOffsets,
+    const int* bPolyHoleOffsets,
     float reEff
 ) {
     if (buildingCount <= 0 || samples <= 1) return 0.0f;
@@ -617,7 +704,7 @@ extern "C" __device__ float building_ray_loss(
 
         for (int ci = 0; ci < nCand; ci++) {
             int pi = candidates[ci];
-            int nTs = segment_polygon_intervals(lat1, lon1, lat2, lon2, pi, bVerts, bOffsets, ts);
+            int nTs = segment_polygon_intervals_holes(lat1, lon1, lat2, lon2, pi, bVerts, bOffsets, bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets, ts);
             if (nTs < 2) continue;
 
             for (int k = 0; k < nTs - 1; k++) {
@@ -630,6 +717,7 @@ extern "C" __device__ float building_ray_loss(
                 float lat = lat1 + (lat2 - lat1) * mid;
                 float lon = lon1 + (lon2 - lon1) * mid;
                 if (!point_in_poly(bVerts, bOffsets, pi, lat, lon)) continue;
+                if (point_in_any_hole(bHoleVerts, bHoleRingOffsets, bPolyHoleOffsets, pi, lat, lon)) continue;
 
                 float rayAbs = txAbs + (rxAbs - txAbs) * t;
                 float terrainElev = elev1 + (elev2 - elev1) * mid;
@@ -650,11 +738,29 @@ extern "C" __device__ float building_ray_loss(
     return loss;
 }
 
+// Two-ray (direct + ground-reflected) interference gain (dB to add to free-space
+// rxPower). Mirrors twoRayReflectionGainDb in src/propagation.js.
+extern "C" __device__ float two_ray_reflection_gain_db(
+    float dist, float txHeight, float rxHeight, float freqMHz, float reflectionCoeff
+) {
+    if (dist <= 0.0f || freqMHz <= 0.0f || reflectionCoeff <= 0.0f) return 0.0f;
+    float ht = fmaxf(0.0f, txHeight);
+    float hr = fmaxf(0.0f, rxHeight);
+    float Rc = fminf(1.0f, fmaxf(0.0f, reflectionCoeff));
+    float lambda = 299792458.0f / (freqMHz * 1000000.0f);
+    float rDirect = sqrtf(dist * dist + (ht - hr) * (ht - hr));
+    float rRefl = sqrtf(dist * dist + (ht + hr) * (ht + hr));
+    float dPhi = 6.283185307179586f * (rRefl - rDirect) / lambda;
+    float f2 = fmaxf(0.01f, 1.0f + Rc * Rc - 2.0f * Rc * cosf(dPhi));
+    return 10.0f * log10f(f2);
+}
+
 extern "C" __global__
 void coverage_kernel(
     const float* elev,
     unsigned char* rgba,
     float* signals,
+    float* losOut,
     int gridRes,
     int elevRes,
     float latMin,
@@ -704,6 +810,9 @@ void coverage_kernel(
     float foliageTileLatSpan,
     float foliageTileLonMin,
     float foliageTileLonSpan,
+    const float* fHoleVerts,
+    const int* fHoleRingOffsets,
+    const int* fPolyHoleOffsets,
     int useBuildings,
     float buildingLossPerM,
     const float* bVerts,
@@ -718,7 +827,12 @@ void coverage_kernel(
     float buildingTileLatMin,
     float buildingTileLatSpan,
     float buildingTileLonMin,
-    float buildingTileLonSpan
+    float buildingTileLonSpan,
+    const float* bHoleVerts,
+    const int* bHoleRingOffsets,
+    const int* bPolyHoleOffsets,
+    int useGroundReflection,
+    float reflectionCoeff
 ) {
     int col = blockDim.x * blockIdx.x + threadIdx.x;
     int row = blockDim.y * blockIdx.y + threadIdx.y;
@@ -735,6 +849,8 @@ void coverage_kernel(
     float dLon = (ptLon - txLon) * mPerLon;
     float dist = sqrtf(dLat * dLat + dLon * dLon);
     float sig = effectiveSens - 1.0f;
+    // Per-pixel LoS clearance ratio (NaN = no LoS data: beyond radius / LoS off).
+    float losVal = nanf("");
 
     if (dist <= radiusM) {
         // 6) Free-Space Path Loss baseline.
@@ -795,6 +911,7 @@ void coverage_kernel(
                     maxV = fmaxf(maxV, v);
                 }
             }
+            losVal = minFresnelRatio;
 
             // 9) Diffraction: Bullington / Delta-Bullington primary, Deygout optional.
             float diffLoss = 0.0f;
@@ -820,6 +937,11 @@ void coverage_kernel(
             if (diffLoss > 0.0f) {
                 sig -= diffLoss;
                 if (diffLoss > 60.0f) sig = fminf(sig, effectiveSens - 10.0f);
+            }
+
+            // Ground reflection (2-ray) only on clear (geometric-LoS) paths.
+            if (useGroundReflection != 0 && maxV < 0.0f) {
+                sig += two_ray_reflection_gain_db(dist, txHeight, rxHeight, freqMHz, reflectionCoeff);
             }
 
             // 11) Earth curvature/refraction already included via reEff (k-factor).
@@ -908,6 +1030,9 @@ void coverage_kernel(
                 foliageTileLatSpan,
                 foliageTileLonMin,
                 foliageTileLonSpan,
+                fHoleVerts,
+                fHoleRingOffsets,
+                fPolyHoleOffsets,
                 reEff
             );
         }
@@ -942,6 +1067,9 @@ void coverage_kernel(
                 buildingTileLatSpan,
                 buildingTileLonMin,
                 buildingTileLonSpan,
+                bHoleVerts,
+                bHoleRingOffsets,
+                bPolyHoleOffsets,
                 reEff
             );
         }
@@ -1005,6 +1133,7 @@ void coverage_kernel(
 
     int base = pix * 4;
     signals[pix] = sig;
+    losOut[pix] = losVal;
     rgba[base] = r;
     rgba[base + 1] = g;
     rgba[base + 2] = b;

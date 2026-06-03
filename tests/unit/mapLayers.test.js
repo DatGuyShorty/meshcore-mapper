@@ -73,6 +73,7 @@ const stubLeaflet = {
     setView: () => {},
     getContainer: () => ({ style: {} }),
     addLayer: () => {},
+    createPane: () => ({ style: {} }),
   }),
   canvas: () => ({ padding: 0.1 }),
   polygon: () => ({ addTo: () => {} }),

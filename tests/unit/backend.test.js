@@ -25,11 +25,13 @@ describe('coverage backend selection', () => {
     })).toEqual(['cuda', 'cpu']);
   });
 
-  it('keeps CUDA fallback visible for hole-aware OSM geometry', () => {
+  it('no longer forces CPU fallback for hole-aware OSM geometry (GPU subtracts holes)', () => {
     const coverageBackend = readFileSync('src/coverageBackend.js', 'utf8');
     const optimizerBackend = readFileSync('src/optimizerBackend.js', 'utf8');
 
-    expect(coverageBackend).toContain('hole-aware OSM multipolygons require CPU backend');
-    expect(optimizerBackend).toContain('hole-aware OSM multipolygons require CPU backend');
+    expect(coverageBackend).not.toContain('hole-aware OSM multipolygons require CPU backend');
+    expect(optimizerBackend).not.toContain('hole-aware OSM multipolygons require CPU backend');
+    expect(coverageBackend).not.toContain('obstacleLayerHasHoles');
+    expect(optimizerBackend).not.toContain('obstacleLayerHasHoles');
   });
 });

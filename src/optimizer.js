@@ -55,6 +55,8 @@
  * @property {number} radiusKm
  * @property {boolean | undefined} useLos
  * @property {boolean | undefined} useFresnel
+ * @property {boolean | undefined} [useGroundReflection]
+ * @property {number | undefined} [reflectionCoeff]
  * @property {string | undefined}  diffractionModel
  * @property {number}  gridRes
  * @property {number}  latMin
@@ -302,6 +304,8 @@ function computeSignal(tx, txElev, pt, rxElev, dist, fsplBase, gridElevs, opts, 
     effectiveSens: opts.rxSens + (opts.fadeMargin ?? 0),
     useLos: opts.useLos,
     useFresnel: opts.useFresnel,
+    useGroundReflection: opts.useGroundReflection,
+    reflectionCoeff: opts.reflectionCoeff,
     diffractionModel: opts.diffractionModel,
     foliage: opts.foliage,
     foliageLossPerM: opts.foliageLossPerM,

@@ -513,15 +513,3 @@ export function holeCandidatesForOuter(outer, holes) {
     return hole.some(([hlat, hlon]) => _pointInRing(hlat, hlon, outer));
   });
 }
-
-/**
- * Whether an obstacle payload (foliage or buildings) contains any multipolygon holes.
- * CUDA backends currently can't subtract holes from polygon traversal intervals, so
- * payloads with holes must fall back to the CPU pipeline.
- * @param {{ holes?: unknown } | null | undefined} layer
- * @returns {boolean}
- */
-export function obstacleLayerHasHoles(layer) {
-  return Array.isArray(layer?.holes)
-    && layer.holes.some((/** @type {unknown} */ polyHoles) => Array.isArray(polyHoles) && polyHoles.length > 0);
-}

@@ -69,7 +69,7 @@ describe('map adapter helpers', () => {
     const config = { blobUrl: 'blob://tile', bounds: [[0, 0], [1, 1]], opacity: 0.5, repId: 123 };
     const overlay = addCoverageOverlayTile(config);
 
-    expect(globalThis.L.imageOverlay).toHaveBeenCalledWith(config.blobUrl, config.bounds, { opacity: 0.5, interactive: false });
+    expect(globalThis.L.imageOverlay).toHaveBeenCalledWith(config.blobUrl, config.bounds, { opacity: 0.5, interactive: false, pane: 'coveragePane' });
     expect(overlay._repeaterId).toBe(123);
     expect(overlay._blobUrl).toBe('blob://tile');
     expect(fakeState.coverageLayers).toContain(overlay);

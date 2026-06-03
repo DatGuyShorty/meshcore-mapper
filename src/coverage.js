@@ -96,6 +96,7 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
     rxHeight, rxSens, fadeMargin,
     noiseFloorDbm, requiredSnrDb, requiredSnrWithMarginDb, spreadingFactor,
     useLos, useFresnel, useFoliage, foliageLossPerM,
+    useGroundReflection, reflectionCoeff,
     useBuildings, buildingLossPerM,
     computeWorkerCount, computeBackend, deriveObstacleHeights,
     diffractionModel, useDeygout,
@@ -252,13 +253,14 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
         rep: { lat: rep.lat, lon: rep.lon, height: rep.height, power: rep.power, freq: rep.freq, gain: rep.gain ?? 0 },
         txElev, latMin, latMax, lonMin, lonMax,
         radiusKm: runtimeRadiusKm, rxHeight, effectiveSens, useLos, useFresnel,
+        useGroundReflection, reflectionCoeff,
         diffractionModel, useDeygout,
         useFoliage, foliageLossPerM, profileTargetSpacingM, profileMaxSamples,
         foliage: foliagePayload,
         useBuildings, buildingLossPerM,
         buildings: buildingsPayload,
       };
-      const { rgba, signalGrid, stats, backend } = await computeCoverage(computePayload, {
+      const { rgba, signalGrid, losGrid, stats, backend } = await computeCoverage(computePayload, {
         backendPreference: computeBackend,
         workerCount: computeWorkerCount,
         signal: _abortController.signal,
@@ -341,6 +343,7 @@ export async function runCoverageAnalysis(onlyId = null, options = null) {
         profileTargetSpacingM,
         profileMaxSamples,
         signalGrid,
+        losGrid,
         gridRes,
         directionalMask,
       };
@@ -514,7 +517,7 @@ async function _fetchObstaclePayloads({
 }
 
 async function _renderCoverageOverlay(result) {
-  const { signalGrid, gridRes } = result;
+  const { signalGrid, losGrid, gridRes } = result;
   const { latMin, latMax, lonMin, lonMax } = result.bounds ?? result;
   const repId = result.rep?.id ?? result.repId;
   const rgba = colorizeSignalGrid(signalGrid, gridRes, {
@@ -522,6 +525,7 @@ async function _renderCoverageOverlay(result) {
     effectiveSens: result.effectiveSens,
     noiseFloorDbm: result.noiseFloorDbm,
     requiredSnrWithMarginDb: result.requiredSnrWithMarginDb,
+    losGrid,
   });
   let nonZeroAlpha = 0;
   for (let i = 3; i < rgba.length; i += 4) {
@@ -725,6 +729,17 @@ function updateLegendLabels() {
     return;
   }
 
+  if (mode === 'los') {
+    _setLegendLabels('LoS clearance', [
+      ['legend-strong', 'Clear (≥1 Fresnel)'],
+      ['legend-good', 'Grazing (~0.6)'],
+      ['legend-marginal', 'Partial Fresnel'],
+      ['legend-weak', 'Blocked edge'],
+      ['legend-threshold', 'Obstructed (NLoS)'],
+    ]);
+    return;
+  }
+
   const threshold = sens + fade;
   _setLegendLabels('Coverage Margin', [
     ['legend-strong', `${Math.round(threshold + 50)} dBm / +50 dB Strong`],
@@ -747,6 +762,7 @@ function _setLegendLabels(title, rows) {
 function _overlayModeLabel(mode) {
   if (mode === 'rssi') return 'RSSI';
   if (mode === 'snr') return 'SNR';
+  if (mode === 'los') return 'LoS clearance';
   return 'Coverage margin';
 }
 

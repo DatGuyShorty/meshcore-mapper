@@ -16,6 +16,7 @@ const MAX_WORKERS = 8;
  * @typedef {Object} CoverageWorkerResult
  * @property {Uint8ClampedArray} rgba
  * @property {Float32Array} signalGrid
+ * @property {Float32Array} losGrid
  * @property {CoverageWorkerStats} stats
  *
  * @typedef {Object} CoverageWorkerJob
@@ -46,6 +47,7 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
   const bandProgress = new Map();
   const rgba = new Uint8ClampedArray(gridRes * gridRes * 4);
   const signalGrid = new Float32Array(gridRes * gridRes);
+  const losGrid = new Float32Array(gridRes * gridRes);
   const stats = {
     workerCount: count,
     workerComputeMs: 0,
@@ -86,13 +88,16 @@ export function createCoverageWorkerPoolJob(payload, { workerCount = 0, onProgre
           rgba.set(band, msg.rowStart * gridRes * 4);
           const signalBand = new Float32Array(msg.signalBuffer);
           signalGrid.set(signalBand, msg.rowStart * gridRes);
+          if (msg.losBuffer) {
+            losGrid.set(new Float32Array(msg.losBuffer), msg.rowStart * gridRes);
+          }
           stats.workerComputeMs += msg.stats?.computeMs ?? 0;
           stats.insidePoints += msg.stats?.insidePoints ?? 0;
           completed++;
           if (onProgress) onProgress(_weightedProgress(bandProgress, bands, gridRes));
           if (completed === count) {
             settled = true;
-            resolve({ rgba, signalGrid, stats });
+            resolve({ rgba, signalGrid, losGrid, stats });
           }
         }
       };

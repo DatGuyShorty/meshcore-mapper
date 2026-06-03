@@ -1,6 +1,5 @@
 // @ts-check
 import { createCoverageWorkerPoolJob } from './coverageWorkerPool.js';
-import { obstacleLayerHasHoles } from './osmGeometry.js';
 
 /**
  * @typedef {Object} CudaProbeResult
@@ -14,6 +13,7 @@ import { obstacleLayerHasHoles } from './osmGeometry.js';
  * @typedef {Object} CoverageRunResult
  * @property {Uint8ClampedArray} rgba
  * @property {Float32Array} signalGrid
+ * @property {Float32Array} [losGrid]
  * @property {Record<string, any>} stats
  * @property {'cuda' | 'cpu'} backend
  */
@@ -121,9 +121,6 @@ async function _runCuda(payload, { signal, onProgress }) {
   if (!_cudaStatus.available || !window.electronAPI?.cudaCoverageCompute) {
     return { unsupported: true, message: _cudaStatus.reason || 'Python CUDA unavailable' };
   }
-  if (obstacleLayerHasHoles(payload.foliage) || obstacleLayerHasHoles(payload.buildings)) {
-    return { unsupported: true, message: 'hole-aware OSM multipolygons require CPU backend' };
-  }
 
   onProgress?.({ pct: 0.02, stage: 'launching-python' });
   const cancelOnAbort = () => window.electronAPI.cudaCoverageCancel?.().catch(() => {});
@@ -159,8 +156,11 @@ async function _runCuda(payload, { signal, onProgress }) {
     const signalGrid = response.signalGrid instanceof Float32Array
       ? response.signalGrid
       : new Float32Array(response.signalGrid);
+    const losGrid = response.losGrid
+      ? (response.losGrid instanceof Float32Array ? response.losGrid : new Float32Array(response.losGrid))
+      : undefined;
     onProgress?.({ pct: 1, stage: 'completed' });
-    return { rgba, signalGrid, stats: response.stats ?? {} };
+    return { rgba, signalGrid, losGrid, stats: response.stats ?? {} };
   } finally {
     signal?.removeEventListener('abort', cancelOnAbort);
     window.electronAPI?.offCudaCoverageProgress?.(progressListener);
@@ -168,7 +168,7 @@ async function _runCuda(payload, { signal, onProgress }) {
 }
 
 /**
- * @param {{ rgba?: any, signalGrid?: any, stats?: any }} result
+ * @param {{ rgba?: any, signalGrid?: any, losGrid?: any, stats?: any }} result
  * @param {'cuda' | 'cpu'} backend
  * @param {{ gridRes: number }} payload
  * @returns {CoverageRunResult}
@@ -190,9 +190,13 @@ function _validateCoverageResult(result, backend, payload) {
       + `(expected ${expectedSignals} floats, got ${signalGrid?.length ?? 'undefined'})`
     );
   }
+  const losGrid = result?.losGrid instanceof Float32Array && result.losGrid.length === expectedSignals
+    ? result.losGrid
+    : undefined;
   return {
     rgba,
     signalGrid,
+    losGrid,
     stats: result?.stats ?? {},
     backend,
   };

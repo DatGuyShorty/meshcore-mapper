@@ -41,6 +41,9 @@ void optimizer_signal_kernel(
     float foliageTileLatSpan,
     float foliageTileLonMin,
     float foliageTileLonSpan,
+    const float* fHoleVerts,
+    const int* fHoleRingOffsets,
+    const int* fPolyHoleOffsets,
     int useBuildings,
     float buildingLossPerM,
     const float* bVerts,
@@ -55,7 +58,12 @@ void optimizer_signal_kernel(
     float buildingTileLatMin,
     float buildingTileLatSpan,
     float buildingTileLonMin,
-    float buildingTileLonSpan
+    float buildingTileLonSpan,
+    const float* bHoleVerts,
+    const int* bHoleRingOffsets,
+    const int* bPolyHoleOffsets,
+    int useGroundReflection,
+    float reflectionCoeff
 ) {
     int evalIdx = blockDim.x * blockIdx.x + threadIdx.x;
     int candIdx = blockDim.y * blockIdx.y + threadIdx.y;
@@ -143,6 +151,11 @@ void optimizer_signal_kernel(
                 sig -= diffLoss;
                 if (diffLoss > 60.0f) sig = fminf(sig, effectiveSens - 10.0f);
             }
+
+            // Ground reflection (2-ray) only on clear (geometric-LoS) paths.
+            if (useGroundReflection != 0 && maxV < 0.0f) {
+                sig += two_ray_reflection_gain_db(dist, txHeight, rxHeight, freqMHz, reflectionCoeff);
+            }
         }
 
         if (useFoliage != 0 && foliageCount > 0 && dist > 50.0f) {
@@ -178,6 +191,9 @@ void optimizer_signal_kernel(
                 foliageTileLatSpan,
                 foliageTileLonMin,
                 foliageTileLonSpan,
+                fHoleVerts,
+                fHoleRingOffsets,
+                fPolyHoleOffsets,
                 reEff
             );
         }
@@ -212,6 +228,9 @@ void optimizer_signal_kernel(
                 buildingTileLatSpan,
                 buildingTileLonMin,
                 buildingTileLonSpan,
+                bHoleVerts,
+                bHoleRingOffsets,
+                bPolyHoleOffsets,
                 reEff
             );
         }

@@ -84,6 +84,35 @@ function _getFracs(n) {
 }
 
 /**
+ * Two-ray (direct + ground-reflected) interference gain relative to free space,
+ * in dB to ADD to the free-space rxPower. Flat-earth geometry: direct path
+ * √(d²+(ht−hr)²), ground-reflected image path √(d²+(ht+hr)²). The combined field
+ * factor is `F = |1 + Γ·e^{−jΔφ}|` with `Γ = −R` (phase reversal on reflection),
+ * `Δφ = 2π·(r_refl − r_direct)/λ`. Near the TX this produces constructive/
+ * destructive interference lobes; the deep null is floored so it never returns −∞.
+ * @param {number} distM      horizontal TX–RX distance (m)
+ * @param {number} txHeightM  TX antenna height above ground (m)
+ * @param {number} rxHeightM  RX antenna height above ground (m)
+ * @param {number} freqMHz
+ * @param {number} [reflectionCoeff]  |Γ| in [0,1] (default 0.7)
+ * @returns {number} reflection gain in dB (≈ −20 … +6)
+ */
+export function twoRayReflectionGainDb(distM, txHeightM, rxHeightM, freqMHz, reflectionCoeff = 0.7) {
+  const d = Number(distM);
+  const ht = Math.max(0, Number(txHeightM));
+  const hr = Math.max(0, Number(rxHeightM));
+  const R = Math.min(1, Math.max(0, Number(reflectionCoeff)));
+  if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(freqMHz) || freqMHz <= 0 || R <= 0) return 0;
+  const lambda = _getLambda(freqMHz);
+  const rDirect = Math.hypot(d, ht - hr);
+  const rReflected = Math.hypot(d, ht + hr);
+  const dPhi = 2 * Math.PI * (rReflected - rDirect) / lambda;
+  // F² = 1 + R² − 2R·cos(Δφ); floor (≈ −20 dB) so deep nulls stay finite.
+  const f2 = Math.max(0.01, 1 + R * R - 2 * R * Math.cos(dPhi));
+  return 10 * Math.log10(f2);
+}
+
+/**
  * Knife-edge diffraction loss as a function of the Fresnel-Kirchhoff
  * parameter v. ITU-R P.526-style approximation.
  * @param {number} v

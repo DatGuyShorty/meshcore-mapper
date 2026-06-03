@@ -1,5 +1,5 @@
 // @ts-check
-import { antennaPatternOffsetDb, bearingDeg, bilinearElev, checkLoS, profileSampleCount } from './propagation.js';
+import { antennaPatternOffsetDb, bearingDeg, bilinearElev, checkLoS, profileSampleCount, twoRayReflectionGainDb } from './propagation.js';
 import { foliageLossDb } from './foliage.js';
 import { buildingLossDb } from './buildings.js';
 
@@ -133,6 +133,8 @@ export function fillTerrainProfile(buffers, count, txLat, txLon, rxLat, rxLon, e
  * @property {number} [effectiveSens]
  * @property {boolean} [useLos]
  * @property {boolean} [useFresnel]
+ * @property {boolean} [useGroundReflection]
+ * @property {number} [reflectionCoeff]
  * @property {string} [diffractionModel]
  * @property {ObstacleSet | null} [foliage]
  * @property {number} [foliageLossPerM]
@@ -175,6 +177,8 @@ export function computeSignalToPoint({
   effectiveSens = -127,
   useLos = true,
   useFresnel = false,
+  useGroundReflection = false,
+  reflectionCoeff = 0.7,
   diffractionModel = 'knife-edge',
   foliage = null,
   foliageLossPerM = 0.3,
@@ -221,6 +225,10 @@ export function computeSignalToPoint({
       los = checkLoS(txElev, rxGroundElev, profile, tx.height, rxHeight, dist, tx.freq, useFresnel, diffractionModel);
       rxPower -= los.diffractionLossDb;
       if (!los.geometricLos && los.diffractionLossDb > 60) rxPower = Math.min(rxPower, effectiveSens - 10);
+      // Ground reflection (2-ray) only on clear (geometric-LoS) paths.
+      if (useGroundReflection && los.geometricLos) {
+        rxPower += twoRayReflectionGainDb(dist, tx.height, rxHeight, tx.freq, reflectionCoeff);
+      }
     }
 
     if (foliage) {

@@ -26,7 +26,7 @@ export function addCoverageOverlayTile({ blobUrl, bounds, opacity, repId }) {
   const overlay = L.imageOverlay(
     blobUrl,
     bounds,
-    { opacity, interactive: false }
+    { opacity, interactive: false, pane: 'coveragePane' }
   ).addTo(map);
   overlay._repeaterId = repId;
   overlay._blobUrl = blobUrl;
