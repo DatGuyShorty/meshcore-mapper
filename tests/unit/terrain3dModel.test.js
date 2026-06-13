@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   boundsForTileGrid,
   boundsCenteredOn,
+  boundsForFocusPoints,
   boundsWithTileBuffer,
   buildTerrainGridPoints,
   buildTerrainMeshArrays,
+  format3dSceneStatus,
   isLatLonInsideBounds,
   latLonFromMeters,
   nodeMarkerMetrics,
@@ -67,6 +69,22 @@ describe('3D terrain model helpers', () => {
     expect(tiled.lonMax).toBeCloseTo(18.05);
   });
 
+  it('frames selected 3D focus points with surrounding terrain context', () => {
+    const pointFocus = boundsForFocusPoints([{ lat: 48.006, lon: 18.012 }], bounds);
+    expect((pointFocus.latMin + pointFocus.latMax) / 2).toBeCloseTo(48.006);
+    expect((pointFocus.lonMin + pointFocus.lonMax) / 2).toBeCloseTo(18.012);
+    expect(pointFocus.latMax - pointFocus.latMin).toBeCloseTo(bounds.latMax - bounds.latMin);
+
+    const linkFocus = boundsForFocusPoints([
+      { lat: 48.001, lon: 18.002 },
+      { lat: 48.009, lon: 18.018 },
+    ], bounds);
+    expect(linkFocus.latMin).toBeLessThan(48.001);
+    expect(linkFocus.latMax).toBeGreaterThan(48.009);
+    expect(linkFocus.lonMin).toBeLessThan(18.002);
+    expect(linkFocus.lonMax).toBeGreaterThan(18.018);
+  });
+
   it('builds mesh arrays and samples interpolated terrain height', () => {
     const elevations = new Float32Array([
       100, 110, 120,
@@ -107,5 +125,22 @@ describe('3D terrain model helpers', () => {
     expect(mapSized.radius).toBeGreaterThan(compact.radius);
     expect(mapSized.mastHeight).toBeGreaterThan(mapSized.radius);
     expect(mapSized.ringRadius).toBeGreaterThan(mapSized.radius);
+  });
+
+  it('formats 3D terrain source state in the final status', () => {
+    const stats = { buildings: 2, foliage: 3, nodes: 4, coverage: 1, links: 5 };
+    const live = format3dSceneStatus({ res: 64, tileCount: 16, stats, terrainSource: 'dem' });
+    const preview = format3dSceneStatus({ res: 64, tileCount: 16, stats, terrainSource: 'preview' });
+
+    expect(live).toMatchObject({
+      kind: 'success',
+      text: expect.stringContaining('3D terrain 64x64 over 16 tiles'),
+    });
+    expect(preview).toMatchObject({
+      kind: 'warning',
+      text: expect.stringContaining('Preview terrain (synthetic; DEM unavailable)'),
+    });
+    expect(preview.text).toContain('4 nodes');
+    expect(preview.text).toContain('5 links');
   });
 });

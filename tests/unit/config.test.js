@@ -69,6 +69,7 @@ vi.mock('../../src/ui.js', () => {
 });
 
 import * as configModule from '../../src/config.js';
+import { state } from '../../src/map.js';
 
 describe('config helpers', () => {
   beforeEach(() => {
@@ -118,6 +119,30 @@ describe('config helpers', () => {
       'setting-a': 'alpha',
       'setting-b': 'beta',
     });
+  });
+
+  it('restores only known settings from localStorage records', () => {
+    localStorage.setItem('meshcoreMapper_settings', JSON.stringify({
+      'setting-a': 'restored',
+      extra: 'ignored',
+    }));
+
+    configModule.restoreSettings();
+
+    expect(mockWritePersistedSettingValue).toHaveBeenCalledTimes(1);
+    expect(mockWritePersistedSettingValue).toHaveBeenCalledWith(
+      document.getElementById('setting-a'),
+      'restored',
+      { notify: false },
+    );
+  });
+
+  it('ignores malformed localStorage settings', () => {
+    localStorage.setItem('meshcoreMapper_settings', '[]');
+
+    configModule.restoreSettings();
+
+    expect(mockWritePersistedSettingValue).not.toHaveBeenCalled();
   });
 
   it('generates viewport grid points in row-major order', () => {
@@ -180,5 +205,109 @@ describe('config helpers', () => {
     await configModule.refreshCacheStats();
 
     expect(document.getElementById('cache-stats').textContent).toBe('Cache: unavailable');
+  });
+});
+
+describe('buildCoverageGeoJson', () => {
+  afterEach(() => {
+    delete state.coverageResults;
+  });
+
+  it('emits a Point feature only for cells at or above the layer threshold', () => {
+    // 2x2 grid, row-major (r=0 is the north/latMax row).
+    state.coverageResults = [{
+      gridRes: 2,
+      bounds: { latMin: 0, latMax: 1, lonMin: 0, lonMax: 1 },
+      effectiveSens: -100,
+      rep: { name: 'A' },
+      signalGrid: new Float32Array([-90, -200, -95, -110]),
+    }];
+
+    const { fc, downsampled } = configModule.buildCoverageGeoJson();
+
+    expect(downsampled).toBe(false);
+    expect(fc.type).toBe('FeatureCollection');
+    expect(fc.properties).toMatchObject({
+      layerScope: 'visible',
+      networkStats: {
+        status: 'ready',
+        totalLayerCount: 1,
+        visibleLayerCount: 1,
+      },
+    });
+    expect(fc.features).toEqual([
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [0, 1] },
+        properties: { node: 'A', rssi_dbm: -90, margin_db: 10 },
+      },
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [0, 0] },
+        properties: { node: 'A', rssi_dbm: -95, margin_db: 5 },
+      },
+    ]);
+  });
+
+  it('returns an empty collection when there are no coverage layers', () => {
+    expect(configModule.buildCoverageGeoJson()).toEqual({
+      fc: {
+        type: 'FeatureCollection',
+        properties: {
+          layerScope: 'visible',
+          networkStats: {
+            status: 'empty',
+            totalLayerCount: 0,
+            visibleLayerCount: 0,
+          },
+        },
+        features: [],
+      },
+      downsampled: false,
+    });
+  });
+
+  it('exports only visible layers and reports visible network stats', () => {
+    state.coverageResults = [
+      {
+        gridRes: 1,
+        bounds: { latMin: 0, latMax: 1, lonMin: 0, lonMax: 1 },
+        effectiveSens: -100,
+        rep: { name: 'Visible' },
+        signalGrid: new Float32Array([-90]),
+      },
+      {
+        visible: false,
+        gridRes: 1,
+        bounds: { latMin: 0, latMax: 1, lonMin: 0, lonMax: 1 },
+        effectiveSens: -100,
+        rep: { name: 'Hidden' },
+        signalGrid: new Float32Array([-80]),
+      },
+    ];
+
+    const { fc } = configModule.buildCoverageGeoJson();
+
+    expect(fc.features).toHaveLength(1);
+    expect(fc.features[0].properties.node).toBe('Visible');
+    expect(fc.properties.networkStats).toMatchObject({
+      status: 'ready',
+      totalLayerCount: 1,
+      visibleLayerCount: 1,
+    });
+  });
+
+  it('flags downsampling for grids denser than the per-side cap', () => {
+    state.coverageResults = [{
+      gridRes: 500,
+      bounds: { latMin: 0, latMax: 1, lonMin: 0, lonMax: 1 },
+      effectiveSens: -100,
+      rep: { name: 'B' },
+      signalGrid: new Float32Array(500 * 500).fill(-90),
+    }];
+
+    const { downsampled } = configModule.buildCoverageGeoJson();
+
+    expect(downsampled).toBe(true);
   });
 });

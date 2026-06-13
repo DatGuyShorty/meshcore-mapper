@@ -22,13 +22,21 @@ async function clearAllNodes(page) {
   const clearBtn = page.locator('#btn-clear-nodes');
   if (await clearBtn.count() === 0) return;
   // Clear Nodes confirms via window.confirm — auto-accept it.
-  page.once('dialog', dialog => dialog.accept());
   // Only meaningful if there's something to clear; the button is always present.
   const itemCount = await page.locator('#repeater-list li.repeater-item').count();
   if (itemCount > 0) {
+    page.once('dialog', dialog => dialog.accept());
     await clearBtn.click();
   }
   await expect(page.locator('#repeater-list li.repeater-item')).toHaveCount(0, { timeout: 10000 });
+}
+
+async function clearAllCoverage(page) {
+  await openTab(page, 'Coverage');
+  await page.locator('#btn-clear-coverage').click();
+  await expect(page.locator('#coverage-status')).toContainText('All coverage layers cleared.', { timeout: 10000 });
+  await expect(page.locator('#coverage-layer-list .coverage-layer-item')).toHaveCount(0, { timeout: 10000 });
+  await expect(page.locator('#coverage-network-summary')).toContainText('No combined coverage yet.');
 }
 
 async function addRepeater(page, { name, lat, lon, power = '20', gain = '2', height = '10', freq = '869.525' }) {
@@ -81,4 +89,4 @@ async function setMapView(page, { lat = 48.28625, lon = 18.5054, zoom = 11, radi
   await expect(page.locator('#map')).toBeVisible({ timeout: 10000 });
 }
 
-module.exports = { openTab, addRepeater, clearAllNodes, setMapView };
+module.exports = { openTab, addRepeater, clearAllNodes, clearAllCoverage, setMapView };

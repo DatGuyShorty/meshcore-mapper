@@ -3,7 +3,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const root = process.cwd();
-const files = ['main.js', 'preload.js', 'app.js'];
+const files = [];
 
 function walk(dir) {
   for (const entry of readdirSync(dir)) {

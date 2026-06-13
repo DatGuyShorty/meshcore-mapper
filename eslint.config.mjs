@@ -3,6 +3,8 @@ export default [
     ignores: [
       'node_modules/**',
       'vendor/**',
+      'out/**',
+      '.claude/**',
       'coverage/**',
       'test-results/**',
       'playwright-report/**',

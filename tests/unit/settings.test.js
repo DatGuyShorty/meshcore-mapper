@@ -100,6 +100,9 @@ describe('coverage settings parsing', () => {
     setValue('repeater-power', '20');
     setValue('repeater-freq', '869.525');
     setValue('repeater-gain', '2');
+    setValue('opt-power', '21');
+    setValue('opt-freq', '868.1');
+    setValue('opt-gain', '3');
     setValue('rx-height', '1.5');
     setValue('rx-sensitivity', '-133');
     setValue('fade-margin', '10');
@@ -117,8 +120,40 @@ describe('coverage settings parsing', () => {
     setValue('building-loss-per-m', '0.5');
     setValue('obstacle-height-mode', 'osm');
     setValue('opt-candidate-res', '20');
+    setValue('opt-objective', 'robust');
+    setValue('opt-target-coverage', '88');
+    setChecked('opt-gap-aware', true);
+    setValue('opt-source-min-margin', '12');
+    setChecked('opt-require-source-link', true);
+    setChecked('opt-require-source-los', true);
+    setChecked('opt-require-source-fresnel', true);
+    setChecked('opt-prefer-high-ground', true);
+    setValue('opt-min-candidate-elev-m', '450');
+    setValue('opt-min-redundancy-target', '35');
+    setChecked('opt-prefer-road-adjacent', true);
+    setChecked('opt-refine-candidates', true);
     setValue('opt-n-repeaters', '1');
 
+    expect(PERSISTED_SETTING_IDS).toContain('opt-power');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-freq');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-gain');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-objective');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-target-coverage');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-gap-aware');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-source-min-margin');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-require-source-link');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-require-source-los');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-require-source-fresnel');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-prefer-high-ground');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-min-candidate-elev-m');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-min-redundancy-target');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-prefer-road-adjacent');
+    expect(PERSISTED_SETTING_IDS).toContain('opt-refine-candidates');
+    expect(getOptimizerSettings().txParams).toMatchObject({
+      power: 21,
+      freq: 868.1,
+      gain: 3,
+    });
     expect(getOptimizerSettings().opts).toMatchObject({
       diffractionModel: 'deygout',
       useDeygout: true,
@@ -127,6 +162,18 @@ describe('coverage settings parsing', () => {
       reflectionCoeff: 0.55,
       sideReflectionCoeff: 0.2,
       reflectionCorridorWidthM: 30,
+      objective: 'robust',
+      targetCoverageRatio: 0.88,
+      gapAware: true,
+      sourceMinMarginDb: 12,
+      requireSourceLink: true,
+      requireSourceLos: true,
+      requireSourceFresnel: true,
+      preferHighGround: true,
+      minCandidateElevationM: 450,
+      minRedundancyRatio: 0.35,
+      preferRoadAdjacent: true,
+      refineCandidates: true,
     });
   });
 
@@ -141,6 +188,22 @@ describe('coverage settings parsing', () => {
     setValue('opt-candidate-res', '0');
 
     expect(getOptimizerSettings().opts.candidateRes).toBe(1);
+  });
+
+  it('accepts the redundancy optimizer objective', () => {
+    setValue('opt-objective', 'redundancy');
+
+    expect(getOptimizerSettings().opts.objective).toBe('redundancy');
+  });
+
+  it('accepts the min-repeaters optimizer objective and clamps target coverage', () => {
+    setValue('opt-objective', 'min-repeaters');
+    setValue('opt-target-coverage', '125');
+
+    expect(getOptimizerSettings().opts).toMatchObject({
+      objective: 'min-repeaters',
+      targetCoverageRatio: 1,
+    });
   });
 
   function setValue(id, value) {

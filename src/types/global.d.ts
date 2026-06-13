@@ -1,4 +1,4 @@
-// Ambient declarations for globals injected by `preload.js` (contextBridge).
+// Ambient declarations for globals injected by `preload.ts` (contextBridge).
 // Phase 0a of REWRITE.md uses TypeScript as a static checker over plain JS,
 // so this file describes the shape of those injected globals for `tsc`.
 
@@ -11,9 +11,10 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const L: any;
 
-  /** Coarse shape of the IPC bridge installed by `preload.js`. */
+  /** Coarse shape of the IPC bridge installed by `preload.ts`. */
   interface ElectronAPI {
     saveFile(jsonStr: string): Promise<void>;
+    exportFile(payload: { content: string; defaultName?: string; filterName?: string; extensions?: string[] }): Promise<boolean>;
     openFile(): Promise<string | null>;
     getPresets(): Promise<unknown>;
 

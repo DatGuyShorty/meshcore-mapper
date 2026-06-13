@@ -17,10 +17,10 @@ This file collects the potential bugs discovered during the current review of th
 
 ## Elevation / path sampling
 - `src/elevation.js`: `fetchElevationsFromTiles()` bypasses the point DB entirely, which is a design choice but means point cache reuse is not leveraged for large raster queries.
-- `src/elevation.js`: `_fillNulls()` silently forward/backfills missing API elevation results, which can mask data gaps and produce incorrect terrain values. *Partial mitigation:* now returns `{ filledFromNeighbour, defaultedToZero }` and increments `stats.elevationFilledFromNeighbour` / `stats.elevationDefaultedToZero` so callers can surface the count; user-facing summary still needs to display it.
+- `src/elevation.js`: `_fillNulls()` silently forward/backfills missing API elevation results, which can mask data gaps and produce incorrect terrain values. *Resolved:* returns `{ filledFromNeighbour, defaultedToZero }` and increments `stats.elevationFilledFromNeighbour` / `stats.elevationDefaultedToZero`; `src/coverage.js#_formatDataQualityNote` now surfaces the counts in the coverage status line as a warning when non-zero.
 
 ## Coverage / rendering
-- `src/coverage.js`: obstacle fetch failures are logged and skipped, but there is no strong user-facing signal that foliage/building losses were omitted from the coverage result.
+- `src/coverage.js`: obstacle fetch failures are logged and skipped. *Resolved:* the obstacle warnings are now folded into the persistent end-of-run coverage status (`_formatDataQualityNote`) with `warning` severity, instead of being clobbered by the success summary.
 
 ## 3D terrain / visualization
 - `src/map3d.js`: switching off 3D mode leaves the renderer, scene, and resize observer alive, which can retain stale state and keep hidden resources active.
@@ -32,7 +32,7 @@ This file collects the potential bugs discovered during the current review of th
 
 ## Documentation / summary inconsistencies
 - `src/mapTileTexture.js`: `summary.md` describes it as a higher-performance coverage overlay renderer, but in practice it is only used for 3D terrain map texturing in `src/map3d.js`.
-- `src/repeaters.js`: `summary.md` says live WS sync removes stale feed nodes correctly, but an empty incoming feed list currently causes all WS repeaters to be removed and may hide stale-source detection issues.
+- `src/repeaters.js`: live WS sync removes stale feed nodes. *Resolved:* an empty incoming feed list no longer wipes all WS repeaters — `_syncWsRepeaters` guards on `!snapshot.explicitClear && rows.length === 0` and skips the removal pass (a transient empty message is ignored).
 
 ---
 

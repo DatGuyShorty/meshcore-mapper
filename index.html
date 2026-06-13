@@ -106,6 +106,7 @@
                 <input type="number" id="repeater-freq" value="869.525" min="433" max="915" step="0.001" />
               </label>
             </div>
+            <div id="eirp-hint" class="hint hidden"></div>
           </div>
 
           <div class="action-row">
@@ -120,7 +121,7 @@
           <div class="panel-section">
             <p class="section-heading">Live feed</p>
             <div class="ws-live-row">
-              <input id="ws-url" type="text" value="ws://192.168.1.13:1880/ws/repeaters" placeholder="ws://host/path" title="WebSocket URL delivering a JSON array of repeater objects" />
+              <input id="ws-url" type="text" value="" placeholder="ws://host:1880/ws/repeaters" title="WebSocket URL delivering a JSON array of repeater objects" />
               <button id="btn-ws-connect" class="btn-secondary">Connect</button>
               <span id="ws-status-dot" class="ws-dot" data-status="disconnected" title="disconnected"></span>
             </div>
@@ -263,11 +264,27 @@
               </label>
             </div>
             <div id="quality-note" class="quality-note"></div>
+            <div class="field-grid">
+              <label>Network Overlay
+                <select id="coverage-network-overlay">
+                  <option value="none" selected>Individual layers only</option>
+                  <option value="best-margin">Combined best margin</option>
+                  <option value="strongest-node">Strongest node</option>
+                  <option value="gaps">Uncovered gaps</option>
+                  <option value="overlap">Overlap count</option>
+                  <option value="covered-by-n">Covered by N nodes</option>
+                </select>
+              </label>
+              <label>Min Nodes
+                <input type="number" id="coverage-min-count" value="2" min="1" max="8" step="1" />
+              </label>
+            </div>
           </div>
 
           <details class="subpanel">
             <summary>Propagation Effects</summary>
             <div class="panel-section">
+              <p class="section-note">Shared physics — these also drive P2P link budgets and the optimizer.</p>
               <label class="checkbox-label">
                 <input type="checkbox" id="use-los" checked />
                 Terrain diffraction and Earth curvature
@@ -281,29 +298,31 @@
                   <input type="checkbox" id="use-reflection" />
                   Reflection multipath
                 </label>
-                <label title="2-ray uses direct plus ground reflection. 6-ray uses a synthetic corridor. Building facades traces first-order reflections from OSM building edges.">Reflection model
-                  <select id="reflection-model">
-                    <option value="two-ray" selected>2-ray ground</option>
-                    <option value="six-ray">6-ray corridor</option>
-                    <option value="facade">Building facades</option>
-                  </select>
-                </label>
-                <label title="Ground reflection coefficient magnitude |Γ| (0 = none, 1 = perfect reflector).">Reflection coefficient
-                  <input type="number" id="reflection-coeff" value="0.7" min="0" max="1" step="0.05" />
-                </label>
-                <label title="Side-wall or facade reflection coefficient magnitude for 6-ray corridor and building-facade models.">Wall coefficient
-                  <input type="number" id="side-reflection-coeff" value="0.35" min="0" max="1" step="0.05" />
-                </label>
-                <label title="Effective wall-to-wall spacing used by the 6-ray corridor model.">Corridor width (m)
-                  <input type="number" id="reflection-corridor-width-m" value="24" min="1" max="200" step="1" />
-                </label>
+                <div data-show-when="use-reflection">
+                  <label title="2-ray uses direct plus ground reflection. 6-ray uses a synthetic corridor. Building facades traces first-order reflections from OSM building edges.">Reflection model
+                    <select id="reflection-model">
+                      <option value="two-ray" selected>2-ray ground</option>
+                      <option value="six-ray">6-ray corridor</option>
+                      <option value="facade">Building facades</option>
+                    </select>
+                  </label>
+                  <label title="Ground reflection coefficient magnitude |Γ| (0 = none, 1 = perfect reflector).">Reflection coefficient
+                    <input type="number" id="reflection-coeff" value="0.7" min="0" max="1" step="0.05" />
+                  </label>
+                  <label title="Side-wall or facade reflection coefficient magnitude for 6-ray corridor and building-facade models.">Wall coefficient
+                    <input type="number" id="side-reflection-coeff" value="0.35" min="0" max="1" step="0.05" />
+                  </label>
+                  <label title="Effective wall-to-wall spacing used by the 6-ray corridor model.">Corridor width (m)
+                    <input type="number" id="reflection-corridor-width-m" value="24" min="1" max="200" step="1" />
+                  </label>
+                </div>
               </div>
               <div class="option-group">
                 <label class="checkbox-label">
                   <input type="checkbox" id="use-foliage" />
                   Foliage attenuation
                 </label>
-                <label>Forest Loss (dB/m)
+                <label data-show-when="use-foliage">Forest Loss (dB/m)
                   <input type="number" id="foliage-loss-per-m" value="0.3" min="0.01" max="2" step="0.01" title="Dense-vegetation linear loss, capped by the vegetation attenuation model for long forest paths." />
                 </label>
               </div>
@@ -312,7 +331,7 @@
                   <input type="checkbox" id="use-buildings" />
                   Building attenuation
                 </label>
-                <label>Building Loss (dB/m)
+                <label data-show-when="use-buildings">Building Loss (dB/m)
                   <input type="number" id="building-loss-per-m" value="0.5" min="0.05" max="3" step="0.05" />
                 </label>
               </div>
@@ -364,6 +383,9 @@
 
           <div class="panel-section">
             <p class="section-heading">Coverage Layers</p>
+            <div id="coverage-network-summary" class="coverage-network-summary">
+              <div class="empty-msg">No combined coverage yet.</div>
+            </div>
             <ul id="coverage-layer-list" class="coverage-layer-list">
               <li class="empty-msg">No coverage layers yet. Compute coverage to add one.</li>
             </ul>
@@ -385,6 +407,18 @@
                 <input type="number" id="opt-height" value="10" min="1" max="500" />
               </label>
             </div>
+            <div class="field-grid">
+              <label>TX Power (dBm)
+                <input type="number" id="opt-power" value="20" min="-10" max="40" step="0.5" />
+              </label>
+              <label>TX Gain (dBi)
+                <input type="number" id="opt-gain" value="2" min="-20" max="30" step="0.5" />
+              </label>
+            </div>
+            <label>Frequency (MHz)
+              <input type="number" id="opt-freq" value="869.525" min="100" max="10000" step="0.001" />
+            </label>
+            <div id="opt-eirp-hint" class="hint hidden"></div>
             <label>Candidate Grid
               <select id="opt-candidate-res">
                 <option value="12">Fast (12 x 12)</option>
@@ -392,12 +426,76 @@
                 <option value="32">High Detail (32 x 32)</option>
               </select>
             </label>
+            <label>Optimization Goal
+              <select id="opt-objective">
+                <option value="balanced" selected>Balanced</option>
+                <option value="coverage">Coverage First</option>
+                <option value="min-repeaters">Min Repeaters To Target</option>
+                <option value="robust">Robust Links</option>
+                <option value="backhaul">Backhaul First</option>
+                <option value="redundancy">Redundancy First</option>
+              </select>
+            </label>
+            <div id="opt-objective-note" class="quality-note"></div>
+            <label>Target Coverage (%)
+              <input type="number" id="opt-target-coverage" value="90" min="0" max="100" step="1" />
+            </label>
+            <div id="opt-source-status" class="status-line">Manual area search. No source node link required.</div>
+            <label class="checkbox-label">
+              <input type="checkbox" id="opt-gap-aware" checked />
+              Optimize uncovered gaps in visible mesh
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="opt-require-source-link" checked />
+              Keep suggestions linked to source node
+            </label>
+            <div data-show-when="opt-require-source-link">
+              <div class="field-grid">
+                <label>Source Link Margin (dB)
+                  <input type="number" id="opt-source-min-margin" value="10" min="-20" max="60" step="1" />
+                </label>
+              </div>
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-require-source-los" checked />
+                Require clear source LoS
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="opt-require-source-fresnel" />
+                Require source Fresnel clearance
+              </label>
+            </div>
+            <label class="checkbox-label">
+              <input type="checkbox" id="opt-prefer-high-ground" />
+              Prefer high ground
+            </label>
+            <label>Minimum Site Elevation (m)
+              <input type="number" id="opt-min-candidate-elev-m" value="" step="1" />
+            </label>
+            <label>Minimum Redundant Coverage (%)
+              <input type="number" id="opt-min-redundancy-target" value="" min="0" max="100" step="1" />
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="opt-prefer-road-adjacent" />
+              Prefer road-adjacent sites
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="opt-refine-candidates" checked />
+              Add local refinement candidates
+            </label>
+            <div id="opt-estimate" class="status-line"></div>
           </div>
           <div class="action-row">
-            <button id="btn-draw-area" class="btn-secondary">Draw Area</button>
-            <button id="btn-clear-area" class="btn-secondary">Clear Area</button>
+            <button id="btn-draw-area" class="btn-secondary">Draw Search Area</button>
+            <button id="btn-draw-coverage-area" class="btn-secondary">Draw Coverage Area</button>
+          </div>
+          <div class="action-row">
+            <button id="btn-draw-exclusion-zone" class="btn-secondary">Draw Exclusion Zone</button>
+            <button id="btn-clear-area" class="btn-secondary">Clear</button>
           </div>
           <div id="draw-hint" class="hint hidden">Click two opposite corners of the search area on the map.</div>
+          <div id="draw-coverage-hint" class="hint hidden">Click two opposite corners of the coverage area on the map. Candidates outside this area can still be chosen; only coverage <em>within</em> this area is scored.</div>
+          <div id="draw-exclusion-hint" class="hint hidden">Click two opposite corners of the exclusion zone. Candidates inside exclusion zones are ignored.</div>
+          <div id="opt-exclusion-status" class="status-line">No exclusion zones drawn.</div>
           <div class="action-row">
             <button id="btn-optimize" class="btn-primary full-width" disabled>Find Best Locations</button>
             <button id="btn-cancel-optimize" class="btn-secondary" disabled>Cancel</button>
@@ -446,6 +544,7 @@
                 <input type="number" id="p2p-freq" value="869.525" min="433" max="915" step="0.001" />
               </label>
             </div>
+            <div id="p2p-eirp-hint" class="hint hidden"></div>
             <div class="field-grid">
               <label>Antenna Pattern
                 <select id="p2p-pattern">
@@ -471,7 +570,7 @@
               <input type="checkbox" id="p2p-shadow-stochastic" />
               Stochastic shadow fading (Monte Carlo)
             </label>
-            <label>Monte Carlo trials
+            <label data-show-when="p2p-shadow-stochastic">Monte Carlo trials
               <input type="number" id="p2p-mc-trials" value="200" min="16" max="5000" step="1" />
             </label>
             <label>Directional coverage sector (deg)
@@ -498,6 +597,14 @@
             <label>Hop Radius (km)
               <input type="number" id="path-hop-radius-km" value="25" min="1" max="200" step="1" />
             </label>
+            <label title="Limit the maximum number of hops. 0 = unlimited.">
+              Max Hops (0 = unlimited)
+              <input type="number" id="path-max-hops" value="0" min="0" max="20" step="1" />
+            </label>
+            <label title="Each extra hop costs this many dB in scoring. Higher values favour fewer, longer LoS hops. 0 = maximise bottleneck margin only.">
+              Hop Penalty (dB/hop)
+              <input type="number" id="path-hop-penalty-db" value="1" min="0" max="30" step="1" />
+            </label>
             <div class="action-row compact">
               <button id="btn-path-pick-from" class="btn-secondary">Pick From Map</button>
               <button id="btn-path-pick-to" class="btn-secondary">Pick To Map</button>
@@ -505,6 +612,14 @@
             <label class="checkbox-label" title="Fresnel clearance is reported as a clearance flag; diffraction loss is computed from terrain obstruction.">
               <input type="checkbox" id="path-use-fresnel" checked />
               Fresnel clearance flag
+            </label>
+            <label class="checkbox-label" title="Fetch and apply foliage attenuation for relay path hops. Slow on large areas.">
+              <input type="checkbox" id="path-use-foliage" />
+              Foliage attenuation
+            </label>
+            <label class="checkbox-label" title="Fetch and apply building attenuation for relay path hops. Slow on large areas.">
+              <input type="checkbox" id="path-use-buildings" />
+              Building attenuation
             </label>
             <div id="path-pick-hint" class="hint hidden">Click a repeater marker on the map to choose the path endpoint.</div>
           </div>
@@ -525,6 +640,7 @@
             <button id="btn-load-config" class="btn-secondary">Load Config</button>
           </div>
           <button id="btn-save-screenshot" class="btn-secondary full-width">Save Screenshot</button>
+          <button id="btn-export-coverage" class="btn-secondary full-width" title="Export covered cells of all current coverage layers as GeoJSON points (load in QGIS etc.)">Export Coverage (GeoJSON)</button>
         </details>
 
         <details class="panel workflow-panel" open>
@@ -608,6 +724,32 @@
         <span id="cursor-coords"></span>
       </div>
     </div>
+
+    <aside id="selection-inspector" aria-labelledby="selection-inspector-title">
+      <div class="inspector-header">
+        <p class="inspector-eyebrow">Inspector</p>
+        <h2 id="selection-inspector-title">Project Summary</h2>
+      </div>
+      <div id="selection-inspector-body" class="inspector-body"></div>
+    </aside>
+    </div>
+    <div id="job-drawer" class="job-drawer hidden" data-state="idle" aria-live="polite">
+      <div class="job-drawer-copy">
+        <span id="job-drawer-state">Idle</span>
+        <strong id="job-drawer-title">No active jobs</strong>
+        <em id="job-drawer-message">Long-running work will appear here.</em>
+      </div>
+      <div class="job-drawer-progress" aria-hidden="true">
+        <div id="job-drawer-fill"></div>
+      </div>
+      <div class="job-drawer-actions">
+        <details id="job-drawer-history" class="job-drawer-history hidden">
+          <summary>Recent</summary>
+          <ol id="job-drawer-history-list"></ol>
+        </details>
+        <button id="btn-job-drawer-cancel" class="btn-secondary btn-xs" type="button" disabled>Cancel</button>
+        <button id="btn-job-drawer-dismiss" class="btn-secondary btn-xs" type="button">Dismiss</button>
+      </div>
     </div>
   </div>
 
@@ -634,7 +776,7 @@
       }
     }
   </script>
-  <script src="src/shellInit.js"></script>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="src/shellInit.ts"></script>
+  <script type="module" src="app.ts"></script>
 </body>
 </html>

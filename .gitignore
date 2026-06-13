@@ -18,6 +18,9 @@ lora-config.json
 # Build output (electron-vite)
 out/
 
+# Packaged app output (electron-builder)
+dist/
+
 # Playwright artefacts
 test-results/
 playwright-report/

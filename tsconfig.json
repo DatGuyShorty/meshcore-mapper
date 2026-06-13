@@ -24,9 +24,9 @@
     "src/**/*.js",
     "src/**/*.ts",
     "src/types/*.d.ts",
-    "main.js",
-    "preload.js",
-    "app.js"
+    "main.ts",
+    "preload.ts",
+    "app.ts"
   ],
   "exclude": [
     "node_modules",

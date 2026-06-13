@@ -6,7 +6,7 @@ import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 // Phase 0b of REWRITE.md — full electron-vite migration.
 //
 // Builds three targets into out/: main (out/main/index.js), preload
-// (out/preload/index.js), renderer (out/renderer/). main.js repoints the boot
+// (out/preload/index.js), renderer (out/renderer/). main.ts repoints the boot
 // to the dev-server URL (ELECTRON_RENDERER_URL) in `electron-vite dev`, or to
 // out/renderer/index.html in production.
 //
@@ -14,8 +14,8 @@ import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 // runtime `require('sql.js')` / `require('js-yaml')` still resolve from
 // node_modules — critical for sql.js's wasm locateFile in src/main/cacheDb.js.
 //
-// Preload is forced to CommonJS: the BrowserWindow runs with `sandbox: true`,
-// and sandboxed preloads must be CJS.
+// Preload output is forced to CommonJS: the BrowserWindow runs with
+// `sandbox: true`, and sandboxed preloads must be CJS.
 
 const root = dirname(fileURLToPath(import.meta.url));
 
@@ -24,14 +24,14 @@ const VERBATIM_TAGS = [
   { tag: 'link', attrs: { rel: 'stylesheet', href: 'vendor/leaflet.css' }, injectTo: 'head' },
   { tag: 'link', attrs: { rel: 'stylesheet', href: 'style.css' }, injectTo: 'head' },
   { tag: 'script', attrs: { src: 'vendor/leaflet.js' }, injectTo: 'body' },
-  { tag: 'script', attrs: { src: 'src/shellInit.js' }, injectTo: 'body' },
 ];
 
 /**
  * Renderer plugin: strip the three.js importmap (three is bundled), keep
- * leaflet a window.L global + shellInit a classic script (copied verbatim,
- * re-injected so Vite's import analysis never rewrites them), and relax the
- * built CSP's script-src (no inline scripts ship in the bundle).
+ * leaflet a window.L global (copied verbatim, re-injected so Vite's import
+ * analysis never rewrites it), and relax the built CSP's script-src (no inline
+ * scripts ship in the bundle). shellInit is now a normal TypeScript module
+ * loaded from index.html.
  */
 const rendererStaticAssets = {
   name: 'meshcore-renderer-static-assets',
@@ -55,8 +55,6 @@ const rendererStaticAssets = {
     mkdirSync(dist, { recursive: true });
     cpSync(resolve(root, 'vendor'), resolve(dist, 'vendor'), { recursive: true });
     cpSync(resolve(root, 'style.css'), resolve(dist, 'style.css'));
-    mkdirSync(resolve(dist, 'src'), { recursive: true });
-    cpSync(resolve(root, 'src/shellInit.js'), resolve(dist, 'src/shellInit.js'));
 
     // Vite tags the emitted module script + stylesheet with `crossorigin`.
     // On file:// that forces CORS mode against an opaque origin, so Chromium
@@ -73,13 +71,11 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: 'out/main',
-      lib: { entry: resolve(root, 'main.js') },
-      // main.js + src/main/*.js are CommonJS. Vite's bundled commonjs plugin
-      // only transforms node_modules by default, so without this the local
-      // `require('./src/main/cacheDb')` calls survive verbatim into the bundle
-      // and fail at runtime (the relative paths don't exist next to
-      // out/main/index.js). Include our sources so they get bundled in.
-      commonjsOptions: { include: [/node_modules/, /src[/\\]main/, /main\.js$/] },
+      lib: { entry: resolve(root, 'main.ts') },
+      // src/main/*.js helpers are still CommonJS. Vite's bundled commonjs
+      // plugin only transforms node_modules by default, so include our helper
+      // sources while this last main-process directory migrates.
+      commonjsOptions: { include: [/node_modules/, /src[/\\]main/] },
       rollupOptions: { output: { format: 'cjs', entryFileNames: 'index.js' } },
     },
   },
@@ -87,9 +83,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: 'out/preload',
-      lib: { entry: resolve(root, 'preload.js') },
+      lib: { entry: resolve(root, 'preload.ts') },
       // Sandboxed preload must be CommonJS.
-      commonjsOptions: { include: [/node_modules/, /preload\.js$/] },
       rollupOptions: { output: { format: 'cjs', entryFileNames: 'index.js' } },
     },
   },

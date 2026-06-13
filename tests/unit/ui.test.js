@@ -54,7 +54,14 @@ function createFakeElement(id) {
 
 describe('ui helper utilities', () => {
   let ui;
+  let nowMs;
   beforeEach(async () => {
+    vi.resetModules();
+    nowMs = 1000;
+    Object.defineProperty(globalThis, 'performance', {
+      configurable: true,
+      value: { now: () => nowMs },
+    });
     const elements = new Map();
     const getElementById = id => elements.get(id) ?? null;
     const mapContainer = createFakeElement('map-container');
@@ -63,6 +70,15 @@ describe('ui helper utilities', () => {
     elements.set('progress-fill', createFakeElement('progress-fill'));
     elements.set('progress-msg', createFakeElement('progress-msg'));
     elements.set('btn-cancel-coverage', createFakeElement('btn-cancel-coverage'));
+    elements.set('job-drawer', Object.assign(createFakeElement('job-drawer'), { className: 'job-drawer hidden' }));
+    elements.set('job-drawer-state', createFakeElement('job-drawer-state'));
+    elements.set('job-drawer-title', createFakeElement('job-drawer-title'));
+    elements.set('job-drawer-message', createFakeElement('job-drawer-message'));
+    elements.set('job-drawer-fill', createFakeElement('job-drawer-fill'));
+    elements.set('job-drawer-history', Object.assign(createFakeElement('job-drawer-history'), { className: 'job-drawer-history hidden' }));
+    elements.set('job-drawer-history-list', createFakeElement('job-drawer-history-list'));
+    elements.set('btn-job-drawer-cancel', createFakeElement('btn-job-drawer-cancel'));
+    elements.set('btn-job-drawer-dismiss', createFakeElement('btn-job-drawer-dismiss'));
     elements.set('tab1', Object.assign(createFakeElement('tab1'), { className: 'tab-btn', dataset: { tab: 'test' } }));
 
     globalThis.document = {
@@ -89,9 +105,85 @@ describe('ui helper utilities', () => {
     expect(document.getElementById('progress-msg').textContent).toBe('loading');
   });
 
+  it('updates the job drawer and invokes the shared cancel handler', () => {
+    const cancel = vi.fn();
+    ui.setCancelHandler(cancel);
+    ui.setProgress(42, 'loading');
+
+    expect(document.getElementById('job-drawer').className).not.toContain('hidden');
+    expect(document.getElementById('job-drawer').dataset.state).toBe('running');
+    expect(document.getElementById('job-drawer-state').textContent).toBe('Running');
+    expect(document.getElementById('job-drawer-message').textContent).toBe('loading | Elapsed: 0s');
+    expect(document.getElementById('job-drawer-fill').style.width).toBe('42%');
+    expect(document.getElementById('btn-job-drawer-cancel').disabled).toBe(false);
+
+    document.getElementById('btn-job-drawer-cancel').click();
+    expect(cancel).toHaveBeenCalled();
+    expect(document.getElementById('job-drawer-state').textContent).toBe('Cancelling');
+  });
+
+  it('shows job drawer metadata for titled jobs', () => {
+    ui.setProgress(64, 'computing', {
+      title: 'Coverage: Alpha',
+      backend: 'Auto backend',
+      warningCount: 2,
+    });
+
+    expect(document.getElementById('job-drawer-title').textContent).toBe('Coverage: Alpha');
+    expect(document.getElementById('job-drawer-message').textContent).toBe('computing | Elapsed: 0s | Backend: Auto backend | 2 warnings');
+
+    nowMs += 1500;
+    ui.hideProgress();
+    expect(document.getElementById('job-drawer-title').textContent).toBe('Coverage: Alpha');
+    expect(document.getElementById('job-drawer-message').textContent).toBe('computing | Elapsed: 1.5s | Backend: Auto backend | 2 warnings');
+    expect(document.getElementById('job-drawer-history').className).not.toContain('hidden');
+    expect(document.getElementById('job-drawer-history-list').innerHTML).toContain('Coverage: Alpha');
+    expect(document.getElementById('job-drawer-history-list').innerHTML).toContain('2 warnings');
+  });
+
+  it('extracts ETA text into a stable job drawer detail', () => {
+    ui.setProgress(36, 'terrain tiles 3/9 (ETA 12s)', {
+      title: 'Coverage: Alpha',
+      backend: 'Auto backend',
+    });
+
+    expect(document.getElementById('progress-msg').textContent).toBe('terrain tiles 3/9 (ETA 12s)');
+    expect(document.getElementById('job-drawer-message').textContent)
+      .toBe('terrain tiles 3/9 | ETA: 12s | Elapsed: 0s | Backend: Auto backend');
+
+    nowMs += 2500;
+    ui.hideProgress();
+    expect(document.getElementById('job-drawer-message').textContent)
+      .toBe('terrain tiles 3/9 | Elapsed: 2.5s | Backend: Auto backend');
+  });
+
+  it('keeps recent job history capped newest-first', () => {
+    for (let i = 1; i <= 6; i++) {
+      ui.setProgress(100, `done ${i}`, { title: `Job ${i}` });
+      ui.hideProgress();
+    }
+
+    const html = document.getElementById('job-drawer-history-list').innerHTML;
+    expect(html.indexOf('Job 6')).toBeLessThan(html.indexOf('Job 5'));
+    expect(html).toContain('Job 2');
+    expect(html).not.toContain('Job 1');
+  });
+
   it('hides the progress overlay when hideProgress() is called', () => {
+    ui.setProgress(100, 'done');
     ui.hideProgress();
     expect(document.getElementById('progress-fill').className).not.toBeUndefined();
+    expect(document.getElementById('job-drawer').dataset.state).toBe('complete');
+    expect(document.getElementById('job-drawer-state').textContent).toBe('Completed');
+    expect(document.getElementById('job-drawer-message').textContent).toBe('done | Elapsed: 0s');
+    expect(document.getElementById('btn-job-drawer-cancel').disabled).toBe(true);
+  });
+
+  it('dismisses the completed job drawer summary', () => {
+    ui.setProgress(100, 'done');
+    ui.hideProgress();
+    document.getElementById('btn-job-drawer-dismiss').click();
+    expect(document.getElementById('job-drawer').className).toContain('hidden');
   });
 
   it('sets the global status message text', () => {

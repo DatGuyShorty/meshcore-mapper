@@ -14,7 +14,45 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run tests/unit",
     "smoke": "electron-vite build && playwright test tests/smoke",
-    "check": "npm run syntax && npm run lint && npm run typecheck && npm run test && npm audit --omit=dev && npm run smoke"
+    "check": "npm run syntax && npm run lint && npm run typecheck && npm run test && npm audit --omit=dev && npm run smoke",
+    "dist": "electron-vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.meshcore.mapper",
+    "productName": "MeshCore Mapper",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "vendor/**/*",
+      "presets.yaml",
+      "style.css",
+      "scripts/cuda_coverage.py",
+      "scripts/meshcore_cuda/**/*"
+    ],
+    "asarUnpack": [
+      "scripts/cuda_coverage.py",
+      "scripts/meshcore_cuda/**/*"
+    ],
+    "win": {
+      "target": {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   },
   "dependencies": {
     "js-yaml": "^4.1.1",
@@ -24,7 +62,9 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "@types/node": "^25.9.1",
+    "@types/three": "^0.184.1",
     "electron": "^31.0.0",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "eslint": "^10.4.0",
     "typescript": "^6.0.3",

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clampTileZoom,
   latLonToTilePixel,
+  selectTextureLayout,
   tileTextureLayout,
   tileUrl,
 } from '../../src/mapTileTexture.js';
@@ -26,6 +27,22 @@ describe('3D map tile texture helpers', () => {
     expect(layout.height).toBeGreaterThan(1);
     expect(layout.tileXMax).toBeGreaterThanOrEqual(layout.tileXMin);
     expect(layout.tileYMax).toBeGreaterThanOrEqual(layout.tileYMin);
+  });
+
+  it('lowers texture zoom when the source would be heavily downsampled', () => {
+    const bounds = {
+      latMin: 48,
+      latMax: 48.2,
+      lonMin: 18,
+      lonMax: 18.4,
+    };
+    const selected = selectTextureLayout(bounds, 17, 19, 512);
+
+    expect(selected.zoom).toBeLessThan(17);
+    expect(selected.layout.scale).toBeGreaterThanOrEqual(0.5);
+    expect(selected.layout.width).toBeLessThanOrEqual(512);
+    expect(selected.layout.height).toBeLessThanOrEqual(512);
+    expect(selected.tileCount).toBeLessThanOrEqual(256);
   });
 
   it('lays out map textures across the antimeridian without negative width', () => {
