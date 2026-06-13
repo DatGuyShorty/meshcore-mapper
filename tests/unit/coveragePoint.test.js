@@ -14,6 +14,50 @@ describe('coverage point inspection', () => {
     expect(rows[0].rxPower).toBeGreaterThan(rows[0].threshold);
     expect(rows[0].snrDb).toBeCloseTo(rows[0].rxPower + 115.5, 1);
     expect(rows[0].requiredSnrDb).toBe(-17.5);
+    expect(rows[0].losses.pathLossDb).toBeGreaterThan(0);
+    expect(rows[0].reason).toContain('Covered');
+    expect(rows[0].rxPowerSource).toBe('computed');
+    expect(rows[0].layerLabel).toBe('Layer 2: Near');
+    expect(rows[0].layerOrdinal).toBe(2);
+    expect(rows[0].layerTotal).toBe(2);
+  });
+
+  it('carries stored layer identity into inspection rows', () => {
+    const result = makeCoverageResult(42, 'Repeater', 0, 0);
+    result.layerId = 'coverage-42';
+    result.label = 'North ridge - high detail';
+    result.createdAt = 1710000000000;
+
+    const rows = inspectCoverageAtPoint({ lat: 0, lng: 0.01 }, [result]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].layerId).toBe('coverage-42');
+    expect(rows[0].layerLabel).toBe('North ridge - high detail');
+    expect(rows[0].layerCreatedAt).toBe(1710000000000);
+  });
+
+  it('prefers newer layers when margins tie', () => {
+    const older = makeCoverageResult(1, 'Older', 0, 0);
+    older.createdAt = 1;
+    const newer = makeCoverageResult(2, 'Newer', 0, 0);
+    newer.createdAt = 2;
+
+    const rows = inspectCoverageAtPoint({ lat: 0, lng: 0.01 }, [older, newer]);
+
+    expect(rows[0].repName).toBe('Newer');
+  });
+
+  it('does not inspect hidden coverage layers', () => {
+    const hidden = makeCoverageResult(1, 'Hidden', 0, 0);
+    hidden.visible = false;
+    const visible = makeCoverageResult(2, 'Visible', 0, 0);
+
+    const rows = inspectCoverageAtPoint({ lat: 0, lng: 0.01 }, [hidden, visible]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].repName).toBe('Visible');
+    expect(rows[0].layerOrdinal).toBe(1);
+    expect(rows[0].layerTotal).toBe(1);
   });
 
   it('reports the stored grid value (heatmap source of truth) over a fresh recompute', () => {
@@ -33,6 +77,23 @@ describe('coverage point inspection', () => {
     expect(rows[0].rxPower).toBe(-70);
     expect(rows[0].margin).toBe(-70 - result.effectiveSens);
     expect(rows[0].snrDb).toBeCloseTo(-70 - result.noiseFloorDbm, 6);
+    expect(rows[0].rxPowerSource).toBe('grid');
+  });
+
+  it('explains below-threshold points with a primary reason', () => {
+    const result = makeCoverageResult(1, 'Weak', 0, 0);
+    result.gridRes = 2;
+    result.signalGrid = new Float32Array([
+      -150, -150,
+      -150, -140,
+    ]);
+
+    const rows = inspectCoverageAtPoint({ lat: -0.0001, lng: 0.0001 }, [result]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].margin).toBeLessThan(0);
+    expect(rows[0].reason).toContain('Below threshold');
+    expect(rows[0].reason).toContain('path loss');
   });
 
   it('falls back to the recomputed signal when no grid is stored', () => {

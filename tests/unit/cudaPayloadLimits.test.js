@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('CUDA payload limits', () => {
-  const source = readFileSync('src/main/cudaCoverage.js', 'utf8');
+  const source = readFileSync('src/main/cudaSchemas.ts', 'utf8');
 
   it('does not reject dense obstacle layers by polygon count alone', () => {
     expect(source).not.toContain('too many polygons');

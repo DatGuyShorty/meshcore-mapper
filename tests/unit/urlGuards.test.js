@@ -1,8 +1,5 @@
-import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
-
-const require = createRequire(import.meta.url);
-const { isSafeExternalUrl, isSameDocument } = require('../../src/main/urlGuards.js');
+import { isSafeExternalUrl, isSameDocument } from '../../src/main/urlGuards.js';
 
 describe('isSafeExternalUrl', () => {
   it('accepts http and https URLs', () => {

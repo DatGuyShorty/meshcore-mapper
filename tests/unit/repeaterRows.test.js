@@ -82,7 +82,7 @@ describe('repeater row validation helpers', () => {
     expect(snapshot.ok).toBe(true);
     expect(snapshot.rows).toHaveLength(1);
     const row = snapshot.rows[0];
-    // Caps mirror src/main/ipcHandlers.js#_safeWsRow.
+    // Caps mirror src/main/ipcHandlers.ts#_safeWsRow.
     expect(row.name.length).toBe(120);
     expect(row.short.length).toBe(80);
     expect(row.last_seen.length).toBe(80);

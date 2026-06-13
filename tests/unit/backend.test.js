@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { resolveBackendOrder } from '../../src/coverageBackend.js';
+import { resolveOptimizerBackendOrder } from '../../src/optimizerBackend.js';
 
 describe('coverage backend selection', () => {
   it('prefers CUDA then CPU in auto mode when CUDA is available', () => {
@@ -25,13 +25,16 @@ describe('coverage backend selection', () => {
     })).toEqual(['cuda', 'cpu']);
   });
 
-  it('no longer forces CPU fallback for hole-aware OSM geometry (GPU subtracts holes)', () => {
-    const coverageBackend = readFileSync('src/coverageBackend.js', 'utf8');
-    const optimizerBackend = readFileSync('src/optimizerBackend.js', 'utf8');
-
-    expect(coverageBackend).not.toContain('hole-aware OSM multipolygons require CPU backend');
-    expect(optimizerBackend).not.toContain('hole-aware OSM multipolygons require CPU backend');
-    expect(coverageBackend).not.toContain('obstacleLayerHasHoles');
-    expect(optimizerBackend).not.toContain('obstacleLayerHasHoles');
+  it('keeps CUDA preferred in auto mode regardless of obstacle geometry (GPU subtracts holes)', () => {
+    // Hole-aware OSM multipolygons used to force a CPU fallback; backend selection
+    // no longer inspects obstacle geometry, so CUDA stays preferred when available.
+    expect(resolveBackendOrder('auto', {
+      cuda: { available: true },
+      obstacleLayerHasHoles: true,
+    })).toEqual(['cuda', 'cpu']);
+    expect(resolveOptimizerBackendOrder('auto', {
+      cuda: { available: true },
+      obstacleLayerHasHoles: true,
+    })).toEqual(['cuda', 'cpu']);
   });
 });

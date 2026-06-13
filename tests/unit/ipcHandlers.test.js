@@ -1,10 +1,7 @@
-import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-
-const require = createRequire(import.meta.url);
-const { registerIpcHandlers } = require('../../src/main/ipcHandlers.js');
+import { registerIpcHandlers } from '../../src/main/ipcHandlers.js';
 const thisFile = fileURLToPath(import.meta.url);
 
 function registerHandlers(cache = { db: null }) {
@@ -71,9 +68,9 @@ describe('IPC payload validation', () => {
   });
 
   it('preload CUDA progress subscriptions expose payloads instead of raw IPC events', () => {
-    const source = readFileSync('preload.js', 'utf8');
+    const source = readFileSync('preload.ts', 'utf8');
 
-    expect(source).toContain('const wrapped = (_event, payload) => handler(payload)');
+    expect(source).toContain('const wrapped: WrappedPayloadHandler = (_event, payload) => typedHandler(payload)');
     expect(source).toContain('cudaCoverageProgressHandlers');
     expect(source).toContain('cudaOptimizerProgressHandlers');
   });

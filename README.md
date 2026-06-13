@@ -44,6 +44,7 @@ Requires internet access for the elevation API (open-elevation.com + opentopodat
 - Add repeaters by manual coordinates or by clicking the map; draggable markers
 - Per-repeater: name, TX power, antenna gain, frequency, antenna height
 - Radio and antenna presets from `presets.yaml`
+- **EIRP regulatory hint** — warns when TX power + antenna gain exceeds the EIRP ceiling for the band (EU 433/868, US 915); shown on the Add Node form, the P2P link budget, and the optimizer inputs
 - Active node list with inline edit and delete; **Undo Last Remove**
 - **Filter** by name and **sort** (added order / A→Z / Z→A)
 - **Hide / Show All** toggle; per-node 👁 visibility button hides marker and coverage overlay
@@ -74,11 +75,13 @@ Requires internet access for the elevation API (open-elevation.com + opentopodat
 ### Settings tab
 - **Save / Load configuration** — export all repeaters + settings to JSON, reload later
 - **Screenshot export** — saves the current map view as PNG
+- **Coverage export (GeoJSON)** — exports covered cells of all current coverage layers as GeoJSON points (`rssi_dbm`, `margin_db` per cell) for use in QGIS or other GIS tools; large grids are thinned to keep file size sane
 - **Cache management** — shows SQLite cache stats (elevation points, foliage tiles, building tiles, disk size); individual purge buttons for elevations, foliage, buildings; **WS Nodes DB** button clears persisted WS repeaters; **Clear Entire DB** (red) wipes all tables and runs `VACUUM`
 - **Developer console** — collapsible log panel; intercepts console.log/warn/error/info/debug; F12 opens Chrome DevTools
 
 ### General
 - Radio + antenna presets from `presets.yaml`; extend without touching code
+- **Progressive disclosure** — dependent controls (reflection coefficients, per-metre loss, Monte Carlo trials, source-link requirements) stay hidden until their feature toggle is enabled (`data-show-when` via `src/uiDisclosure.js`), keeping panels uncluttered
 - Persistent settings via `localStorage` (`meshcoreMapper_settings`)
 - Drag-to-resize sidebar (220–600 px)
 - Multiple basemaps: Streets (OSM), Satellite (Esri), Terrain (OpenTopoMap)
@@ -130,52 +133,52 @@ Common sensitivity values for the SX1262 chip:
 ## Project Structure
 
 ```
-app.js               Entry point — imports and inits all feature modules
+app.ts               Entry point — imports and inits all feature modules
 
 src/
-  map.js             Leaflet map singleton, shared state, clearCoverageLayers/clearFoliageLayers/clearBuildingLayers
-  ui.js              Progress overlay, status bar, yieldToUI, escHtml
-  repeaters.js       Repeater CRUD, map markers, placement UI, undo-last-remove,
+  map.ts             Leaflet map singleton, shared state, clearCoverageLayers/clearFoliageLayers/clearBuildingLayers
+  ui.ts              Progress overlay, status bar, yieldToUI, escHtml
+  repeaters.ts       Repeater CRUD, map markers, placement UI, undo-last-remove,
                      WebSocket live feed, filter/sort, context menu, DB persistence
-  coverage.js        Coverage orchestration: fetch elevations/foliage/buildings,
+  coverage.ts        Coverage orchestration: fetch elevations/foliage/buildings,
                      run compute backend, render overlay; only runs for visible repeaters
-  coverageBackend.js CUDA-first coverage backend selection with CPU-worker fallback
-  coverageWorker.js  CPU worker — pure signal computation inner loop (no DOM)
-  coverageGrid.js    Shared coverage bbox and terrain-grid helpers
-  mapAdapter.js      Thin map abstraction for viewport metrics and coverage overlay tiles
-  optimizerUI.js     Draw search area, run optimizer, display results
-  optimizer.js       findBestLocations() — greedy grid search, no DOM
-  optimizerBackend.js CUDA-first optimizer backend selection with CPU-worker fallback
-  p2p.js             P2P link budget panel — pick two points (or tap repeater), full budget
+  coverageBackend.ts CUDA-first coverage backend selection with CPU-worker fallback
+  coverageWorker.ts  CPU worker — pure signal computation inner loop (no DOM)
+  coverageGrid.ts    Shared coverage bbox and terrain-grid helpers
+  mapAdapter.ts      Thin map abstraction for viewport metrics and coverage overlay tiles
+  optimizerUI.ts     Draw search area, run optimizer, display results
+  optimizer.ts       findBestLocations() — greedy grid search, no DOM
+  optimizerBackend.ts CUDA-first optimizer backend selection with CPU-worker fallback
+  p2p.ts             P2P link budget panel — pick two points (or tap repeater), full budget
                      table + terrain SVG; startPickingFrom() sets point A from repeater ctx menu
-  config.js          saveConfig, loadConfig, screenshot, cache stats/purge
-  devConsole.js      In-app log panel; intercepts all console.* methods
-  presets.js         Loads presets.yaml via IPC; populates hardware/modem selects
+  config.ts          saveConfig, loadConfig, screenshot, cache stats/purge
+  devConsole.ts      In-app log panel; intercepts all console.* methods
+  presets.ts         Loads presets.yaml via IPC; populates hardware/modem selects
 
-  elevation.js       fetchElevations() — SRTM via open-elevation.com + opentopodata.org;
+  elevation.ts       fetchElevations() — SRTM via open-elevation.com + opentopodata.org;
                      SQLite bbox-cache; batched 256-point requests with retries
-  foliage.js         fetchFoliage() — OSM polygons via Overpass API; 0.25° tile-based
+  foliage.ts         fetchFoliage() — OSM polygons via Overpass API; 0.25° tile-based
                      SQLite cache (shared across repeaters, 30d TTL); mem cache;
                      16×16 spatial index; foliageLossDb()
-  buildings.js       fetchBuildings() — OSM building footprints via Overpass API;
+  buildings.ts       fetchBuildings() — OSM building footprints via Overpass API;
                      same 0.25° tile cache as foliage; buildingLossDb()
-  propagation.js     haversine, fspl, checkLoS (ITU-R P.526-15 + Earth curvature k=4/3),
+  propagation.ts     haversine, fspl, checkLoS (ITU-R P.526-15 + Earth curvature k=4/3),
                      bilinearElev, writePixel (gradient); cached lambda/fracs
 
 index.html           Layout, tab bar, sidebar panels, drag-resize handle
 style.css            Dark-mode UI, tab system, gradient legend, DevConsole, ctx menu styles
-main.js              Electron main — sql.js SQLite cache (WAL, debounced save,
+main.ts              Electron main — sql.js SQLite cache (WAL, debounced save,
                      integrity check on load); IPC handlers for cache, ws_repeaters,
                      screenshots; VACUUM support
-preload.js           contextBridge — file I/O, cache IPC, ws_repeaters IPC, screenshot
+preload.ts           contextBridge — file I/O, cache IPC, ws_repeaters IPC, screenshot
 presets.yaml         Hardware and modem presets (extend freely, no code changes needed)
 ```
 
 ### Adding a new feature
 
-1. Create `src/myFeature.js` — import from `map.js`, `ui.js`, `propagation.js` as needed.
+1. Create `src/myFeature.ts` — import from `map.js`, `ui.js`, `propagation.js` as needed.
 2. Export `init()` that registers its event listeners.
-3. Add one line to `app.js`: `import { init as initMyFeature } from './src/myFeature.js'; initMyFeature();`
+3. Add one line to `app.ts`: `import { init as initMyFeature } from './src/myFeature.js'; initMyFeature();`
 4. Add HTML panels to the correct tab in `index.html` and styles to `style.css`.
 
 ---

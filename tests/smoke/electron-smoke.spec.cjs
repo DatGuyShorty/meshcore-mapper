@@ -12,6 +12,10 @@ test('app starts and shows core workflow controls', async () => {
     await openTab(page, 'Map');
     await expect(page.locator('#foliage-opacity')).toBeVisible();
     await expect(page.locator('#building-opacity')).toBeVisible();
+    for (const id of ['#layer-foliage', '#layer-buildings', '#layer-barriers']) {
+      const layer = page.locator(id);
+      if (await layer.isChecked()) await layer.uncheck();
+    }
 
     await openTab(page, 'Coverage');
     await expect(page.locator('#btn-compute')).toBeVisible();

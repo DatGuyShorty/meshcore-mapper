@@ -65,6 +65,34 @@ describe('signal model helpers', () => {
     expect(result.rxPower).toBeCloseTo(20 - 5 + 2 - expectedPathLoss);
   });
 
+  it('can return an opt-in signal loss breakdown', () => {
+    const result = computeSignalToPoint({
+      tx: {
+        lat: 0,
+        lon: 0,
+        height: 10,
+        power: 20,
+        gain: 2,
+        freq: 868,
+      },
+      txElev: 0,
+      rxLat: 0,
+      rxLon: 0.01,
+      rxHeight: 1.5,
+      effectiveSens: -133,
+      useLos: false,
+      includeBreakdown: true,
+    });
+
+    const expectedPathLoss = 20 * Math.log10(result.distM) + fsplBaseDb(868);
+    expect(result.breakdown).toBeDefined();
+    expect(result.breakdown.pathLossDb).toBeCloseTo(expectedPathLoss, 6);
+    expect(result.breakdown.diffractionLossDb).toBe(0);
+    expect(result.breakdown.foliageLossDb).toBe(0);
+    expect(result.breakdown.buildingLossDb).toBe(0);
+    expect(result.breakdown.reflectionGainDb).toBe(0);
+  });
+
   it('applies the six-ray reflection model during clear-LoS point calculations', () => {
     const baseArgs = {
       tx: {

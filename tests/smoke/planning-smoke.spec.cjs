@@ -23,6 +23,16 @@ test('opens planning tab and enables optimizer after drawing a search area', asy
 
     await expect(page.locator('#btn-optimize')).toBeEnabled({ timeout: 15000 });
     await expect(page.locator('#opt-status')).toContainText(/Search area ready/i);
+
+    await page.locator('#btn-draw-exclusion-zone').click();
+    await expect(page.locator('#draw-exclusion-hint')).toBeVisible({ timeout: 10000 });
+    if (mapBox) {
+      await map.click({ position: { x: mapBox.width * 0.35, y: mapBox.height * 0.40 }, force: true });
+      await map.click({ position: { x: mapBox.width * 0.45, y: mapBox.height * 0.50 }, force: true });
+    }
+    await expect(page.locator('#opt-exclusion-status')).toContainText(/1 exclusion zone/i);
+    await page.locator('#btn-clear-area').click();
+    await expect(page.locator('#opt-exclusion-status')).toContainText(/No exclusion zones/i);
   } finally {
     await app.close();
   }

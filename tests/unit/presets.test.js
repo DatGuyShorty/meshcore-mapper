@@ -112,4 +112,32 @@ describe('preset initialization', () => {
     antenna.dispatchEvent({ type: 'change' });
     expect(documentElements['repeater-gain'].value).toBe(10);
   });
+
+  it('falls back malformed preset groups without dropping valid groups', async () => {
+    const partialPresets = {
+      hardware: [{ id: 'custom_hw', label: 'Custom Hardware', tx_power: 21 }],
+      radio_modes: [{ id: 'bad_mode', label: 'Bad Mode', sensitivity: 'not-a-number' }],
+      antenna: [{ id: 'custom_antenna', label: 'Custom Antenna', gain_dbi: 10 }],
+    };
+    globalThis.window.electronAPI.getPresets = vi.fn(async () => partialPresets);
+
+    await init();
+
+    const radio = documentElements['radio-preset'];
+    const modem = documentElements['modem-preset'];
+    const antenna = documentElements['antenna-preset'];
+
+    expect(radio.options.some(option => option.value === 'custom_hw')).toBe(true);
+    expect(modem.options.length).toBeGreaterThan(1);
+    expect(modem.options.some(option => option.value === 'bad_mode')).toBe(false);
+    expect(antenna.options.some(option => option.value === 'custom_antenna')).toBe(true);
+
+    radio.value = 'custom_hw';
+    radio.dispatchEvent({ type: 'change' });
+    expect(documentElements['repeater-power'].value).toBe(21);
+
+    antenna.value = 'custom_antenna';
+    antenna.dispatchEvent({ type: 'change' });
+    expect(documentElements['repeater-gain'].value).toBe(10);
+  });
 });

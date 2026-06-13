@@ -1,8 +1,5 @@
-import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
-
-const require = createRequire(import.meta.url);
-const { _consumePythonLines } = require('../../src/main/cudaCoverage.js');
+import { _consumePythonLines } from '../../src/main/cudaCoverage.js';
 
 describe('_consumePythonLines', () => {
   it('routes progress messages to onProgress and keeps the last non-progress message', () => {

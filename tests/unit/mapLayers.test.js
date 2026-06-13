@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const elements = new Map();
 const documentStub = {
@@ -30,6 +30,8 @@ const documentStub = {
     };
     return el;
   },
+  addEventListener: () => {},
+  dispatchEvent: () => true,
   getElementById(id) {
     if (elements.has(id)) return elements.get(id);
     return null;
@@ -107,6 +109,8 @@ const {
   _foliageStyle,
   _buildingStyle,
   _barrierStyle,
+  _obstacleMetadata,
+  _selectObstacle,
 } = await import('../../src/mapLayers.js');
 
 describe('mapLayers style helpers', () => {
@@ -122,6 +126,8 @@ describe('mapLayers style helpers', () => {
     makeInput('foliage-opacity', '20');
     makeInput('building-opacity', '60');
     makeInput('barrier-opacity', '40');
+    makeInput('obstacle-height-mode', 'osm');
+    document.dispatchEvent = vi.fn(() => true);
   });
 
   it('parses slider values into normalized opacity', () => {
@@ -162,5 +168,74 @@ describe('mapLayers style helpers', () => {
     expect(style.fillColor).toBe('#fb923c');
     expect(style.fillOpacity).toBeCloseTo(0.4);
     expect(style.opacity).toBeCloseTo(0.8);
+  });
+
+  it('uses stronger outlines for selected obstacle layer styles', () => {
+    const foliage = _foliageStyle('park', true);
+    const building = _buildingStyle('#123456', true);
+    const barrier = _barrierStyle(true);
+
+    expect(foliage.weight).toBeGreaterThan(_foliageStyle('park').weight);
+    expect(foliage.opacity).toBe(1);
+    expect(building.color).toBe('#facc15');
+    expect(building.weight).toBeGreaterThan(_buildingStyle('#123456').weight);
+    expect(barrier.color).toBe('#facc15');
+    expect(barrier.weight).toBeGreaterThan(_barrierStyle().weight);
+  });
+
+  it('builds obstacle metadata for vegetation and structures', () => {
+    document.getElementById('obstacle-height-mode').value = 'dsm-dem';
+    const foliage = _obstacleMetadata({
+      category: 'foliage',
+      id: 'way/1',
+      osmType: 'tree_row',
+      heightM: 12,
+      attenuationDbPerM: 0.45,
+      attenuationFactor: 1.5,
+    });
+    const barrier = _obstacleMetadata({
+      category: 'barrier',
+      id: 'way/2',
+      osmType: 'barrier:wall',
+      heightM: 3,
+      attenuationDbPerM: 0.5,
+      attenuationFactor: 1,
+    });
+
+    expect(foliage).toMatchObject({
+      id: 'foliage:way/1',
+      title: 'Vegetation',
+      source: 'OpenStreetMap vegetation',
+      osmType: 'tree row',
+      rawOsmType: 'tree_row',
+      heightLabel: 'Canopy height',
+      heightSource: 'DSM-DEM sampled where available; OSM/default fallback',
+      attenuationLabel: 'Vegetation loss',
+      geometry: 'Polygon',
+    });
+    expect(foliage.heightM).toBe(12);
+    expect(foliage.attenuationDbPerM).toBeCloseTo(0.45);
+    expect(foliage.attenuationFactor).toBeCloseTo(1.5);
+    expect(barrier).toMatchObject({
+      id: 'barrier:way/2',
+      title: 'Barrier',
+      source: 'OpenStreetMap structures',
+      rawOsmType: 'barrier:wall',
+      heightLabel: 'Structure height',
+      attenuationLabel: 'Building/barrier loss',
+    });
+  });
+
+  it('dispatches obstacle selection and marks the original click as handled', () => {
+    const obstacle = { id: 'building:way/3', category: 'building' };
+    const event = { originalEvent: {} };
+
+    _selectObstacle(obstacle, event);
+
+    expect(event.originalEvent._meshcoreHandled).toBe(true);
+    expect(document.dispatchEvent).toHaveBeenCalledTimes(1);
+    const dispatched = document.dispatchEvent.mock.calls[0][0];
+    expect(dispatched.type).toBe('obstacle:selected');
+    expect(dispatched.detail.obstacle).toBe(obstacle);
   });
 });
