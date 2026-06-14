@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { registerIpcHandlers } from '../../src/main/ipcHandlers.js';
@@ -96,5 +98,26 @@ describe('IPC payload validation', () => {
       content: '<html></html>',
       defaultName: '../report.pdf',
     })).resolves.toBe(false);
+  });
+
+  it('writes binary export payloads to the selected file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'meshcore-ipc-'));
+    const filePath = join(dir, 'coverage.kmz');
+    try {
+      const handlers = registerHandlers({ db: null }, {
+        showSaveDialog: async () => ({ canceled: false, filePath }),
+      });
+
+      await expect(handlers.get('export-binary-file')(null, {
+        data: new Uint8Array([80, 75, 1, 2]),
+        defaultName: '../coverage.kmz',
+        filterName: 'KMZ',
+        extensions: ['kmz'],
+      })).resolves.toBe(true);
+
+      expect([...readFileSync(filePath)]).toEqual([80, 75, 1, 2]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

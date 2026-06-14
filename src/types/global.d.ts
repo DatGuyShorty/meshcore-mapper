@@ -15,6 +15,7 @@ declare global {
   interface ElectronAPI {
     saveFile(jsonStr: string): Promise<void>;
     exportFile(payload: { content: string; defaultName?: string; filterName?: string; extensions?: string[] }): Promise<boolean>;
+    exportBinaryFile(payload: { data: Uint8Array | number[] | ArrayBuffer; defaultName?: string; filterName?: string; extensions?: string[] }): Promise<boolean>;
     exportPdfFile(payload: { content: string; defaultName?: string }): Promise<boolean>;
     openFile(): Promise<string | null>;
     getPresets(): Promise<unknown>;
