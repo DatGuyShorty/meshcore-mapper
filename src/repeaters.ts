@@ -37,6 +37,7 @@ import {
   openNodeEditorPanel,
   setNodeEditorMode,
 } from './nodeEditorView.js';
+import { liveHealthSummary, nodeHealth, type NodeHealthState } from './liveHealth.js';
 
 type RepeaterMarker = Record<string, any> & {
   addTo(target: unknown): RepeaterMarker;
@@ -125,6 +126,7 @@ let _lastRemoved: RemovedRepeaterSnapshot | null = null; // F5: single-level und
 let _filterText  = '';
 let _sortMode    = 'name-az';
 let _selectedNodeId: number | string | null = null;
+let _healthTimer: number | null = null;
 
 // Context menu
 let _ctxMenu: HTMLDivElement | null = null;
@@ -285,6 +287,7 @@ function _applyWsRow(rep: Repeater, r: WsRepeaterRow | Record<string, any>, defa
   rep.lastSeen = lastSeen;
   rep.wsKey = _wsKeyForRow(r);
   rep.marker.setPopupContent(_wsPopupLines(r, name));
+  rep.marker.setIcon?.(makeMarkerIcon(rep.color, _isSelectedNode(rep.id), nodeHealth(rep).state));
   return { coverageChanged, displayChanged };
 }
 
@@ -302,6 +305,7 @@ async function _loadWsFromDb(): Promise<void> {
       rep.wsKey    = _wsKeyForRow(r);
       _liveFeedStore.addRepeaterId(rep.id);
       rep.marker.setPopupContent(_wsPopupLines(r, r.name));
+      rep.marker.setIcon?.(makeMarkerIcon(rep.color, _isSelectedNode(rep.id), nodeHealth(rep).state));
     }
     _lastRemoved = savedUndo;
     renderRepeaterList();
@@ -322,6 +326,14 @@ function _setWsStatus(status: string): void {
   dot.dataset.status = status;
   dot.title = status;
   btn.textContent = status === 'connected' ? 'Disconnect' : 'Connect';
+}
+
+function _updateLiveHealthSummary(): void {
+  const el = document.getElementById('ws-health-summary');
+  if (!el) return;
+  const summary = liveHealthSummary(state.repeaters as Repeater[]);
+  el.textContent = summary.text;
+  el.classList.toggle('ws-health-alert', summary.alert);
 }
 
 /** @param {unknown} data */
@@ -443,9 +455,9 @@ function _syncUndoBtn(): void {
  * @param {string} color
  * @param {boolean} [selected]
  */
-function makeMarkerIcon(color: string, selected = false): any {
-  const stroke = selected ? '#facc15' : '#fff';
-  const strokeWidth = selected ? 4 : 2;
+function makeMarkerIcon(color: string, selected = false, health: NodeHealthState = 'planned'): any {
+  const stroke = selected ? '#facc15' : markerStrokeForHealth(health);
+  const strokeWidth = selected ? 4 : health === 'planned' ? 2 : 3;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
     <path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 22 14 22S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="${color}" stroke="${stroke}" stroke-width="${strokeWidth}"/>
     <circle cx="14" cy="14" r="5" fill="#fff" opacity="0.9"/>
@@ -456,6 +468,13 @@ function makeMarkerIcon(color: string, selected = false): any {
   return L.divIcon({ html: svg, iconSize: [28, 36], iconAnchor: [14, 36], popupAnchor: [0, -36], className: '' });
 }
 
+function markerStrokeForHealth(health: NodeHealthState): string {
+  if (health === 'live') return '#22c55e';
+  if (health === 'stale') return '#f59e0b';
+  if (health === 'missing') return '#f87171';
+  return '#fff';
+}
+
 /** @param {number | string | null} id */
 function _isSelectedNode(id: number | string | null): boolean {
   return _selectedNodeId !== null && String(_selectedNodeId) === String(id);
@@ -463,7 +482,7 @@ function _isSelectedNode(id: number | string | null): boolean {
 
 function _syncSelectedNodeMarkers(): void {
   (state.repeaters as Repeater[]).forEach(r => {
-    r.marker?.setIcon?.(makeMarkerIcon(r.color, _isSelectedNode(r.id)));
+    r.marker?.setIcon?.(makeMarkerIcon(r.color, _isSelectedNode(r.id), nodeHealth(r).state));
   });
 }
 
@@ -634,6 +653,7 @@ function renderRepeaterList(): void {
     editingId,
   });
   _syncSelectedNodeList();
+  _updateLiveHealthSummary();
 }
 
 export function refreshRepeaterList({ notify = true, clearUndo = false }: RefreshRepeaterListOptions = {}): void {
@@ -652,6 +672,13 @@ function _repeaterFromEvent(event: Event): Repeater | undefined {
 export function init(): void {
   _initCtxMenu();
   _loadWsFromDb();
+  _updateLiveHealthSummary();
+  if (_healthTimer === null) {
+    _healthTimer = window.setInterval(() => {
+      renderRepeaterList();
+      _syncSelectedNodeMarkers();
+    }, 60000);
+  }
 
   attachEirpHint({ powerId: 'repeater-power', gainId: 'repeater-gain', freqId: 'repeater-freq', hintId: 'eirp-hint' });
 

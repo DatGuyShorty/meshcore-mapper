@@ -2,6 +2,7 @@ import { map, state } from './map.js';
 import { inspectCoverageAtPoint } from './coveragePoint.js';
 import { escHtml, setActiveTab } from './ui.js';
 import { optimizerResultCoreDetails } from './optimizerResultDetails.js';
+import { nodeHealth } from './liveHealth.js';
 import {
   type CoverageInspectorInput,
   coveragePointInspectorContent,
@@ -30,6 +31,9 @@ type Repeater = Record<string, any> & {
   lat: number;
   lon: number;
   visible?: boolean;
+  fromWs?: boolean;
+  short?: string | null;
+  lastSeen?: string | number | null;
 };
 
 type LinkInspector = Record<string, any> & {
@@ -140,9 +144,11 @@ export function _nodeInspectorContent(rep: Repeater): string {
   const visible = rep?.visible !== false;
   const coords = `${Number(rep?.lat).toFixed(5)}, ${Number(rep?.lon).toFixed(5)}`;
   const tx = `${_fmtUnit(rep?.power, 'dBm')} + ${_fmtUnit(rep?.gain, 'dBi')}`;
+  const health = nodeHealth(rep);
   const liveRows: Array<[string, unknown]> = [];
   if (rep?.fromWs) liveRows.push(['Source', 'Live feed']);
   if (rep?.short) liveRows.push(['ID', rep.short]);
+  if (rep?.fromWs) liveRows.push(['Health', `${health.label} (${health.detail})`]);
   if (rep?.lastSeen) liveRows.push(['Last Seen', rep.lastSeen]);
   return `<div class="inspector-node-card">
     <div class="inspector-node-head">
@@ -151,7 +157,7 @@ export function _nodeInspectorContent(rep: Repeater): string {
         <div class="map-context-title">${escHtml(rep?.name ?? 'Node')}</div>
         <div class="map-context-coords">${escHtml(coords)}</div>
       </div>
-      <span class="map-context-status">${visible ? 'Visible' : 'Hidden'}</span>
+      <span class="map-context-status">${escHtml(rep?.fromWs ? health.label : visible ? 'Visible' : 'Hidden')}</span>
     </div>
     <dl class="inspector-node-specs">
       <dt>Height</dt><dd>${escHtml(_fmtUnit(rep?.height, 'm AGL'))}</dd>

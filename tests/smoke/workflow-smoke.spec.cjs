@@ -51,6 +51,7 @@ test('repeater node lifecycle works with add, delete, undo, and filtering', asyn
 
     await expect(page.locator('#repeater-list')).toContainText('Smoke Workflow Node', { timeout: 10000 });
     await expect(page.locator('#repeater-list')).toContainText('48.2863', { timeout: 10000 });
+    await expect(page.locator('#ws-health-summary')).toContainText(/planned/, { timeout: 10000 });
 
     const deleteButton = page.locator('#repeater-list button[data-action="delete"]').first();
     await deleteButton.click();
