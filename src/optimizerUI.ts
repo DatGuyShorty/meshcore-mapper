@@ -20,11 +20,14 @@ import { getOptimizerSettings } from './settings.js';
 import { attachEirpHint } from './eirp.js';
 import {
   optimizerCompletionMessage,
-  optimizerResultDiagnostics,
-  optimizerShouldRenderDiagnostics,
   type OptimizerStats,
 } from './optimizerDiagnostics.js';
-import { optimizerResultCoreDetails, type OptimizerResultDetailInput } from './optimizerResultDetails.js';
+import type { OptimizerResultDetailInput } from './optimizerResultDetails.js';
+import {
+  optimizerCandidateItemHtml,
+  optimizerCandidatePopupHtml,
+  optimizerDiagnosticsItemHtml,
+} from './optimizerPanelView.js';
 
 type LatLon = {
   lat: number;
@@ -294,16 +297,9 @@ function renderResults(results: CandidateResult[], txParams: TxParams): void {
       rank,
       txParams: { ...txParams },
     };
-    const details = optimizerResultCoreDetails(r);
-    const popup = [
-      `<b>Suggested #${rank}</b>`,
-      `${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}`,
-      ...details.map(escapeHtml),
-    ];
-    if (r.scoreBreakdown?.formula) popup.push(`Objective: ${escapeHtml(r.scoreBreakdown.formula)}`);
     const marker = L.marker([r.lat, r.lon], { icon: makeSuggestedIcon(rank, _selectedCandidateRank === rank), zIndexOffset: 500 })
       .addTo(map)
-      .bindPopup(popup.join('<br>'));
+      .bindPopup(optimizerCandidatePopupHtml(r, rank));
     const optimizerMarker = marker as LeafletLayer;
     optimizerMarker._candidateRank = rank;
     optimizerMarker.on?.('click', (event) => {
@@ -327,13 +323,7 @@ function renderResults(results: CandidateResult[], txParams: TxParams): void {
     const li = document.createElement('li');
     li.className = `opt-result-item${_selectedCandidateRank === rank ? ' ori-selected' : ''}`;
     li.dataset.candidateRank = String(rank);
-    li.innerHTML = `
-      <span class="ori-rank">#${rank}</span>
-      <div class="ori-info">
-        <div class="ori-coords">${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}</div>
-        <div class="ori-score">${escapeHtml(details.join(' | '))}</div>
-      </div>
-      <button class="ori-add" title="Add as repeater">+ Add</button>`;
+    li.innerHTML = optimizerCandidateItemHtml(r, rank);
     li.querySelector('.ori-add')?.addEventListener('click', () => {
       addRepeater(`Suggested ${rank}`, r.lat, r.lon, txParams.height, txParams.power, txParams.freq, txParams.gain);
     });
@@ -355,17 +345,11 @@ function renderResults(results: CandidateResult[], txParams: TxParams): void {
 function renderResultDiagnostics(resultCount: number, stats: OptimizerStats | undefined): void {
   const ul = document.getElementById('opt-results');
   if (!ul) return;
-  if (!optimizerShouldRenderDiagnostics(resultCount, stats)) return;
-  const details = optimizerResultDiagnostics(resultCount, stats);
-  if (!details.length) return;
+  const html = optimizerDiagnosticsItemHtml(resultCount, stats);
+  if (!html) return;
   const li = document.createElement('li');
   li.className = 'opt-result-item opt-result-diagnostics';
-  li.innerHTML = `
-    <span class="ori-rank">!</span>
-    <div class="ori-info">
-      <div class="ori-coords">Optimizer diagnostics</div>
-      <div class="ori-score">${escapeHtml(details.join(' | '))}</div>
-    </div>`;
+  li.innerHTML = html;
   ul.appendChild(li);
 }
 

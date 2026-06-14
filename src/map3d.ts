@@ -12,6 +12,15 @@ import { fetchFoliage } from './foliage.js';
 import { setButtonBusy, setInlineStatus, setStatus } from './ui.js';
 import { buildMapTileCanvas, drawTexturePlaceholder } from './mapTileTexture.js';
 import { normalizeCoverageOverlayMode, writeSignalOverlayPixel } from './signalOverlay.js';
+import {
+  applyMap3dModeView,
+  setMap3dRefreshBusy,
+  toggleMap3dFullscreen,
+  writeMap3dFocusAttrs,
+  writeMap3dRetileCount,
+  writeMap3dSceneStats,
+  writeMap3dTerrainAttrs,
+} from './map3dView.js';
 import type { Bbox, LatLonPoint, TerrainMeshArrays } from './terrain3dModel.js';
 import {
   boundsFromLeaflet,
@@ -237,17 +246,7 @@ export function set3dMode(enabled: boolean, options: Set3dOptions = {}): void {
     }
   }
   
-  const mapContainer = document.getElementById('map-container');
-  const panel = document.getElementById('map3d');
-  const btn2d = document.getElementById('btn-view-2d');
-  const btn3d = document.getElementById('btn-view-3d');
-
-  mapContainer?.classList.toggle('map3d-active', _active);
-  panel?.classList.toggle('hidden', !_active);
-  btn2d?.classList.toggle('active', !_active);
-  btn3d?.classList.toggle('active', _active);
-  btn2d?.setAttribute('aria-pressed', String(!_active));
-  btn3d?.setAttribute('aria-pressed', String(_active));
+  applyMap3dModeView(_active);
 
   if (_active) {
     _ensureScene();
@@ -282,9 +281,7 @@ function _focus3dOnSelection(detail: Map3dFocusDetail = {}): void {
   if (!referenceBounds) return;
   const focusBounds = boundsForFocusPoints(rawPoints, referenceBounds);
   const label = String(detail?.label || 'selected object').trim();
-  const panel = document.getElementById('map3d');
-  panel?.setAttribute('data-focus-label', label);
-  panel?.setAttribute('data-focus-points', String(rawPoints.length));
+  writeMap3dFocusAttrs({ label, pointCount: rawPoints.length });
   set3dMode(true, { focusBounds });
   setStatus(`3D terrain focused on ${label}.`);
 }
@@ -297,8 +294,7 @@ export async function refresh3d({ force = false, preserveView = null }: Refresh3
   _abortController?.abort();
   _abortController = new AbortController();
   const signal = _abortController.signal;
-  setButtonBusy('btn-refresh-3d', true, 'Loading...');
-  setButtonBusy('btn-map3d-refresh', true, 'Loading...');
+  setMap3dRefreshBusy(true, setButtonBusy);
   _set3dStatus('Loading 3D terrain...');
 
   try {
@@ -350,8 +346,7 @@ export async function refresh3d({ force = false, preserveView = null }: Refresh3
   } finally {
     if (refreshId === _refreshSerial) {
       _refreshInFlight = false;
-      setButtonBusy('btn-refresh-3d', false);
-      setButtonBusy('btn-map3d-refresh', false);
+      setMap3dRefreshBusy(false, setButtonBusy);
     }
   }
 }
@@ -386,7 +381,7 @@ function _ensureScene(): void {
   _controls.minDistance = 80;
   _controls.addEventListener('end', _scheduleRetileFromControls);
   host?.setAttribute('data-navigation', 'map-pan-tiling');
-  host?.setAttribute('data-retile-count', String(_retileCount));
+  writeMap3dRetileCount(_retileCount);
 
   _raycaster = new THREE.Raycaster();
   _pointer = new THREE.Vector2();
@@ -420,7 +415,7 @@ function _renderPreview(): void {
   };
   _rebuildTerrainOnly(terrainState);
   _terrainState = terrainState;
-  document.getElementById('map3d')?.setAttribute('data-ready', 'preview');
+  writeMap3dTerrainAttrs({ ready: 'preview' });
   _set3dStatus('Preparing 3D terrain...');
 }
 
@@ -475,10 +470,11 @@ function _addTerrain(terrainState: TerrainState): { meshArrays: TerrainMeshArray
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'terrain';
   _root?.add(mesh);
-  const panel = document.getElementById('map3d');
-  panel?.setAttribute('data-ready', 'terrain');
-  panel?.setAttribute('data-terrain-tiles', String(terrainState.tileCount ?? 1));
-  panel?.setAttribute('data-terrain-source', terrainState.terrainSource ?? 'unknown');
+  writeMap3dTerrainAttrs({
+    ready: 'terrain',
+    tileCount: terrainState.tileCount ?? 1,
+    terrainSource: terrainState.terrainSource ?? 'unknown',
+  });
 
   return { meshArrays, terrainMesh: mesh };
 }
@@ -1286,13 +1282,7 @@ function _topNormalY(a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2): numb
 }
 
 function _set3dStats(stats: SceneStats): void {
-  const panel = document.getElementById('map3d');
-  if (!panel) return;
-  panel.setAttribute('data-buildings-count', String(stats.buildings ?? 0));
-  panel.setAttribute('data-foliage-count', String(stats.foliage ?? 0));
-  panel.setAttribute('data-nodes-count', String(stats.nodes ?? 0));
-  panel.setAttribute('data-coverage-count', String(stats.coverage ?? 0));
-  panel.setAttribute('data-p2p-links-count', String(stats.links ?? 0));
+  writeMap3dSceneStats(stats);
 }
 
 function _scheduleRetileFromControls(): void {
@@ -1316,7 +1306,7 @@ function _retileFromControls(): void {
   _sync2dMapCenter(center);
   const preserveView = _captureViewState();
   _retileCount++;
-  document.getElementById('map3d')?.setAttribute('data-retile-count', String(_retileCount));
+  writeMap3dRetileCount(_retileCount);
   refresh3d({ force: true, preserveView });
 }
 
@@ -1340,10 +1330,7 @@ function _set3dStatus(message: string, kind = 'info'): void {
 }
 
 function _toggleFullscreen(): void {
-  const host = document.getElementById('map-container');
-  if (!host) return;
-  if (document.fullscreenElement) document.exitFullscreen?.();
-  else host.requestFullscreen?.();
+  toggleMap3dFullscreen();
 }
 
 function _createMirroredMapTexture(bounds: Bbox): THREE.CanvasTexture | null {

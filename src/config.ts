@@ -13,6 +13,7 @@ import { fetchFoliage } from './foliage.js';
 import { fetchBuildings } from './buildings.js';
 import { coverageNetworkStatsForExport, summarizeCombinedCoverage } from './coverageNetwork.js';
 import { confirmAction, hideProgress, setButtonBusy, setCancelHandler, setProgress, setStatus, yieldToUI } from './ui.js';
+import { CACHE_UNAVAILABLE_TEXT, formatCacheStats } from './cacheStatsView.js';
 
 type AbortLikeError = Error & { cancelled?: boolean };
 type RepeaterSnapshot = {
@@ -256,10 +257,9 @@ export async function refreshCacheStats(): Promise<void> {
   if (!el) return;
   try {
     const s = await window.electronAPI.cacheGetStats();
-    el.textContent =
-      `Cache: ${s.elevations.toLocaleString()} elevations, ${s.demTiles ?? 0} DEM tiles, ${s.foliage} foliage, ${s.buildings ?? 0} buildings, ${s.sizeKb} KB`;
+    el.textContent = formatCacheStats(s);
   } catch {
-    el.textContent = 'Cache: unavailable';
+    el.textContent = CACHE_UNAVAILABLE_TEXT;
   }
 }
 

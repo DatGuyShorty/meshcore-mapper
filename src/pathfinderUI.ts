@@ -6,6 +6,12 @@ import {
   escHtml, hideProgress, setActiveTab, setButtonBusy, setCancelHandler,
   setProgress, yieldToUI,
 } from './ui.js';
+import {
+  formatPathLineLabel,
+  formatPathStatus,
+  pathMarginColor,
+  renderPathResultHtml,
+} from './pathfinderResultView.js';
 
 type PickTarget = 'from' | 'to' | null;
 type AbortLikeError = Error & { cancelled?: boolean };
@@ -222,26 +228,12 @@ function _selectPathLink(id: string, event: PathClickEvent): void {
   }));
 }
 
-function _marginColor(margin: number): string {
-  if (margin >= 15) return '#4ade80';
-  if (margin >= 5) return '#86efac';
-  if (margin >= 0) return '#facc15';
-  if (margin >= -5) return '#fb923c';
-  return '#f87171';
-}
-
 function _setPathStatus(msg: string, isError = false): void {
   const status = document.getElementById('path-status');
   if (!status) return;
   status.textContent = msg;
   status.className = 'hint' + (isError ? ' hint-error' : '');
   status.classList.remove('hidden');
-}
-
-function _pathLineLabel(margin: number, distM: number, rxPower: number | null | undefined): string {
-  const sign = margin >= 0 ? '+' : '';
-  const rxText = Number.isFinite(rxPower) ? ` - ${(rxPower as number).toFixed(1)} dBm` : '';
-  return `<b>${sign}${margin.toFixed(1)} dB</b><br>${(distM / 1000).toFixed(2)} km${rxText}`;
 }
 
 function _renderPath(result: PathResult): void {
@@ -253,14 +245,14 @@ function _renderPath(result: PathResult): void {
     const a = path[i - 1].node;
     const b = path[i].node;
     const margin = path[i].incomingMargin ?? 0;
-    const color = _marginColor(margin);
+    const color = pathMarginColor(margin);
     const line = L.polyline([[a.lat, a.lon], [b.lat, b.lon]], {
       color,
       weight: 4,
       opacity: 0.9,
       className: 'path-hop-line',
     }).addTo(map) as PathPolyline;
-    line.bindTooltip(_pathLineLabel(margin, edgeDistances[i - 1], edgeRxPowers[i - 1]), {
+    line.bindTooltip(formatPathLineLabel(margin, edgeDistances[i - 1], edgeRxPowers[i - 1]), {
       permanent: true,
       direction: 'center',
       className: 'path-line-label',
@@ -304,33 +296,10 @@ function _renderPath(result: PathResult): void {
   const latlngs = path.map((p) => [p.node.lat, p.node.lon] as [number, number]);
   if (latlngs.length > 1) map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40] });
 
-  const bottleneckColor = _marginColor(bottleneck);
-  let html = `<div class="path-summary">
-    <span class="path-hops">${numHops} hop${numHops !== 1 ? 's' : ''}</span>
-    <span class="path-bottleneck" style="color:${bottleneckColor}">Bottleneck: ${bottleneck.toFixed(1)} dB</span>
-  </div>
-  <table class="p2p-table"><tbody>`;
-
-  for (let i = 0; i < path.length; i++) {
-    const { node, incomingMargin } = path[i];
-    const distStr = i > 0 ? ` - ${(edgeDistances[i - 1] / 1000).toFixed(1)} km` : '';
-    const marginStr = incomingMargin !== null
-      ? `<span style="color:${_marginColor(incomingMargin)}">${incomingMargin >= 0 ? '+' : ''}${incomingMargin.toFixed(1)} dB</span>`
-      : '';
-    html += `<tr>
-      <td class="p2p-key">${i === 0 ? '&bull;' : '&middot;'} ${escHtml(node.name)}</td>
-      <td class="p2p-val">${marginStr}${distStr}</td>
-    </tr>`;
-  }
-  html += '</tbody></table>';
-
   const resultsEl = document.getElementById('path-results');
-  if (resultsEl) resultsEl.innerHTML = html;
-  _setPathStatus(bottleneck >= 0
-    ? `Path found \u2014 bottleneck +${bottleneck.toFixed(1)} dB`
-    : bottleneck >= -50
-    ? `Path found but bottleneck link is marginal (${bottleneck.toFixed(1)} dB) \u2014 may not work reliably`
-    : `Path found but bottleneck link is severely blocked (${bottleneck.toFixed(1)} dB) \u2014 link budget not met`, bottleneck < -50);
+  if (resultsEl) resultsEl.innerHTML = renderPathResultHtml(result);
+  const status = formatPathStatus(bottleneck);
+  _setPathStatus(status.text, status.isError);
 }
 
 async function _runPathFinder(): Promise<void> {

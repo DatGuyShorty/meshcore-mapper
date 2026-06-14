@@ -58,6 +58,173 @@ If no more specific task is given, prioritize in this order:
 
 ### 2026-06-14
 
+- Started Phase 6 incremental UI rewrite on branch
+  `codex/phase-6-coverage-layer-manager`.
+- Extracted the coverage layer manager view boundary:
+  - added `src/coverageLayerManagerView.ts`
+  - `coverage.ts` now delegates coverage-layer empty/group/layer row rendering,
+    metadata details, warning row flags, and layer action control creation to
+    the dedicated view helper
+  - existing coverage workflow callbacks remain in `coverage.ts`, so layer
+    visibility, opacity, rename, use-settings, recompute, and delete behavior
+    are preserved
+  - added `tests/unit/coverageLayerManagerView.test.js` for empty, grouped,
+    legacy fallback, opacity/visibility, metadata title, detail-row, and
+    warning states
+- Focused Phase 6 coverage-layer manager verification passed:
+  - `npm run typecheck`
+  - `npx vitest run tests/unit/coverageLayerManagerView.test.js tests/unit/coverageMetadata.test.js tests/unit/coveragePersistence.test.js`
+  - `npm run build`
+- Full Phase 6 slice verification passed:
+  - `npm run check` (62 unit files, 367 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Extracted the coverage inspector view boundary:
+  - added `src/coverageInspectorView.ts`
+  - `mapContext.ts` now supplies coverage-inspector input data while the new
+    helper renders map-point popup content, right-inspector content, coverage
+    rows, empty states, metric formatting, and modeled-loss breakdowns
+  - selection-store transitions, inspector action dispatch, map popup wiring,
+    and existing DOM action attributes remain in `mapContext.ts`
+  - added `tests/unit/coverageInspectorView.test.js` for formatting, escaped
+    weak-row output, empty states, visible coverage rows, and inspector actions
+- Focused Phase 6 coverage-inspector verification passed:
+  - `npm run typecheck`
+  - `npx vitest run tests/unit/coverageInspectorView.test.js tests/unit/mapContext.test.js tests/unit/coveragePoint.test.js`
+- Full Phase 6 coverage-inspector verification passed:
+  - `npm run check` (63 unit files, 371 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Started the node list/editor migration with the node list rendering boundary:
+  - added `src/nodeListView.ts`
+  - `repeaters.ts` now delegates node-list empty/filter states, name sorting,
+    live/manual row summaries, hidden/selected/editing row classes, and row
+    action control markup to the dedicated view helper
+  - repeater CRUD, map marker ownership, live WebSocket syncing, edit-mode
+    form behavior, and delegated list actions remain in `repeaters.ts`
+  - added `tests/unit/nodeListView.test.js` for empty, filtered-empty,
+    sorting, hidden/selected/editing classes, live metadata, and filter fields
+- Focused Phase 6 node-list verification passed:
+  - `npm run typecheck`
+  - `npx vitest run tests/unit/nodeListView.test.js tests/unit/repeaterRows.test.js tests/unit/mapContext.test.js`
+- Full Phase 6 node-list verification passed:
+  - `npm run check` (64 unit files, 376 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Completed the node list/editor migration boundary:
+  - added `src/nodeEditorView.ts`
+  - `repeaters.ts` now delegates edit-form value hydration, add/edit/placing
+    button states, placement hint visibility, and editor-panel opening to the
+    dedicated view helper
+  - add/update validation, marker updates, map placement, live feed, undo,
+    and event dispatching remain in `repeaters.ts`
+  - added `tests/unit/nodeEditorView.test.js` for repeater-to-form values,
+    stale preset clearing, add/edit/placing control states, and panel opening
+- Focused Phase 6 node-editor verification passed:
+  - `npm run typecheck`
+  - `npx vitest run tests/unit/nodeEditorView.test.js tests/unit/nodeListView.test.js tests/unit/repeaterRows.test.js tests/unit/mapContext.test.js`
+- Full Phase 6 node-editor verification passed:
+  - `npm run check` (65 unit files, 380 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Extracted the P2P result-panel view boundary:
+  - added `src/p2pResultView.ts`
+  - `p2p.ts` now delegates budget row construction, warning markup,
+    budget/profile tab shell markup, profile action markup, and link status
+    text to the dedicated result-panel helper
+  - P2P picking, endpoint dragging, active link state, tab click binding,
+    fullscreen profile behavior, PNG export, and link-budget calculation remain
+    in `p2p.ts`
+  - added `tests/unit/p2pResultView.test.js` for budget rows, obstacle/shadow
+    fading/Monte Carlo rows, escaped warnings, profile actions, and OK/failed
+    status text
+- Focused Phase 6 P2P result-panel verification passed:
+  - `npm run typecheck`
+  - `npx vitest run tests/unit/p2pResultView.test.js tests/unit/linkBudget.test.js tests/unit/terrainProfileView.test.js tests/unit/mapContext.test.js`
+- Full Phase 6 P2P result-panel verification passed:
+  - `npm run check` (66 unit files, 384 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Started the optimizer panel migration with the optimizer result-list
+  boundary:
+  - added `src/optimizerPanelView.ts`
+  - `optimizerUI.ts` now delegates candidate row markup, marker popup markup,
+    shared detail escaping, and diagnostic row markup to the dedicated panel
+    helper
+  - optimizer drawing, candidate markers, selection events, backhaul previews,
+    suggested-node add actions, backend orchestration, and completion status
+    remain in `optimizerUI.ts`
+  - added `tests/unit/optimizerPanelView.test.js` for candidate rows, marker
+    popup content, objective formulas, diagnostics, and clean-run diagnostic
+    suppression
+- Focused Phase 6 optimizer result-list verification passed:
+  - `npm run typecheck`
+  - `npx vitest run tests/unit/optimizerPanelView.test.js tests/unit/optimizerResultDetails.test.js tests/unit/optimizerDiagnostics.test.js tests/unit/mapContext.test.js`
+- Full Phase 6 optimizer result-list verification passed:
+  - `npm run check` (67 unit files, 388 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Started the settings/cache panel migration with the cache summary boundary:
+  - added `src/cacheStatsView.ts`
+  - `config.ts` now delegates cache count formatting and unavailable fallback
+    text to the dedicated settings/cache view helper
+  - cache IPC calls, warm/cancel behavior, purge actions, project save/load,
+    and settings persistence remain in `config.ts`
+  - added `tests/unit/cacheStatsView.test.js` for formatted cache counts,
+    invalid/missing count normalization, and fallback text
+- Focused Phase 6 settings/cache verification passed:
+  - `npm run typecheck`
+  - `npx vitest run tests/unit/cacheStatsView.test.js tests/unit/config.test.js tests/unit/settings.test.js`
+- Full Phase 6 settings/cache verification passed:
+  - `npm run check` (68 unit files, 391 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Extracted the 3D view controls boundary:
+  - added `src/map3dView.ts`
+  - `map3d.ts` now delegates 2D/3D mode classes, tab ARIA state,
+    refresh-button busy state, focus metadata attributes, terrain panel
+    attributes, retile count attributes, scene-stat attributes, and fullscreen
+    routing to the dedicated view helper
+  - Three.js scene ownership, camera control, terrain refresh, map texture
+    loading, retile scheduling, and overlay rendering remain in `map3d.ts`
+  - added `tests/unit/map3dView.test.js` for mode toggles, refresh busy
+    state, smoke-facing panel attributes, stat normalization, retile count, and
+    fullscreen routing
+- Focused Phase 6 3D controls verification passed:
+  - `npm run typecheck`
+  - `npx vitest run tests/unit/map3dView.test.js tests/unit/terrain3dModel.test.js`
+- Full Phase 6 3D controls verification passed:
+  - `npm run check` (69 unit files, 396 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Extracted the coverage network-summary view boundary:
+  - added `src/coverageNetworkSummaryView.ts`
+  - `coverage.ts` now delegates combined-network summary view models, metric
+    formatting, detailed stats rows, critical-node rows, simulation-banner
+    markup, and simulation action rendering to the dedicated view helper
+  - combined coverage math, simulated-offline state, tile visibility, and
+    combined-overlay recompute ownership remain in `coverage.ts` and
+    `coverageNetwork.ts`
+  - added `tests/unit/coverageNetworkSummaryView.test.js` for empty/hidden
+    states, ready metrics, top-serving rows, critical-node actions, simulation
+    callbacks, stat fallbacks, and stable CSS classes
+- Focused Phase 6 coverage network-summary verification passed:
+  - `npm run typecheck`
+  - `npm run lint`
+  - `npx vitest run tests/unit/coverageNetworkSummaryView.test.js tests/unit/coverageNetwork.test.js tests/unit/coverageLayerManagerView.test.js`
+- Full Phase 6 coverage network-summary verification passed:
+  - `npm run check` (70 unit files, 401 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
+- Extracted the relay path result view boundary:
+  - added `src/pathfinderResultView.ts`
+  - `pathfinderUI.ts` now delegates relay hop color selection, map-label
+    formatting, result table markup, escaped node-name output, and path status
+    text to the dedicated result helper
+  - relay path search orchestration, Leaflet line/marker ownership, selected
+    path-link dispatch, progress/cancel handling, and map fitting remain in
+    `pathfinderUI.ts`
+  - added `tests/unit/pathfinderResultView.test.js` for margin color
+    thresholds, tooltip labels, escaped result rows, bottleneck styling, and
+    success/marginal/blocked status text
+- Focused Phase 6 relay path result verification passed:
+  - `npm run typecheck`
+  - `npm run lint`
+  - `npx vitest run tests/unit/pathfinderResultView.test.js tests/unit/pathfinder.test.js tests/unit/mapContext.test.js`
+- Full Phase 6 relay path result verification passed:
+  - `npm run check` (71 unit files, 405 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
 - Continued Phase 5 schema hardening on the active branch
   `codex/phase-5-roadmap-typescript`.
 - Extracted persisted settings schema helpers:
@@ -2130,6 +2297,14 @@ Target duration: 6-10 weeks
 
 Goal: replace imperative DOM-heavy panels with maintainable components.
 
+Status: Started. The coverage layer manager, coverage inspector, node
+list/editor, P2P result panel, optimizer result list, settings/cache summary,
+3D view controls, coverage network summary, and relay path result panel now
+have dedicated typed view helpers and direct view tests for their main UI states
+while keeping the existing DOM surface and workflow callbacks intact. Next Phase
+6 work should decide whether to introduce Preact/signals or keep extracting
+smaller DOM-helper boundaries for remaining panels.
+
 Recommended stack:
 
 - Preact + signals for app UI/state.
@@ -2148,6 +2323,8 @@ Migration order:
 5. Optimizer panel.
 6. Settings/cache panel.
 7. 3D view controls.
+8. Coverage network summary.
+9. Relay path result panel.
 
 Acceptance criteria:
 
