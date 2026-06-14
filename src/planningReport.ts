@@ -97,6 +97,7 @@ const NETWORK_STAT_LABELS: Record<string, string> = {
   medianMarginDb: 'Median margin',
   bestMarginDb: 'Best margin',
   topServing: 'Top serving nodes',
+  nodeContributions: 'Node contributions',
 };
 
 export function buildPlanningReportHtml(input: PlanningReportInput): string {
@@ -384,7 +385,7 @@ function formatStatValue(key: string, value: unknown): string {
   if (key.endsWith('Pct')) return formatPercent(value);
   if (key.endsWith('Km2')) return `${formatNumber(value, 3)} km2`;
   if (key.endsWith('Db')) return formatDb(value);
-  if (key === 'topServing' && Array.isArray(value)) {
+  if ((key === 'topServing' || key === 'nodeContributions') && Array.isArray(value)) {
     return value.map(item => {
       const row = item as UnknownRecord;
       return `${textOrDash(row.label as string)}: ${formatNumber(row.areaKm2, 3)} km2 (${formatPercent(row.pct)})`;

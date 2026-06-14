@@ -41,6 +41,10 @@ describe('planning report view', () => {
         weakPct: 7.1,
         averageMarginDb: 11.4,
         topServing: [{ label: 'Alpha <base>', areaKm2: 42.25, pct: 100 }],
+        nodeContributions: [
+          { label: 'Alpha <base>', areaKm2: 42.25, pct: 100 },
+          { label: 'Beta', areaKm2: 12.5, pct: 29.6 },
+        ],
       },
       p2pLinks: [{
         kind: 'p2p',
@@ -82,6 +86,8 @@ describe('planning report view', () => {
     expect(html).toContain('Failing');
     expect(html).toContain('Optimizer Recommendations');
     expect(html).toContain('Balanced &lt;mix&gt;');
+    expect(html).toContain('Node contributions');
+    expect(html).toContain('Beta: 12.500 km2 (29.6%)');
     expect(html).toContain('Coverage warnings: DEM gap &lt;tile&gt;.');
     expect(html).not.toContain('<script>alert(1)</script>');
   });

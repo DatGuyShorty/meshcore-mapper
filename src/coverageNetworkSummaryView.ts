@@ -157,7 +157,13 @@ export function coverageNetworkStatsRows(summary: CombinedCoverageSummary): Cove
     {
       label: 'Top serving',
       value: summary.topServing?.length
-        ? summary.topServing.map(item => `${item.label} ${_fmtArea(item.areaKm2)} (${_fmtPct(item.pct)})`).join(', ')
+        ? _fmtServingRows(summary.topServing)
+        : 'n/a',
+    },
+    {
+      label: 'Node contributions',
+      value: summary.nodeContributions?.length
+        ? _fmtServingRows(summary.nodeContributions)
         : 'n/a',
     },
   ];
@@ -251,4 +257,8 @@ function _fmtPct(value: unknown): string {
 function _fmtDb(value: unknown): string {
   const n = Number(value);
   return Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${n.toFixed(1)} dB` : 'n/a';
+}
+
+function _fmtServingRows(items: Array<{ label: string; areaKm2: number; pct: number }>): string {
+  return items.map(item => `${item.label} ${_fmtArea(item.areaKm2)} (${_fmtPct(item.pct)})`).join(', ');
 }

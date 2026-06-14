@@ -48,6 +48,7 @@ describe('coverage network summary view', () => {
       { label: 'Analysis area', value: '1.7 km2' },
       { label: 'Sample grid', value: '32 x 64' },
       { label: 'Top serving', value: 'Alpha 1.3 km2 (56%), Beta 97.0 ha (45%)' },
+      { label: 'Node contributions', value: 'Alpha 1.3 km2 (56%), Beta 97.0 ha (45%), Gamma 25.0 ha (5.0%)' },
     ]));
   });
 
@@ -132,6 +133,7 @@ describe('coverage network summary view', () => {
       { label: 'Analysis area', value: '0 km2' },
       { label: 'Average margin', value: 'n/a' },
       { label: 'Top serving', value: 'n/a' },
+      { label: 'Node contributions', value: 'n/a' },
     ]));
   });
 
@@ -154,8 +156,13 @@ describe('coverage network summary view', () => {
       sampleRows: 32,
       sampleCols: 64,
       topServing: [
-        { label: 'Alpha', areaKm2: 1.25, pct: 55.5 },
-        { label: 'Beta', areaKm2: 0.97, pct: 44.5 },
+        { sourceKey: 'node:a', label: 'Alpha', areaKm2: 1.25, pct: 55.5 },
+        { sourceKey: 'node:b', label: 'Beta', areaKm2: 0.97, pct: 44.5 },
+      ],
+      nodeContributions: [
+        { sourceKey: 'node:a', label: 'Alpha', areaKm2: 1.25, pct: 55.5 },
+        { sourceKey: 'node:b', label: 'Beta', areaKm2: 0.97, pct: 44.5 },
+        { sourceKey: 'node:c', label: 'Gamma', areaKm2: 0.25, pct: 5 },
       ],
     };
   }

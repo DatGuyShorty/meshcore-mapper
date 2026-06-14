@@ -58,6 +58,21 @@ If no more specific task is given, prioritize in this order:
 
 ### 2026-06-14
 
+- Completed the remaining Phase 2.2 network-statistics acceptance slice on
+  branch `codex/phase-2-network-contribution-stats`:
+  - combined visible-network summaries now keep a complete per-node
+    contribution breakdown keyed by source node, while preserving the compact
+    top-serving headline
+  - the Coverage panel's Network Stats details view now lists full node
+    contributions, not only the top three serving nodes
+  - report/GIS export metadata now includes the full `nodeContributions`
+    snapshot alongside the existing `topServing` summary
+  - planning reports format the node-contribution list as a readable
+    network-stat row
+- Focused Phase 2.2 network-contribution verification passed:
+  - `npx vitest run tests/unit/coverageNetwork.test.js tests/unit/coverageNetworkSummaryView.test.js tests/unit/planningReport.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
 - Started Phase 6 incremental UI rewrite on branch
   `codex/phase-6-coverage-layer-manager`.
 - Extracted the coverage layer manager view boundary:
@@ -2013,10 +2028,13 @@ Acceptance criteria:
 
 ### 2.2 Network Statistics
 
-Status: Started. The Coverage panel now shows an expandable Network Stats
-detail view for combined visible coverage, and Coverage GeoJSON export includes
-the same visible-network stats snapshot. Remaining work is richer report/export
-presentation and any future population/accessibility-weighted stats.
+Status: Current acceptance complete. The Coverage panel shows an expandable
+Network Stats detail view for combined visible coverage with analysis,
+covered/uncovered, overlap, weak-margin, average/median/best margin, sample-grid,
+top-serving, and full per-node contribution rows. Coverage GeoJSON/GIS metadata
+and planning reports include the same visible-network stats snapshot, including
+full node contributions. Future refinements can add population/accessibility
+weighted stats when those data sources exist.
 
 User question: "How good is this network?"
 
