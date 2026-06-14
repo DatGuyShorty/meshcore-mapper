@@ -30,6 +30,13 @@ import type { WsRepeaterRow } from './repeaterRows.js';
 import { normalizeWsRepeaterSnapshot, normalizeWsUrl, wsKeyForRow } from './repeaterRows.js';
 import { attachEirpHint } from './eirp.js';
 import { createLiveFeedStore } from './liveFeedStore.js';
+import { renderNodeList } from './nodeListView.js';
+import {
+  applyNodeEditorValues,
+  nodeEditorValuesFromRepeater,
+  openNodeEditorPanel,
+  setNodeEditorMode,
+} from './nodeEditorView.js';
 
 type RepeaterMarker = Record<string, any> & {
   addTo(target: unknown): RepeaterMarker;
@@ -565,9 +572,7 @@ export function undoLastRemove(): void {
 export function cancelPlacing(): void {
   if (!placingMode) return;
   placingMode = false;
-  document.getElementById('place-hint')?.classList.add('hidden');
-  const btn = document.getElementById('btn-add-click');
-  if (btn) btn.textContent = 'Place on Map';
+  setNodeEditorMode(document, 'add');
   map.getContainer().style.cursor = '';
 }
 
@@ -583,34 +588,15 @@ function setEditMode(id: number): void {
     return;
   }
   editingId = id;
-  const setVal = (elId: string, value: string | number): void => {
-    const el = document.getElementById(elId) as HTMLInputElement | HTMLSelectElement | null;
-    if (el) el.value = String(value);
-  };
-  setVal('repeater-name', r.name);
-  setVal('repeater-lat', r.lat);
-  setVal('repeater-lon', r.lon);
-  setVal('repeater-height', r.height);
-  setVal('repeater-power', r.power);
-  setVal('repeater-freq', r.freq);
-  setVal('repeater-gain', r.gain);  // B4: reset preset selects so stale selections don't overwrite the loaded values
-  setVal('radio-preset', '');
-  setVal('antenna-preset', '');
-  const addBtn = document.getElementById('btn-add-repeater');
-  if (addBtn) addBtn.textContent = 'Update Node';
-  const clickBtn = document.getElementById('btn-add-click');
-  if (clickBtn) clickBtn.textContent = 'Cancel';
-  const addPanel = document.getElementById('add-repeater-summary')?.closest('details') as HTMLDetailsElement | null;
-  if (addPanel) addPanel.open = true;
-  document.getElementById('sidebar')?.scrollTo({ top: 0, behavior: 'smooth' });
+  // Reset preset selects so stale selections don't overwrite the loaded values.
+  applyNodeEditorValues(document, nodeEditorValuesFromRepeater(r));
+  setNodeEditorMode(document, 'edit');
+  openNodeEditorPanel(document);
 }
 
 function clearEditMode(): void {
   editingId = null;
-  const addBtn = document.getElementById('btn-add-repeater');
-  if (addBtn) addBtn.textContent = 'Add Node';
-  const clickBtn = document.getElementById('btn-add-click');
-  if (clickBtn) clickBtn.textContent = 'Place on Map';
+  setNodeEditorMode(document, 'add');
 }
 
 /** @param {number} id */
@@ -641,46 +627,12 @@ function renderRepeaterList(): void {
   const ul = document.getElementById('repeater-list');
   if (!ul) return;
 
-  let list = (state.repeaters as Repeater[]).filter(r =>
-    !_filterText || [
-      r.name,
-      `${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}`,
-      `${r.height} ${r.power} ${r.freq} ${r.gain}`,
-      r.short ?? '',
-      r.lastSeen ?? '',
-    ].join(' ').toLowerCase().includes(_filterText)
-  );
-  if (_sortMode === 'name-az') list.sort((a, b) => a.name.localeCompare(b.name));
-  else if (_sortMode === 'name-za') list.sort((a, b) => b.name.localeCompare(a.name));
-
-  if (list.length === 0) {
-    ul.innerHTML = state.repeaters.length === 0
-      ? '<li class="empty-msg">No repeaters added yet.</li>'
-      : '<li class="empty-msg">No nodes match the filter.</li>';
-    return;
-  }
-
-  ul.innerHTML = list.map(r => {
-    const sub = (r.fromWs && r.lastSeen)
-      ? `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)} \u00b7 ${escHtml(r.lastSeen)}`
-      : `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)} \u00b7 ${r.height}m \u00b7 ${r.power}dBm+${r.gain}dBi \u00b7 ${r.freq}MHz`;
-    return `
-    <li class="repeater-item${r.visible ? '' : ' ri-hidden'}${_isSelectedNode(r.id) ? ' ri-selected' : ''}" data-id="${r.id}">
-      <div class="ri-color" style="background:${r.color}"></div>
-      <div class="ri-info">
-        <div class="ri-name">${escHtml(r.name)}</div>
-        <div class="ri-coords">${sub}</div>
-      </div>
-      <button class="ri-vis" data-action="toggle-vis" data-id="${r.id}" title="${r.visible ? 'Hide' : 'Show'}">${r.visible ? 'On' : 'Off'}</button>
-      <button class="ri-edit" data-action="edit" data-id="${r.id}" title="Edit">\u270e</button>
-      <button class="ri-del"  data-action="delete" data-id="${r.id}" title="Remove">\u00d7</button>
-    </li>`;
-  }).join('');
-
-  if (editingId !== null) {
-    const el = ul.querySelector(`[data-id="${editingId}"]`);
-    if (el) el.classList.add('editing');
-  }
+  renderNodeList(ul, state.repeaters as Repeater[], {
+    filterText: _filterText,
+    sortMode: _sortMode,
+    selectedNodeId: _selectedNodeId,
+    editingId,
+  });
   _syncSelectedNodeList();
 }
 
@@ -804,12 +756,10 @@ export function init(): void {
     const btn  = document.getElementById('btn-add-click');
     if (!hint || !btn) return;
     if (placingMode) {
-      hint.classList.remove('hidden');
-      btn.textContent = 'Cancel';
+      setNodeEditorMode(document, 'placing');
       map.getContainer().style.cursor = 'crosshair';
     } else {
-      hint.classList.add('hidden');
-      btn.textContent = 'Place on Map';
+      setNodeEditorMode(document, 'add');
       map.getContainer().style.cursor = '';
     }
   });

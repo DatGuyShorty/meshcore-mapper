@@ -53,10 +53,8 @@ import { deriveRadioMetrics, selectedModemText } from './radioMetrics.js';
 import { bearingDeg, haversine } from './propagation.js';
 import {
   buildCombinedCoverageOverlay,
-  type CombinedCoverageSummary,
   coverageLayerSourceKey,
   normalizeCombinedCoverageOverlayMode,
-  type NodeFailureSummary,
   summarizeCombinedCoverage,
   summarizeNodeFailureImpact,
 } from './coverageNetwork.js';
@@ -64,14 +62,14 @@ import type { CoverageLayerPref, CoverageLayerRecord } from './coveragePersisten
 import type { CoverageOverlayMode } from './signalOverlay.js';
 import type { ObstacleSet } from './signalModel.js';
 import {
-  type CoverageScenarioGroup,
-  coverageLayerDetailRows,
   coverageLayerSettingsSnapshot,
   createCoverageRunMetadata,
-  formatCoverageLayerMeta,
-  formatCoverageLayerTitle,
-  groupCoverageLayersByScenario,
 } from './coverageMetadata.js';
+import { renderCoverageLayerManager } from './coverageLayerManagerView.js';
+import {
+  buildCoverageNetworkSummaryModel,
+  renderCoverageNetworkSummaryModel,
+} from './coverageNetworkSummaryView.js';
 
 type CancelToken = { cancelled: boolean };
 
@@ -208,15 +206,6 @@ type RenderTilesOptions = {
   layerId?: string | null;
   visible?: boolean;
   shouldContinue?: (() => boolean) | null;
-};
-
-type NetworkRow = {
-  label: string;
-  value: string;
-  action?: {
-    text: string;
-    handler: () => void;
-  };
 };
 
 type AbortLikeError = Error & { cancelled?: boolean };
@@ -1101,20 +1090,19 @@ export function renderCoverageLayerList(): void {
   rerenderCombinedCoverageOverlay().catch(err => console.warn('[coverage] combined overlay update failed:', err));
   const ul = document.getElementById('coverage-layer-list');
   if (!ul) return;
-  ul.textContent = '';
-  if (_coverageResults().length === 0) {
-    const li = document.createElement('li');
-    li.className = 'empty-msg';
-    li.textContent = 'No coverage layers yet. Compute coverage to add one.';
-    ul.appendChild(li);
-    return;
-  }
-  for (const group of groupCoverageLayersByScenario(_coverageResults())) {
-    ul.appendChild(_coverageLayerGroupHeader(group));
-    for (const r of group.layers) {
-      ul.appendChild(_coverageLayerItem(r));
-    }
-  }
+  renderCoverageLayerManager(ul, _coverageResults(), {
+    fallbackLabel: _makeLayerLabel,
+    setLayerLabel: _setLayerLabel,
+    applyLayerSettings: result => _applyLayerSettings(result),
+    recomputeLayer: _recomputeLayer,
+    deleteLayer: _deleteCoverageLayer,
+    onRecomputeError: err => {
+      const msg = `Coverage recompute failed: ${_errorMessage(err)}`;
+      setStatus(msg);
+      setInlineStatus('coverage-status', msg, 'error');
+      console.error(err);
+    },
+  });
 }
 
 async function rerenderCombinedCoverageOverlay(): Promise<void> {
@@ -1144,155 +1132,20 @@ function renderCoverageNetworkSummary(): void {
   if (!el) return;
   const networkOptions = { offlineSourceKeys: _offlineSourceKeys() };
   const summary = summarizeCombinedCoverage(_coverageResults(), networkOptions);
-  el.textContent = '';
-
-  if (summary.status !== 'ready') {
-    if (_simulatedOfflineSourceKey) el.appendChild(_simulatedOfflineBanner());
-    const empty = document.createElement('div');
-    empty.className = 'empty-msg';
-    empty.textContent = summary.status === 'no-visible-layers'
-      ? 'No visible coverage layers.'
-      : 'No combined coverage yet.';
-    el.appendChild(empty);
-    return;
-  }
-
-  const head = document.createElement('div');
-  head.className = 'coverage-network-head';
-  const title = document.createElement('span');
-  title.textContent = _simulatedOfflineSourceKey
-    ? `Combined Network - ${_simulatedOfflineLabel} offline`
-    : 'Combined Visible Network';
-  const count = document.createElement('span');
-  count.textContent = `${summary.visibleLayerCount} visible layer${summary.visibleLayerCount === 1 ? '' : 's'}`;
-  head.append(title, count);
-  if (_simulatedOfflineSourceKey) el.appendChild(_simulatedOfflineBanner());
-
-  const metrics = document.createElement('div');
-  metrics.className = 'coverage-network-metrics';
-  for (const [label, value] of [
-    ['Covered area', _fmtArea(summary.coveredAreaKm2)],
-    ['Covered', _fmtPct(summary.coveredPct)],
-    ['Uncovered', _fmtArea(summary.uncoveredAreaKm2)],
-    ['Redundancy', _fmtPct(summary.redundancyPct)],
-    ['Weak margin', _fmtPct(summary.weakPct)],
-    ['Median margin', _fmtDb(summary.medianMarginDb)],
-  ]) {
-    const item = document.createElement('span');
-    const k = document.createElement('b');
-    k.textContent = label;
-    const v = document.createElement('em');
-    v.textContent = value;
-    item.append(k, v);
-    metrics.appendChild(item);
-  }
-
-  el.append(head, metrics);
-
-  if (summary.topServing?.length) {
-    const top = document.createElement('div');
-    top.className = 'coverage-network-serving';
-    top.textContent = `Top serving: ${summary.topServing
-      .map(item => `${item.label} ${_fmtPct(item.pct)}`)
-      .join(', ')}`;
-    el.appendChild(top);
-  }
-
-  const details = document.createElement('details');
-  details.className = 'coverage-network-details';
-  const detailsSummary = document.createElement('summary');
-  detailsSummary.textContent = 'Network stats';
-  details.appendChild(detailsSummary);
-  const dl = document.createElement('dl');
-  for (const [label, value] of _networkStatsRows(summary)) {
-    const dt = document.createElement('dt');
-    dt.textContent = label;
-    const dd = document.createElement('dd');
-    dd.textContent = value;
-    dl.append(dt, dd);
-  }
-  details.appendChild(dl);
-  el.appendChild(details);
-
-  const failure = summarizeNodeFailureImpact(_coverageResults(), networkOptions);
-  if (failure.status === 'ready') {
-    const critical = document.createElement('details');
-    critical.className = 'coverage-network-details coverage-network-critical';
-    const criticalSummary = document.createElement('summary');
-    criticalSummary.textContent = 'Critical nodes';
-    critical.appendChild(criticalSummary);
-    const criticalList = document.createElement('dl');
-    for (const row of _nodeFailureRows(failure)) {
-      const dt = document.createElement('dt');
-      dt.textContent = row.label;
-      const dd = document.createElement('dd');
-      if (row.action) {
-        const text = document.createElement('span');
-        text.textContent = row.value;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = row.action.text;
-        button.addEventListener('click', row.action.handler);
-        dd.append(text, button);
-      } else {
-        dd.textContent = row.value;
-      }
-      criticalList.append(dt, dd);
-    }
-    critical.appendChild(criticalList);
-    el.appendChild(critical);
-  }
-}
-
-function _networkStatsRows(summary: CombinedCoverageSummary): Array<[string, string]> {
-  return [
-    ['Analysis area', _fmtArea(summary.analysisAreaKm2)],
-    ['Covered area', _fmtArea(summary.coveredAreaKm2)],
-    ['Uncovered area', _fmtArea(summary.uncoveredAreaKm2)],
-    ['Overlap area', _fmtArea(summary.overlapAreaKm2)],
-    ['Weak-margin area', _fmtArea(summary.weakAreaKm2)],
-    ['Average margin', _fmtDb(summary.averageMarginDb)],
-    ['Median margin', _fmtDb(summary.medianMarginDb)],
-    ['Best margin', _fmtDb(summary.bestMarginDb)],
-    ['Sample grid', `${summary.sampleRows} x ${summary.sampleCols}`],
-    ['Top serving', summary.topServing?.length
-      ? summary.topServing.map(item => `${item.label} ${_fmtArea(item.areaKm2)} (${_fmtPct(item.pct)})`).join(', ')
-      : 'n/a'],
-  ];
-}
-
-function _nodeFailureRows(failure: NodeFailureSummary): NetworkRow[] {
-  const rows: NetworkRow[] = [
-    { label: 'Baseline covered', value: _fmtArea(failure.baselineCoveredAreaKm2) },
-  ];
-  for (const impact of (failure.impacts ?? []).slice(0, 5)) {
-    rows.push({
-      label: impact.label,
-      value: `${_fmtArea(impact.lostAreaKm2)} lost (${_fmtPct(impact.lostPctOfNetwork)} of network, ${_fmtPct(impact.lostPctOfSourceCoverage)} of node coverage)`,
-      action: {
-        text: _simulatedOfflineSourceKey === impact.sourceKey ? 'Active' : 'Sim',
-        handler: () => _setSimulatedOfflineSource(impact.sourceKey, impact.label),
-      },
-    });
-  }
-  return rows;
+  const failure = summary.status === 'ready'
+    ? summarizeNodeFailureImpact(_coverageResults(), networkOptions)
+    : null;
+  const model = buildCoverageNetworkSummaryModel(summary, failure, _simulatedOfflineSourceKey
+    ? { sourceKey: _simulatedOfflineSourceKey, label: _simulatedOfflineLabel }
+    : null);
+  renderCoverageNetworkSummaryModel(el, model, {
+    onSimulateOffline: _setSimulatedOfflineSource,
+    onClearSimulation: _clearSimulatedOfflineSource,
+  });
 }
 
 function _offlineSourceKeys(): string[] {
   return _simulatedOfflineSourceKey ? [_simulatedOfflineSourceKey] : [];
-}
-
-function _simulatedOfflineBanner(): HTMLElement {
-  const banner = document.createElement('div');
-  banner.className = 'coverage-network-sim';
-  const text = document.createElement('span');
-  text.textContent = `Simulating ${_simulatedOfflineLabel} offline`;
-  const clear = document.createElement('button');
-  clear.type = 'button';
-  clear.textContent = 'Clear';
-  clear.addEventListener('click', _clearSimulatedOfflineSource);
-  banner.append(text, clear);
-  return banner;
 }
 
 function _setSimulatedOfflineSource(sourceKey: string, label: string): void {
@@ -1326,100 +1179,6 @@ function _applySimulatedOfflineTileVisibility(): void {
   for (const result of _coverageResults()) {
     if (result?.layerId) _applyLayerTileVisibility(result.layerId);
   }
-}
-
-function _coverageLayerGroupHeader(group: CoverageScenarioGroup): HTMLElement {
-  const li = document.createElement('li');
-  li.className = 'coverage-layer-group';
-  li.textContent = `${group.label} (${group.layers.length})`;
-  return li;
-}
-
-function _coverageLayerItem(r: CoverageResult): HTMLElement {
-    const layerId = r.layerId ?? '';
-    const li = document.createElement('li');
-    li.className = 'coverage-layer-item';
-    li.dataset.layerId = layerId;
-
-    const vis = document.createElement('input');
-    vis.type = 'checkbox';
-    vis.className = 'cov-layer-vis';
-    vis.checked = r.visible !== false;
-    vis.title = 'Show / hide this layer';
-
-    const label = document.createElement('input');
-    label.type = 'text';
-    label.className = 'cov-layer-name-input';
-    label.value = r.label ?? _makeLayerLabel(r);
-    label.maxLength = 120;
-    label.title = 'Coverage layer name';
-    label.addEventListener('change', () => {
-      label.value = _setLayerLabel(layerId, label.value);
-    });
-    label.addEventListener('blur', () => {
-      label.value = _setLayerLabel(layerId, label.value);
-    });
-    label.addEventListener('keydown', e => {
-      if (e.key === 'Enter') label.blur();
-      if (e.key === 'Escape') {
-        label.value = r.label ?? _makeLayerLabel(r);
-        label.blur();
-      }
-    });
-
-    const meta = document.createElement('span');
-    meta.className = 'cov-layer-meta';
-    meta.textContent = formatCoverageLayerMeta(r);
-    meta.title = formatCoverageLayerTitle(r);
-
-    const details = _coverageLayerDetails(r);
-
-    const info = document.createElement('div');
-    info.className = 'cov-layer-info';
-    info.append(label, meta, details);
-
-    const opacity = document.createElement('input');
-    opacity.type = 'range';
-    opacity.className = 'cov-layer-opacity';
-    opacity.min = '5';
-    opacity.max = '100';
-    opacity.step = '5';
-    const layerOpacity = Number.isFinite(r.opacity) ? Number(r.opacity) : 0.65;
-    opacity.value = String(Math.round(layerOpacity * 100));
-    opacity.title = 'Layer opacity';
-
-    const useSettings = document.createElement('button');
-    useSettings.type = 'button';
-    useSettings.className = 'cov-layer-use';
-    useSettings.textContent = 'Use';
-    useSettings.title = 'Use this layer\'s settings';
-    useSettings.addEventListener('click', () => _applyLayerSettings(r));
-
-    const recompute = document.createElement('button');
-    recompute.type = 'button';
-    recompute.className = 'cov-layer-recompute';
-    recompute.textContent = 'Run';
-    recompute.title = 'Recompute this layer';
-    recompute.addEventListener('click', () => {
-      _recomputeLayer(r).catch(err => {
-        const msg = `Coverage recompute failed: ${err.message}`;
-        setStatus(msg);
-        setInlineStatus('coverage-status', msg, 'error');
-        console.error(err);
-      });
-    });
-
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'cov-layer-del btn-icon';
-    del.textContent = '✕';
-    del.title = 'Delete this layer';
-    del.addEventListener('click', () => {
-      if (layerId) _deleteCoverageLayer(layerId);
-    });
-
-    li.append(vis, info, opacity, useSettings, recompute, del);
-    return li;
 }
 
 function _applyLayerSettings(result: CoverageResult, { announce = true }: { announce?: boolean } = {}): number {
@@ -1514,27 +1273,6 @@ function _findLayerSourceRepeater(result: CoverageResult): Repeater | null {
   )) ?? null;
 }
 
-function _coverageLayerDetails(result: CoverageResult): HTMLElement {
-  const details = document.createElement('details');
-  details.className = 'cov-layer-details';
-
-  const summary = document.createElement('summary');
-  summary.textContent = 'Details';
-  details.appendChild(summary);
-
-  const dl = document.createElement('dl');
-  for (const [label, value] of coverageLayerDetailRows(result)) {
-    const dt = document.createElement('dt');
-    dt.textContent = label;
-    const dd = document.createElement('dd');
-    dd.textContent = value;
-    if (label === 'Warnings') dd.className = 'cov-layer-warning';
-    dl.append(dt, dd);
-  }
-  details.appendChild(dl);
-  return details;
-}
-
 function _initCoverageLayerListUi(): void {
   const ul = document.getElementById('coverage-layer-list');
   if (!ul) return;
@@ -1591,23 +1329,6 @@ function _backendLabel(metrics: CoverageMetrics): string {
 function _fmtMs(ms: number): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.round(ms)}ms`;
-}
-
-function _fmtArea(km2: unknown): string {
-  const n = Number(km2);
-  if (!Number.isFinite(n) || n <= 0) return '0 km2';
-  if (n < 1) return `${(n * 100).toFixed(1)} ha`;
-  return `${n.toFixed(n >= 10 ? 0 : 1)} km2`;
-}
-
-function _fmtPct(value: unknown): string {
-  const n = Number(value);
-  return Number.isFinite(n) ? `${n.toFixed(n >= 10 ? 0 : 1)}%` : 'n/a';
-}
-
-function _fmtDb(value: unknown): string {
-  const n = Number(value);
-  return Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${n.toFixed(1)} dB` : 'n/a';
 }
 
 function _ratio(done: number, total: number): number {

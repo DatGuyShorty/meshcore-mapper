@@ -11,6 +11,11 @@ import { haversine } from './propagation.js';
 import { getP2PSettings } from './settings.js';
 import { escHtml, setActiveTab, setButtonBusy } from './ui.js';
 import { attachEirpHint } from './eirp.js';
+import {
+  formatP2PNumber,
+  p2pResultStatusMessage,
+  renderP2PResultPanelHtml,
+} from './p2pResultView.js';
 
 type LinkBudgetResult = Awaited<ReturnType<typeof calculateLinkBudget>> & {
   _settings?: P2PSettings;
@@ -287,9 +292,7 @@ function _updateP2PLineLabel(margin: number, rxPower: number, distM: number): vo
   }
 }
 
-function _fmt(v: number): string {
-  return v.toFixed(1);
-}
+const _fmt = formatP2PNumber;
 
 function _profileSvgForFullscreen(profileSvg: unknown): string {
   return String(profileSvg).replace(/p2p-above-los/g, 'p2p-above-los-fullscreen');
@@ -383,78 +386,8 @@ function _renderBudget(result: LinkBudgetResult): void {
   _updateP2PLineLabel(result.margin, result.rxPower, result.distM);
   _syncP2PLinkState(result);
 
-  const diffColor = result.diffractionLoss > 20 ? '#fc8181' : result.diffractionLoss > 6 ? '#facc15' : '';
-  const vegColor = result.foliageLoss > 15 ? '#fc8181' : result.foliageLoss > 5 ? '#facc15' : '#4ade80';
-  const bldColor = result.buildingLoss > 15 ? '#fc8181' : result.buildingLoss > 5 ? '#facc15' : '#4ade80';
-  const geoLabel = result.geoResult.geometricLos
-    ? '<span style="color:#4ade80">Clear</span>'
-    : '<span style="color:#fc8181">Blocked</span>';
-  const fresnelLabel = result.fresnelResult.fresnelClear
-    ? '<span style="color:#4ade80">Clear</span>'
-    : (result.geoResult.geometricLos
-        ? '<span style="color:#facc15">Partial</span>'
-        : '<span style="color:#fc8181">Blocked</span>');
-
-  const rows: Array<[string, string, string | null]> = [
-    ['Distance', `${(result.distM / 1000).toFixed(2)} km`, ''],
-    ['Profile samples', `${result.sampleCount}`, ''],
-    ['Diffraction model', `${result.geoResult.diffractionModel || 'knife-edge'}`, ''],
-    ['Free-space loss', `${_fmt(result.pathLoss)} dB`, ''],
-    ['Diffraction loss', `${_fmt(result.diffractionLoss)} dB`, diffColor],
-  ];
-  if (result.foliageLoss > 0) rows.push(['Foliage loss', `${_fmt(result.foliageLoss)} dB`, vegColor]);
-  if (result.buildingLoss > 0) rows.push(['Building loss', `${_fmt(result.buildingLoss)} dB`, bldColor]);
-  if (Math.abs(result.shadowFadingLoss ?? 0) > 0.05) {
-    rows.push(['Shadow fading', `${_fmt(result.shadowFadingLoss)} dB`, result.shadowFadingLoss > 0 ? '#facc15' : '#4ade80']);
-  }
-  rows.push(
-    ['Total path loss', `${_fmt(result.totalPathLoss)} dB`, ''],
-    ['TX EIRP', `${_fmt(result.txEirp)} dBm`, ''],
-    ['TX pattern offset', `${_fmt(result.txPatternOffset ?? 0)} dB`, ''],
-    ['RX pattern offset', `${_fmt(result.rxPatternOffset ?? 0)} dB`, ''],
-    ['Received power', `${_fmt(result.rxPower)} dBm`, ''],
-  );
-  if (result.fadeMargin > 0) rows.push(['Required RX', `${_fmt(result.requiredRx)} dBm`, '']);
-  rows.push(['Link margin', `${_fmt(result.margin)} dB`, result.margin >= 10 ? '#4ade80' : result.margin >= 0 ? '#facc15' : '#fc8181']);
-  if (result.monteCarlo?.enabled) {
-    rows.push(
-      ['MC trials', `${result.monteCarlo.trials}`, ''],
-      ['MC outage probability', `${(result.monteCarlo.outageProbability * 100).toFixed(1)}%`, result.monteCarlo.outageProbability < 0.05 ? '#4ade80' : result.monteCarlo.outageProbability < 0.2 ? '#facc15' : '#fc8181'],
-      ['MC margin P05', `${_fmt(result.monteCarlo.marginP05)} dB`, result.monteCarlo.marginP05 >= 0 ? '#4ade80' : '#fc8181'],
-      ['MC margin P50', `${_fmt(result.monteCarlo.marginP50)} dB`, ''],
-      ['MC margin P95', `${_fmt(result.monteCarlo.marginP95)} dB`, ''],
-    );
-  }
-  rows.push(
-    ['Geometric LoS', geoLabel, null],
-    ['Fresnel clearance', fresnelLabel, null],
-  );
-
-  const tbody = rows.map(([k, v, color]) => {
-    const val = color === null ? v : `<span style="color:${color}">${v}</span>`;
-    return `<tr><td class="p2p-key">${k}</td><td class="p2p-val">${val}</td></tr>`;
-  }).join('');
-  const warningHtml = result.warnings?.length
-    ? `<div class="status-line warning">${result.warnings.map(escHtml).join('<br>')}</div>`
-    : '';
-
   const container = _el('p2p-results');
-  container.innerHTML = `
-    <div class="p2p-inner-tabbar">
-      <button class="p2p-inner-tab active" data-target="p2p-tab-budget">Budget</button>
-      <button class="p2p-inner-tab" data-target="p2p-tab-profile">Profile</button>
-    </div>
-    <div id="p2p-tab-budget" class="p2p-inner-panel">
-      ${warningHtml}
-      <table class="p2p-table"><tbody>${tbody}</tbody></table>
-    </div>
-    <div id="p2p-tab-profile" class="p2p-inner-panel hidden">
-      <div class="p2p-profile-preview">${result.profileSvg}</div>
-      <div class="p2p-profile-actions">
-        <button id="btn-fullscreen-profile" class="btn-secondary" type="button">Fullscreen</button>
-        <button id="btn-save-profile" class="btn-secondary" type="button">Save PNG</button>
-      </div>
-    </div>`;
+  container.innerHTML = renderP2PResultPanelHtml(result);
 
   container.querySelectorAll('.p2p-inner-tab').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -591,9 +524,7 @@ function _renderBudget(result: LinkBudgetResult): void {
     img.src = url;
   });
 
-  setStatus(result.margin >= 0
-    ? `Link OK (+${_fmt(result.margin)} dB margin)`
-    : `Link FAILED (${_fmt(result.margin)} dB short)`);
+  setStatus(p2pResultStatusMessage(result));
 }
 
 async function computeAndRenderLinkBudget(): Promise<void> {
