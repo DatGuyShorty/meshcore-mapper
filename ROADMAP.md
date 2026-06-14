@@ -286,6 +286,26 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 7.3 offline-prep verification passed:
   - `npm run check` (74 unit files, 420 unit tests, 15 smoke tests, 0 audit
     vulnerabilities)
+- Started Phase 7.4 live network health on branch `codex/phase-7-live-health`:
+  - added `src/liveHealth.ts` for planned/live/stale/missing node health
+    classification and live-feed summary counts
+  - node rows now show health badges and live age text; stale and missing live
+    nodes get distinct row classes
+  - map marker strokes now indicate fresh live, stale, missing, and planned
+    states while preserving selected-node highlighting
+  - the live feed panel shows an aggregate health summary with alert styling
+    when stale or missing live nodes exist
+  - the persistent node inspector now includes live health details for selected
+    live-feed nodes
+  - added `tests/unit/liveHealth.test.js` plus updated node-list,
+    map-context, and smoke coverage for the health UI
+- Focused Phase 7.4 live-health verification passed:
+  - `npx vitest run tests/unit/liveHealth.test.js tests/unit/nodeListView.test.js tests/unit/mapContext.test.js tests/unit/liveFeedStore.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 7.4 live-health verification passed:
+  - `npm run check` (75 unit files, 427 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
 - Continued Phase 5 schema hardening on the active branch
   `codex/phase-5-roadmap-typescript`.
 - Extracted persisted settings schema helpers:
@@ -2467,6 +2487,13 @@ Acceptance criteria:
 - App clearly indicates what is cached and what still needs internet.
 
 ### 7.4 Live Network Health
+
+Status: Current acceptance complete for live-feed health visibility. Live and
+planned nodes are visually distinct, stale/missing live nodes are highlighted in
+the node list and map marker stroke, the live feed panel summarizes health
+counts, and the node inspector exposes health detail. Current-live coverage can
+be viewed by hiding stale/missing nodes and recomputing coverage; future work
+can automate degraded-coverage scenarios and add movement trails.
 
 Work:
 

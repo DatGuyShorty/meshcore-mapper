@@ -236,6 +236,29 @@ describe('mapContext helper functions', () => {
     expect(html).toContain('data-inspector-action="node-optimize"');
   });
 
+  it('renders live node health in the node inspector', () => {
+    const html = mapContext._nodeInspectorContent({
+      id: 8,
+      name: 'Live Node',
+      lat: 48.28625,
+      lon: 18.5054,
+      height: 12,
+      power: 22,
+      gain: 8,
+      freq: 869.525,
+      color: '#61dafb',
+      visible: true,
+      fromWs: true,
+      short: 'abc123',
+      lastSeen: null,
+    });
+
+    expect(html).toContain('Live feed');
+    expect(html).toContain('Health');
+    expect(html).toContain('Missing (no live timestamp)');
+    expect(html).toContain('abc123');
+  });
+
   it('updates the persistent selection inspector body', () => {
     const body = fakeElements.get('selection-inspector-body');
     const title = fakeElements.get('selection-inspector-title');

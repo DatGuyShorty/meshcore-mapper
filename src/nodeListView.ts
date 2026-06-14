@@ -1,3 +1,5 @@
+import { nodeHealth, type NodeHealthState } from './liveHealth.js';
+
 export type NodeListRow =
   | { kind: 'empty'; text: string }
   | {
@@ -8,6 +10,8 @@ export type NodeListRow =
     color: string;
     name: string;
     subText: string;
+    healthState: NodeHealthState;
+    healthLabel: string;
     visible: boolean;
     visibilityTitle: string;
     visibilityText: string;
@@ -18,6 +22,7 @@ export type NodeListOptions = {
   sortMode?: string;
   selectedNodeId?: string | number | null;
   editingId?: string | number | null;
+  now?: number | string | Date;
 };
 
 export function buildNodeListRows(repeaters: any[], options: NodeListOptions = {}): NodeListRow[] {
@@ -66,6 +71,8 @@ function _nodeRow(repeater: any, options: NodeListOptions): Extract<NodeListRow,
   if (!visible) classes.push('ri-hidden');
   if (_sameId(options.selectedNodeId, repeater?.id)) classes.push('ri-selected');
   if (_sameId(options.editingId, repeater?.id)) classes.push('editing');
+  const health = nodeHealth(repeater, { now: options.now });
+  classes.push(health.className);
   return {
     kind: 'node',
     repeater,
@@ -73,17 +80,20 @@ function _nodeRow(repeater: any, options: NodeListOptions): Extract<NodeListRow,
     className: classes.join(' '),
     color: String(repeater?.color ?? '#61dafb'),
     name: String(repeater?.name ?? 'Node'),
-    subText: _nodeSubText(repeater),
+    subText: _nodeSubText(repeater, health.detail),
+    healthState: health.state,
+    healthLabel: health.label,
     visible,
     visibilityTitle: visible ? 'Hide' : 'Show',
     visibilityText: visible ? 'On' : 'Off',
   };
 }
 
-function _nodeSubText(repeater: any): string {
+function _nodeSubText(repeater: any, healthDetail: string): string {
   if (repeater?.fromWs && repeater?.lastSeen) {
-    return `${_fixed(repeater?.lat, 4)}, ${_fixed(repeater?.lon, 4)} \u00b7 ${String(repeater.lastSeen)}`;
+    return `${_fixed(repeater?.lat, 4)}, ${_fixed(repeater?.lon, 4)} \u00b7 ${healthDetail}`;
   }
+  if (repeater?.fromWs) return `${_fixed(repeater?.lat, 4)}, ${_fixed(repeater?.lon, 4)} \u00b7 ${healthDetail}`;
   return `${_fixed(repeater?.lat, 4)}, ${_fixed(repeater?.lon, 4)} \u00b7 ${repeater?.height}m \u00b7 ${repeater?.power}dBm+${repeater?.gain}dBi \u00b7 ${repeater?.freq}MHz`;
 }
 
@@ -99,6 +109,7 @@ function _nodeRowHtml(row: Extract<NodeListRow, { kind: 'node' }>): string {
         <div class="ri-name">${_escHtml(row.name)}</div>
         <div class="ri-coords">${_escHtml(row.subText)}</div>
       </div>
+      <span class="ri-health" data-health="${_escHtml(row.healthState)}">${_escHtml(row.healthLabel)}</span>
       <button class="ri-vis" data-action="toggle-vis" data-id="${_escHtml(row.id)}" title="${_escHtml(row.visibilityTitle)}">${_escHtml(row.visibilityText)}</button>
       <button class="ri-edit" data-action="edit" data-id="${_escHtml(row.id)}" title="Edit">\u270e</button>
       <button class="ri-del"  data-action="delete" data-id="${_escHtml(row.id)}" title="Remove">\u00d7</button>
