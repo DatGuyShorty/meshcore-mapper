@@ -267,6 +267,25 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 7.2 GIS-export verification passed:
   - `npm run check` (73 unit files, 415 unit tests, 15 smoke tests, 0 audit
     vulnerabilities)
+- Started Phase 7.3 offline area preparation on branch
+  `codex/phase-7-offline-prep`:
+  - added `src/offlinePrepView.ts` for selected-area formatting and
+    data-type readiness text
+  - Settings now has an Offline prep area block with Use Viewport, Prepare
+    Area, and Cancel controls
+  - Prepare Area prefetches DEM terrain, foliage, and building data for the
+    chosen viewport area using the existing cache-backed fetch paths
+  - readiness text now calls out terrain DEM, foliage, buildings, and map tiles
+    separately; map tiles are explicitly marked online-only
+  - added `tests/unit/offlinePrepView.test.js` and smoke coverage for the new
+    Settings controls
+- Focused Phase 7.3 offline-prep verification passed:
+  - `npx vitest run tests/unit/offlinePrepView.test.js tests/unit/config.test.js tests/unit/cacheStatsView.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 7.3 offline-prep verification passed:
+  - `npm run check` (74 unit files, 420 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
 - Continued Phase 5 schema hardening on the active branch
   `codex/phase-5-roadmap-typescript`.
 - Extracted persisted settings schema helpers:
@@ -2427,6 +2446,12 @@ Acceptance criteria:
 - Large exports are bounded or clearly downsampled.
 
 ### 7.3 Offline Area Preparation
+
+Status: Current acceptance complete for viewport-defined prep areas. The
+Settings panel can set the current viewport as an offline prep area, prefetch
+DEM terrain, foliage, and building data for that area, cancel the job, and show
+readiness by data type. Map tiles remain explicitly online-only until provider
+terms and tile caching are designed.
 
 Work:
 

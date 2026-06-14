@@ -16,6 +16,14 @@ import { confirmAction, hideProgress, setButtonBusy, setCancelHandler, setProgre
 import { CACHE_UNAVAILABLE_TEXT, formatCacheStats } from './cacheStatsView.js';
 import { buildPlanningReportHtml, type PlanningReportInput } from './planningReport.js';
 import { buildCoverageKml, buildCoveragePolygonGeoJson, buildKmz, type GisExportScope } from './gisExport.js';
+import {
+  DEFAULT_OFFLINE_PREP_READINESS,
+  formatOfflinePrepArea,
+  formatOfflinePrepReadiness,
+  normalizeOfflinePrepArea,
+  type OfflinePrepArea,
+  type OfflinePrepReadiness,
+} from './offlinePrepView.js';
 
 type AbortLikeError = Error & { cancelled?: boolean };
 type RepeaterSnapshot = {
@@ -87,6 +95,9 @@ const settingsStore = createSettingsStore({
   legacyKey: LEGACY_KEY,
 });
 let _cacheWarmAbort: AbortController | null = null;
+let _offlinePrepAbort: AbortController | null = null;
+let _offlinePrepArea: OfflinePrepArea | null = null;
+let _offlinePrepReadiness: OfflinePrepReadiness = { ...DEFAULT_OFFLINE_PREP_READINESS };
 
 export function gatherSettings(): SettingsRecord {
   return settingsStore.gather();
@@ -405,6 +416,122 @@ export async function refreshCacheStats(): Promise<void> {
   }
 }
 
+function currentViewportPrepArea(): OfflinePrepArea | null {
+  const bounds = map.getBounds();
+  return normalizeOfflinePrepArea({
+    latMin: bounds.getSouth(),
+    latMax: bounds.getNorth(),
+    lonMin: bounds.getWest(),
+    lonMax: bounds.getEast(),
+  });
+}
+
+function renderOfflinePrepPanel(): void {
+  const areaEl = document.getElementById('offline-prep-area');
+  if (areaEl) areaEl.textContent = formatOfflinePrepArea(_offlinePrepArea);
+  const readinessEl = document.getElementById('offline-prep-readiness');
+  if (readinessEl) readinessEl.textContent = formatOfflinePrepReadiness(_offlinePrepReadiness);
+}
+
+function updateOfflinePrepReadiness(update: Partial<OfflinePrepReadiness>): void {
+  _offlinePrepReadiness = { ..._offlinePrepReadiness, ...update };
+  renderOfflinePrepPanel();
+}
+
+function setOfflinePrepAreaFromViewport(): void {
+  const area = currentViewportPrepArea();
+  if (!area) {
+    setStatus('Offline prep area unavailable from current map view.');
+    return;
+  }
+  _offlinePrepArea = area;
+  _offlinePrepReadiness = { ...DEFAULT_OFFLINE_PREP_READINESS };
+  renderOfflinePrepPanel();
+  setStatus('Offline prep area set to current viewport.');
+}
+
+async function prepareOfflineArea(area: OfflinePrepArea, abortController: AbortController, progressMeta: ProgressMeta): Promise<void> {
+  const { latMin, latMax, lonMin, lonMax } = area;
+  const points = _viewportGridPoints(latMin, latMax, lonMin, lonMax, 64);
+  updateOfflinePrepReadiness({ terrain: 'running', foliage: 'needs-prep', buildings: 'needs-prep' });
+  setProgress(5, 'Preparing terrain cache...', progressMeta);
+  await fetchElevationsFromTiles(points, null, {
+    signal: abortController.signal,
+    demTileConcurrency: 6,
+    onProgress: ({ completed, total }: CacheWarmProgress) => {
+      const pct = total ? 5 + 60 * completed / total : 65;
+      setProgress(pct, `Preparing terrain tiles ${completed}/${total}`, progressMeta);
+    },
+  });
+  updateOfflinePrepReadiness({ terrain: 'ready', foliage: 'running', buildings: 'running' });
+
+  setProgress(70, 'Preparing obstacle caches...', progressMeta);
+  const deriveObstacleHeights = (document.getElementById('obstacle-height-mode') as HTMLSelectElement | null)?.value === 'dsm-dem';
+  const foliageReady = await fetchFoliage(latMin, latMax, lonMin, lonMax, {
+    signal: abortController.signal,
+    deriveObstacleHeights,
+  }).then(() => true).catch((e: AbortLikeError) => {
+    if (e?.cancelled || e?.name === 'AbortError') throw e;
+    console.warn('[offline-prep] foliage prep failed:', e.message);
+    return false;
+  });
+  updateOfflinePrepReadiness({ foliage: foliageReady ? 'ready' : 'warning' });
+
+  const buildingsReady = await fetchBuildings(latMin, latMax, lonMin, lonMax, {
+    signal: abortController.signal,
+    deriveObstacleHeights,
+  }).then(() => true).catch((e: AbortLikeError) => {
+    if (e?.cancelled || e?.name === 'AbortError') throw e;
+    console.warn('[offline-prep] buildings prep failed:', e.message);
+    return false;
+  });
+  updateOfflinePrepReadiness({ buildings: buildingsReady ? 'ready' : 'warning', mapTiles: 'skipped' });
+
+  setProgress(100, 'Offline area prepared.', progressMeta);
+  await yieldToUI();
+}
+
+async function runOfflinePrep(): Promise<void> {
+  if (_offlinePrepAbort) return;
+  if (!_offlinePrepArea) {
+    _offlinePrepArea = currentViewportPrepArea();
+    renderOfflinePrepPanel();
+  }
+  if (!_offlinePrepArea) {
+    setStatus('Offline prep area unavailable from current map view.');
+    return;
+  }
+
+  _offlinePrepAbort = new AbortController();
+  setCancelHandler(cancelOfflinePrep);
+  setButtonBusy('btn-offline-prep-run', true, 'Preparing...');
+  const cancelBtn = document.getElementById('btn-offline-prep-cancel') as HTMLButtonElement | null;
+  if (cancelBtn) cancelBtn.disabled = false;
+  const progressMeta: ProgressMeta = { title: 'Offline Area Prep' };
+
+  try {
+    await prepareOfflineArea(_offlinePrepArea, _offlinePrepAbort, progressMeta);
+    setStatus('Offline area prepared for terrain, foliage, and building data. Map tiles remain online-only.');
+    await refreshCacheStats();
+  } catch (rawErr) {
+    const e = rawErr as AbortLikeError;
+    if (e?.cancelled || e?.name === 'AbortError') setStatus('Offline prep cancelled.');
+    else setStatus(`Offline prep failed: ${e.message}`);
+  } finally {
+    hideProgress();
+    _offlinePrepAbort = null;
+    setCancelHandler(null);
+    setButtonBusy('btn-offline-prep-run', false);
+    const btn = document.getElementById('btn-offline-prep-cancel') as HTMLButtonElement | null;
+    if (btn) btn.disabled = true;
+    renderOfflinePrepPanel();
+  }
+}
+
+function cancelOfflinePrep(): void {
+  _offlinePrepAbort?.abort();
+}
+
 async function warmViewportCache(): Promise<void> {
   if (_cacheWarmAbort) return;
   _cacheWarmAbort = new AbortController();
@@ -502,6 +629,7 @@ export async function runConfirmedAction(btnId: string, message: string, action:
 
 export function init(): void {
   restoreSettings();
+  renderOfflinePrepPanel();
   document.getElementById('btn-save-config')?.addEventListener('click', saveConfig);
   document.getElementById('btn-load-config')?.addEventListener('click', loadConfig);
   bindPersistedSettingChanges(SETTINGS_IDS, persistSettings);
@@ -579,4 +707,7 @@ export function init(): void {
   refreshCacheStats();
   document.getElementById('btn-warm-cache')?.addEventListener('click', warmViewportCache);
   document.getElementById('btn-cancel-cache-warm')?.addEventListener('click', cancelCacheWarm);
+  document.getElementById('btn-offline-prep-set-view')?.addEventListener('click', setOfflinePrepAreaFromViewport);
+  document.getElementById('btn-offline-prep-run')?.addEventListener('click', runOfflinePrep);
+  document.getElementById('btn-offline-prep-cancel')?.addEventListener('click', cancelOfflinePrep);
 }
