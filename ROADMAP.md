@@ -225,6 +225,28 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 6 relay path result verification passed:
   - `npm run check` (71 unit files, 405 unit tests, 15 smoke tests, 0 audit
     vulnerabilities)
+- Started Phase 7.1 planning reports on branch
+  `codex/phase-7-planning-report`:
+  - added `src/planningReport.ts` as a pure HTML report builder for
+    reproducible planning summaries
+  - Settings now has `Export Planning Report (HTML)` and
+    `Export Planning Report (PDF)` actions that capture the current map
+    screenshot, embed it into the report, and save through Electron IPC
+  - reports include node tables, coverage/network statistics, weak-area
+    metrics, active P2P and relay critical-link summaries, optimizer
+    recommendations from the latest optimizer run, settings, and data-quality
+    notes
+  - added screenshot data-URL IPC and hidden-window PDF rendering for report
+    exports without changing the existing PNG screenshot save workflow
+  - added `tests/unit/planningReport.test.js` coverage for escaping, empty
+    states, screenshot handling, coverage warnings, links, and optimizer rows
+- Focused Phase 7.1 planning-report verification passed:
+  - `npx vitest run tests/unit/planningReport.test.js tests/unit/ipcHandlers.test.js tests/unit/config.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 7.1 planning-report verification passed:
+  - `npm run check` (72 unit files, 409 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
 - Continued Phase 5 schema hardening on the active branch
   `codex/phase-5-roadmap-typescript`.
 - Extracted persisted settings schema helpers:
@@ -2340,6 +2362,13 @@ Target duration: 4-6 weeks
 Goal: make the app useful beyond interactive simulation.
 
 ### 7.1 Planning Reports
+
+Status: Current acceptance complete. The app can now export a self-contained
+HTML or PDF planning report from the Settings panel with an embedded map
+screenshot, node table, coverage/network statistics, weak-area metrics, active
+P2P and relay critical-link summaries, latest optimizer recommendations,
+settings, and data-quality notes. Future polish can add richer map annotations
+and extra report sections discovered during field-style scenario testing.
 
 Work:
 

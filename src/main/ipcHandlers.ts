@@ -88,6 +88,40 @@ export function registerIpcHandlers({ ipcMain, dialog, cache, presetsPath }: Reg
     return true;
   });
 
+  ipcMain.handle('export-pdf-file', async (_event, payload: AnyRecord | null | undefined) => {
+    const content = typeof payload?.content === 'string' ? payload.content : '';
+    const defaultName = typeof payload?.defaultName === 'string'
+      ? path.basename(payload.defaultName).slice(0, 120)
+      : 'report.pdf';
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Export PDF',
+      defaultPath: defaultName,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (canceled || !filePath) return false;
+
+    const { BrowserWindow } = await import('electron');
+    const printWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    try {
+      await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
+      const pdf = await printWindow.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+      });
+      fs.writeFileSync(filePath, pdf);
+      return true;
+    } finally {
+      printWindow.destroy();
+    }
+  });
+
   ipcMain.handle('get-presets', () => {
     try {
       const raw = fs.readFileSync(presetsPath, 'utf8');
@@ -107,6 +141,11 @@ export function registerIpcHandlers({ ipcMain, dialog, cache, presetsPath }: Reg
     });
     if (canceled || !filePath) return;
     fs.writeFileSync(filePath, img.toPNG());
+  });
+
+  ipcMain.handle('capture-screenshot-data-url', async (event) => {
+    const img = await event.sender.capturePage();
+    return `data:image/png;base64,${img.toPNG().toString('base64')}`;
   });
 
   registerCacheHandlers(ipcMain, cache);

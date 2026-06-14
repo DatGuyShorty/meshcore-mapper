@@ -14,6 +14,7 @@ import { fetchBuildings } from './buildings.js';
 import { coverageNetworkStatsForExport, summarizeCombinedCoverage } from './coverageNetwork.js';
 import { confirmAction, hideProgress, setButtonBusy, setCancelHandler, setProgress, setStatus, yieldToUI } from './ui.js';
 import { CACHE_UNAVAILABLE_TEXT, formatCacheStats } from './cacheStatsView.js';
+import { buildPlanningReportHtml, type PlanningReportInput } from './planningReport.js';
 
 type AbortLikeError = Error & { cancelled?: boolean };
 type RepeaterSnapshot = {
@@ -57,6 +58,11 @@ type CoverageGeoJsonResult = {
   fc: CoverageFeatureCollection;
   downsampled: boolean;
 };
+type ScreenshotCaptureResult = {
+  dataUrl: string | null;
+  error: string | null;
+};
+type PlanningReportFormat = 'html' | 'pdf';
 type ProgressMeta = {
   title: string;
 };
@@ -252,6 +258,75 @@ async function exportCoverageGeoJson(): Promise<void> {
   }
 }
 
+export function buildPlanningReportSnapshot(
+  screenshotDataUrl: string | null = null,
+  generatedAt = new Date().toISOString(),
+  screenshotError: string | null = null
+): PlanningReportInput {
+  const coverageResults = Array.isArray(state.coverageResults) ? state.coverageResults : [];
+  return {
+    generatedAt,
+    screenshotDataUrl,
+    screenshotError,
+    settings: gatherSettings(),
+    repeaters: Array.isArray(state.repeaters) ? [...state.repeaters] : [],
+    coverageResults,
+    p2pLinks: Array.isArray(state.p2pLinks) ? [...state.p2pLinks] : [],
+    pathLinks: Array.isArray(state.pathLinks) ? [...state.pathLinks] : [],
+    optimizerRecommendations: Array.isArray(state.optimizerResults) ? [...state.optimizerResults] : [],
+    networkStats: coverageNetworkStatsForExport(summarizeCombinedCoverage(coverageResults)),
+  };
+}
+
+async function capturePlanningScreenshot(): Promise<ScreenshotCaptureResult> {
+  const capture = window.electronAPI.captureScreenshotDataUrl;
+  if (typeof capture !== 'function') {
+    return { dataUrl: null, error: 'screenshot capture is unavailable' };
+  }
+  try {
+    return { dataUrl: await capture(), error: null };
+  } catch (rawErr) {
+    const e = rawErr as Error;
+    return { dataUrl: null, error: e.message };
+  }
+}
+
+async function exportPlanningReport(format: PlanningReportFormat): Promise<void> {
+  const btnId = format === 'pdf' ? 'btn-export-report-pdf' : 'btn-export-report-html';
+  setButtonBusy(btnId, true, 'Exporting...');
+  try {
+    const screenshot = await capturePlanningScreenshot();
+    const html = buildPlanningReportHtml(buildPlanningReportSnapshot(
+      screenshot.dataUrl,
+      new Date().toISOString(),
+      screenshot.error
+    ));
+    const ok = format === 'pdf'
+      ? await window.electronAPI.exportPdfFile({
+          content: html,
+          defaultName: 'meshcore-planning-report.pdf',
+        })
+      : await window.electronAPI.exportFile({
+          content: html,
+          defaultName: 'meshcore-planning-report.html',
+          filterName: 'HTML Report',
+          extensions: ['html'],
+        });
+    if (!ok) {
+      setStatus('Planning report export cancelled.');
+      return;
+    }
+    setStatus(screenshot.error
+      ? `Planning report ${format.toUpperCase()} exported without screenshot: ${screenshot.error}`
+      : `Planning report ${format.toUpperCase()} exported.`);
+  } catch (rawErr) {
+    const e = rawErr as Error;
+    setStatus(`Planning report export failed: ${e.message}`);
+  } finally {
+    setButtonBusy(btnId, false);
+  }
+}
+
 export async function refreshCacheStats(): Promise<void> {
   const el = document.getElementById('cache-stats');
   if (!el) return;
@@ -427,6 +502,8 @@ export function init(): void {
   ));
 
   document.getElementById('btn-export-coverage')?.addEventListener('click', exportCoverageGeoJson);
+  document.getElementById('btn-export-report-html')?.addEventListener('click', () => exportPlanningReport('html'));
+  document.getElementById('btn-export-report-pdf')?.addEventListener('click', () => exportPlanningReport('pdf'));
 
   refreshCacheStats();
   document.getElementById('btn-warm-cache')?.addEventListener('click', warmViewportCache);

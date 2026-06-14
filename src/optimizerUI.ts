@@ -184,6 +184,7 @@ function updateSourceStatus(): void {
 function clearResults(): void {
   resultMarkers.forEach((m) => map.removeLayer(m));
   resultMarkers.length = 0;
+  state.optimizerResults = [];
   _clearBackhaulPreview();
   const ul = document.getElementById('opt-results');
   if (ul) ul.innerHTML = '';
@@ -290,13 +291,15 @@ function makeSuggestedIcon(rank: number, selected = false): unknown {
 function renderResults(results: CandidateResult[], txParams: TxParams): void {
   const ul = document.getElementById('opt-results');
   if (!ul) return;
-  results.forEach((r, i) => {
-    const rank = i + 1;
-    const candidate = {
+  const candidates = results.map((r, i) => ({
       ...r,
-      rank,
+      rank: i + 1,
       txParams: { ...txParams },
-    };
+    }));
+  state.optimizerResults = candidates;
+  candidates.forEach((candidate, i) => {
+    const r = candidate;
+    const rank = candidate.rank ?? i + 1;
     const marker = L.marker([r.lat, r.lon], { icon: makeSuggestedIcon(rank, _selectedCandidateRank === rank), zIndexOffset: 500 })
       .addTo(map)
       .bindPopup(optimizerCandidatePopupHtml(r, rank));
