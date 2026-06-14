@@ -45,6 +45,15 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function binaryPayloadToBuffer(data: unknown): Buffer {
+  if (data instanceof Uint8Array) return Buffer.from(data);
+  if (data instanceof ArrayBuffer) return Buffer.from(new Uint8Array(data));
+  if (Array.isArray(data) && data.every(value => Number.isInteger(value) && value >= 0 && value <= 255)) {
+    return Buffer.from(data);
+  }
+  return Buffer.alloc(0);
+}
+
 export function registerIpcHandlers({ ipcMain, dialog, cache, presetsPath }: RegisterIpcArgs): void {
   ipcMain.handle('save-file', async (_event, jsonStr: string) => {
     const { filePath, canceled } = await dialog.showSaveDialog({
@@ -85,6 +94,25 @@ export function registerIpcHandlers({ ipcMain, dialog, cache, presetsPath }: Reg
     });
     if (canceled || !filePath) return false;
     fs.writeFileSync(filePath, content, 'utf8');
+    return true;
+  });
+
+  ipcMain.handle('export-binary-file', async (_event, payload: AnyRecord | null | undefined) => {
+    const data = binaryPayloadToBuffer(payload?.data);
+    const defaultName = typeof payload?.defaultName === 'string'
+      ? path.basename(payload.defaultName).slice(0, 120)
+      : 'export.bin';
+    const extensions = Array.isArray(payload?.extensions)
+      ? payload.extensions.filter((e: unknown) => typeof e === 'string' && /^[a-z0-9]+$/i.test(e)).slice(0, 4)
+      : ['bin'];
+    const filterName = typeof payload?.filterName === 'string' ? payload.filterName.slice(0, 40) : 'File';
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Export',
+      defaultPath: defaultName,
+      filters: extensions.length ? [{ name: filterName, extensions }] : undefined,
+    });
+    if (canceled || !filePath) return false;
+    fs.writeFileSync(filePath, data);
     return true;
   });
 

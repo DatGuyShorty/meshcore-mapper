@@ -247,6 +247,26 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 7.1 planning-report verification passed:
   - `npm run check` (72 unit files, 409 unit tests, 15 smoke tests, 0 audit
     vulnerabilities)
+- Started Phase 7.2 GIS exports on branch `codex/phase-7-gis-exports`:
+  - added `src/gisExport.ts` for bounded coverage polygon GeoJSON, KML, and
+    KMZ generation
+  - Settings now exposes combined-network polygon GeoJSON, per-node polygon
+    GeoJSON, combined KML, and combined KMZ export actions while preserving the
+    existing point GeoJSON export
+  - added a generic binary export IPC path for KMZ bytes; text exports continue
+    through the existing `exportFile` IPC path
+  - GIS exports carry scope, source-layer count, stride/downsampling metadata,
+    generation time, and visible-network stats
+  - added `tests/unit/gisExport.test.js` for per-node polygons, combined
+    strongest-source polygons, downsampling metadata, escaped KML, and KMZ ZIP
+    structure
+- Focused Phase 7.2 GIS-export verification passed:
+  - `npx vitest run tests/unit/gisExport.test.js tests/unit/config.test.js tests/unit/ipcHandlers.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 7.2 GIS-export verification passed:
+  - `npm run check` (73 unit files, 415 unit tests, 15 smoke tests, 0 audit
+    vulnerabilities)
 - Continued Phase 5 schema hardening on the active branch
   `codex/phase-5-roadmap-typescript`.
 - Extracted persisted settings schema helpers:
@@ -2387,6 +2407,13 @@ Acceptance criteria:
 - Report includes enough metadata to reproduce the run.
 
 ### 7.2 GIS Exports
+
+Status: Current acceptance complete for bounded raster-derived exports. The
+Settings panel now exports visible coverage as combined-network GeoJSON
+polygons, per-node GeoJSON polygons, combined KML, and combined KMZ, with
+downsampling metadata for large grids. Future polish can add true isoline
+contours and richer GIS styling, but exports are no longer limited to point
+clouds.
 
 Work:
 

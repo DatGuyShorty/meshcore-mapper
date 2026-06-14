@@ -15,6 +15,7 @@ import { coverageNetworkStatsForExport, summarizeCombinedCoverage } from './cove
 import { confirmAction, hideProgress, setButtonBusy, setCancelHandler, setProgress, setStatus, yieldToUI } from './ui.js';
 import { CACHE_UNAVAILABLE_TEXT, formatCacheStats } from './cacheStatsView.js';
 import { buildPlanningReportHtml, type PlanningReportInput } from './planningReport.js';
+import { buildCoverageKml, buildCoveragePolygonGeoJson, buildKmz, type GisExportScope } from './gisExport.js';
 
 type AbortLikeError = Error & { cancelled?: boolean };
 type RepeaterSnapshot = {
@@ -63,6 +64,7 @@ type ScreenshotCaptureResult = {
   error: string | null;
 };
 type PlanningReportFormat = 'html' | 'pdf';
+type GisExportFormat = 'geojson' | 'kml' | 'kmz';
 type ProgressMeta = {
   title: string;
 };
@@ -255,6 +257,71 @@ async function exportCoverageGeoJson(): Promise<void> {
     setStatus(`Coverage export failed: ${e.message}`);
   } finally {
     setButtonBusy('btn-export-coverage', false);
+  }
+}
+
+function buildCoverageGisGeoJson(scope: GisExportScope) {
+  const visibleResults = ((state.coverageResults ?? []) as CoverageExportResult[]).filter(result => result?.visible !== false);
+  return buildCoveragePolygonGeoJson(visibleResults, {
+    scope,
+    generatedAt: new Date().toISOString(),
+    networkStats: coverageNetworkStatsForExport(summarizeCombinedCoverage(visibleResults)),
+  });
+}
+
+async function exportCoverageGis(format: GisExportFormat, scope: GisExportScope): Promise<void> {
+  if (!state.coverageResults?.length) {
+    setStatus('No coverage layers to export. Compute coverage first.');
+    return;
+  }
+
+  const btnId = `btn-export-gis-${format}-${scope}`;
+  setButtonBusy(btnId, true, 'Exporting...');
+  try {
+    const { fc, downsampled } = buildCoverageGisGeoJson(scope);
+    if (!fc.features.length) {
+      setStatus('No covered polygons above threshold to export.');
+      return;
+    }
+
+    const scopeName = scope === 'combined' ? 'combined' : 'per-node';
+    let ok = false;
+    if (format === 'geojson') {
+      ok = await window.electronAPI.exportFile({
+        content: JSON.stringify(fc),
+        defaultName: `coverage-${scopeName}-polygons.geojson`,
+        filterName: 'GeoJSON',
+        extensions: ['geojson', 'json'],
+      });
+    } else {
+      const kml = buildCoverageKml(fc, `MeshCore Coverage ${scopeName}`);
+      if (format === 'kml') {
+        ok = await window.electronAPI.exportFile({
+          content: kml,
+          defaultName: `coverage-${scopeName}.kml`,
+          filterName: 'KML',
+          extensions: ['kml'],
+        });
+      } else {
+        ok = await window.electronAPI.exportBinaryFile({
+          data: buildKmz(kml),
+          defaultName: `coverage-${scopeName}.kmz`,
+          filterName: 'KMZ',
+          extensions: ['kmz'],
+        });
+      }
+    }
+
+    if (!ok) {
+      setStatus('GIS export cancelled.');
+      return;
+    }
+    setStatus(`Exported ${fc.features.length.toLocaleString()} ${scopeName} coverage polygon(s) to ${format.toUpperCase()}${downsampled ? ' (downsampled for size)' : ''}.`);
+  } catch (rawErr) {
+    const e = rawErr as Error;
+    setStatus(`GIS export failed: ${e.message}`);
+  } finally {
+    setButtonBusy(btnId, false);
   }
 }
 
@@ -502,6 +569,10 @@ export function init(): void {
   ));
 
   document.getElementById('btn-export-coverage')?.addEventListener('click', exportCoverageGeoJson);
+  document.getElementById('btn-export-gis-geojson-combined')?.addEventListener('click', () => exportCoverageGis('geojson', 'combined'));
+  document.getElementById('btn-export-gis-geojson-per-node')?.addEventListener('click', () => exportCoverageGis('geojson', 'per-node'));
+  document.getElementById('btn-export-gis-kml-combined')?.addEventListener('click', () => exportCoverageGis('kml', 'combined'));
+  document.getElementById('btn-export-gis-kmz-combined')?.addEventListener('click', () => exportCoverageGis('kmz', 'combined'));
   document.getElementById('btn-export-report-html')?.addEventListener('click', () => exportPlanningReport('html'));
   document.getElementById('btn-export-report-pdf')?.addEventListener('click', () => exportPlanningReport('pdf'));
 

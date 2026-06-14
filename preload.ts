@@ -34,6 +34,7 @@ function offPayloadOnly(
 const api: ElectronAPI = {
   saveFile:    (jsonStr) => ipcRenderer.invoke('save-file', jsonStr),
   exportFile:  (payload) => ipcRenderer.invoke('export-file', payload),
+  exportBinaryFile: (payload) => ipcRenderer.invoke('export-binary-file', payload),
   exportPdfFile: (payload) => ipcRenderer.invoke('export-pdf-file', payload),
   openFile:    ()        => ipcRenderer.invoke('open-file'),
   getPresets:  ()        => ipcRenderer.invoke('get-presets'),

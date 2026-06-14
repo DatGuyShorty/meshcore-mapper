@@ -14,6 +14,10 @@ test('settings tab exposes cache and persistence controls', async () => {
     await expect(page.locator('#btn-warm-cache')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('#btn-purge-elevations')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('#btn-purge-dem-tiles')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('#btn-export-gis-geojson-combined')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('#btn-export-gis-geojson-per-node')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('#btn-export-gis-kml-combined')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('#btn-export-gis-kmz-combined')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('#btn-purge-all')).toHaveText(/Clear Entire DB/, { timeout: 15000 });
 
     await page.locator('summary', { hasText: 'WS Node Defaults' }).click();
