@@ -34,6 +34,7 @@ function offPayloadOnly(
 const api: ElectronAPI = {
   saveFile:    (jsonStr) => ipcRenderer.invoke('save-file', jsonStr),
   exportFile:  (payload) => ipcRenderer.invoke('export-file', payload),
+  exportPdfFile: (payload) => ipcRenderer.invoke('export-pdf-file', payload),
   openFile:    ()        => ipcRenderer.invoke('open-file'),
   getPresets:  ()        => ipcRenderer.invoke('get-presets'),
   // SQLite cache
@@ -70,6 +71,7 @@ const api: ElectronAPI = {
     offPayloadOnly('cuda-optimizer-progress', handler, cudaOptimizerProgressHandlers);
   },
   saveScreenshot:        ()        => ipcRenderer.invoke('save-screenshot'),
+  captureScreenshotDataUrl: ()     => ipcRenderer.invoke('capture-screenshot-data-url'),
   wsRepeatersLoad:  ()     => ipcRenderer.invoke('ws-repeaters-load'),
   wsRepeatersSave:  (rows) => ipcRenderer.invoke('ws-repeaters-save', rows),
   wsRepeatersClear: ()     => ipcRenderer.invoke('ws-repeaters-clear'),

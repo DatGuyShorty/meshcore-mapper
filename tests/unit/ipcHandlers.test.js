@@ -4,11 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { registerIpcHandlers } from '../../src/main/ipcHandlers.js';
 const thisFile = fileURLToPath(import.meta.url);
 
-function registerHandlers(cache = { db: null }) {
+function registerHandlers(cache = { db: null }, dialog = {}) {
   const handlers = new Map();
   registerIpcHandlers({
     ipcMain: { handle: (name, fn) => handlers.set(name, fn) },
-    dialog: {},
+    dialog,
     cache,
     presetsPath: thisFile,
   });
@@ -73,5 +73,28 @@ describe('IPC payload validation', () => {
     expect(source).toContain('const wrapped: WrappedPayloadHandler = (_event, payload) => typedHandler(payload)');
     expect(source).toContain('cudaCoverageProgressHandlers');
     expect(source).toContain('cudaOptimizerProgressHandlers');
+  });
+
+  it('captures renderer screenshots as PNG data URLs for reports', async () => {
+    const handlers = registerHandlers();
+    const pngBytes = Buffer.from('png-bytes');
+    const result = await handlers.get('capture-screenshot-data-url')({
+      sender: {
+        capturePage: async () => ({ toPNG: () => pngBytes }),
+      },
+    });
+
+    expect(result).toBe(`data:image/png;base64,${pngBytes.toString('base64')}`);
+  });
+
+  it('cancels PDF export before creating a print window', async () => {
+    const handlers = registerHandlers({ db: null }, {
+      showSaveDialog: async () => ({ canceled: true }),
+    });
+
+    await expect(handlers.get('export-pdf-file')(null, {
+      content: '<html></html>',
+      defaultName: '../report.pdf',
+    })).resolves.toBe(false);
   });
 });

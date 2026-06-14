@@ -15,6 +15,7 @@ declare global {
   interface ElectronAPI {
     saveFile(jsonStr: string): Promise<void>;
     exportFile(payload: { content: string; defaultName?: string; filterName?: string; extensions?: string[] }): Promise<boolean>;
+    exportPdfFile(payload: { content: string; defaultName?: string }): Promise<boolean>;
     openFile(): Promise<string | null>;
     getPresets(): Promise<unknown>;
 
@@ -53,6 +54,7 @@ declare global {
 
     // Screenshots + WS-repeater persistence
     saveScreenshot(): Promise<void>;
+    captureScreenshotDataUrl(): Promise<string>;
     wsRepeatersLoad(): Promise<any[]>;
     wsRepeatersSave(rows: any[]): Promise<void>;
     wsRepeatersClear(): Promise<void>;

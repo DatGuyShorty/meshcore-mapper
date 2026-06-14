@@ -13,6 +13,7 @@ type AppState = {
   coverageResults: any[];
   p2pLinks: any[];
   pathLinks: any[];
+  optimizerResults: any[];
   foliageLayers: any[];
   buildingLayers: any[];
   barrierLayers: any[];
@@ -139,6 +140,7 @@ export const state: AppState = {
   set coverageResults(value) { coverageStore.setCoverageResults(value); },
   p2pLinks: [],        // active ad-hoc point-to-point link overlays
   pathLinks: [],       // best relay path hop overlays
+  optimizerResults: [], // latest suggested nodes from optimizer
   foliageLayers: [],   // Leaflet Polygon outlines for forest/wood areas
   buildingLayers: [],  // Leaflet Polygon outlines for building footprints
   barrierLayers: [],   // Leaflet Polygon outlines for walls/barriers/towers
