@@ -114,6 +114,34 @@ export async function runOptimizerBackend(
   });
 }
 
+export function optimizerCudaUnsupportedReason(data: OptimizerPayload): string | null {
+  if (data?.opts?.sourceNode) {
+    return 'source-linked optimizer scoring requires CPU link diagnostics';
+  }
+  if (data?.opts?.existingNodes?.length > 0) {
+    return 'gap-aware optimizer with existing nodes requires CPU diagnostics';
+  }
+  if (data?.opts?.objective === 'min-repeaters') {
+    return 'target-coverage objective requires CPU scoring';
+  }
+  if (data?.opts?.preferHighGround) {
+    return 'high-ground preference requires CPU scoring';
+  }
+  if (data?.opts?.preferRoadAdjacent) {
+    return 'road-adjacent preference requires CPU scoring';
+  }
+  if (Number.isFinite(data?.opts?.minCandidateElevationM)) {
+    return 'minimum-elevation constraint requires CPU scoring';
+  }
+  if (Number.isFinite(data?.opts?.minRedundancyRatio)) {
+    return 'redundancy-target constraint requires CPU scoring';
+  }
+  if (Array.isArray(data?.opts?.exclusionZones) && data.opts.exclusionZones.length > 0) {
+    return 'exclusion-zone constraints require CPU scoring';
+  }
+  return null;
+}
+
 async function _getOptimizerCaps(preference: string): Promise<OptimizerCaps> {
   if (preference === 'cpu') return { cuda: { available: false, reason: 'CPU backend selected' } };
   if (_cudaStatus) return { cuda: _cudaStatus };
@@ -143,33 +171,8 @@ async function _runCudaOptimizer(
   if (!_cudaStatus?.available || !window.electronAPI?.cudaOptimizerCompute) {
     return { unsupported: true, message: _cudaStatus?.reason || 'Python CUDA optimizer unavailable' };
   }
-  if (data?.opts?.sourceNode) {
-    return { unsupported: true, message: 'source-linked optimizer scoring requires CPU link diagnostics' };
-  }
-  if (data?.opts?.existingNodes?.length > 0) {
-    return { unsupported: true, message: 'gap-aware optimizer with existing nodes requires CPU diagnostics' };
-  }
-  if (data?.opts?.objective === 'redundancy') {
-    return { unsupported: true, message: 'redundancy objective requires CPU scoring' };
-  }
-  if (data?.opts?.objective === 'min-repeaters') {
-    return { unsupported: true, message: 'target-coverage objective requires CPU scoring' };
-  }
-  if (data?.opts?.preferHighGround) {
-    return { unsupported: true, message: 'high-ground preference requires CPU scoring' };
-  }
-  if (data?.opts?.preferRoadAdjacent) {
-    return { unsupported: true, message: 'road-adjacent preference requires CPU scoring' };
-  }
-  if (Number.isFinite(data?.opts?.minCandidateElevationM)) {
-    return { unsupported: true, message: 'minimum-elevation constraint requires CPU scoring' };
-  }
-  if (Number.isFinite(data?.opts?.minRedundancyRatio)) {
-    return { unsupported: true, message: 'redundancy-target constraint requires CPU scoring' };
-  }
-  if (Array.isArray(data?.opts?.exclusionZones) && data.opts.exclusionZones.length > 0) {
-    return { unsupported: true, message: 'exclusion-zone constraints require CPU scoring' };
-  }
+  const unsupportedReason = optimizerCudaUnsupportedReason(data);
+  if (unsupportedReason) return { unsupported: true, message: unsupportedReason };
 
   const cancelOnAbort = () => window.electronAPI.cudaOptimizerCancel?.().catch(() => {});
   signal?.addEventListener('abort', cancelOnAbort, { once: true });
