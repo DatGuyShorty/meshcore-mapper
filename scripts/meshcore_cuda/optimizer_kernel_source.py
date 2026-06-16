@@ -62,6 +62,7 @@ void optimizer_signal_kernel(
     const float* bHoleVerts,
     const int* bHoleRingOffsets,
     const int* bPolyHoleOffsets,
+    int scoreRedundancy,
     int useGroundReflection,
     int reflectionModel,
     float reflectionCoeff,
@@ -76,7 +77,7 @@ void optimizer_signal_kernel(
     int outIdx = candIdx * evalCount + evalIdx;
     float sig = effectiveSens - 1.0f;
 
-    if (selected[candIdx] != 0 || covered[evalIdx] != 0) {
+    if (selected[candIdx] != 0 || (covered[evalIdx] != 0 && scoreRedundancy == 0)) {
         signals[outIdx] = sig;
         return;
     }

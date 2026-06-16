@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 describe('CUDA kernel propagation parity', () => {
   const coverageKernel = readFileSync('scripts/meshcore_cuda/kernel_source.py', 'utf8');
   const optimizerKernel = readFileSync('scripts/meshcore_cuda/optimizer_kernel_source.py', 'utf8');
+  const optimizerHelper = readFileSync('scripts/meshcore_cuda/optimizer.py', 'utf8');
 
   it('does not add CUDA-only Fresnel attenuation', () => {
     for (const source of [coverageKernel, optimizerKernel]) {
@@ -75,5 +76,14 @@ describe('CUDA kernel propagation parity', () => {
         expect(source).toContain(sym);
       }
     }
+  });
+
+  it('can score already-covered cells for CUDA redundancy objective parity', () => {
+    expect(optimizerKernel).toContain('int scoreRedundancy');
+    expect(optimizerKernel).toContain('(covered[evalIdx] != 0 && scoreRedundancy == 0)');
+    expect(optimizerHelper).toContain('score_redundancy = objective == "redundancy"');
+    expect(optimizerHelper).toContain('redundant_counts = cp.sum(covered_mask & existing_mask, axis=1)');
+    expect(optimizerHelper).toContain('scores = new_counts.astype(cp.float32) * np.float32(0.25) + redundant_counts.astype(cp.float32) * np.float32(0.45)');
+    expect(optimizerHelper).toContain('"redundancyRatio": float(best_redundant_count) / float(eval_count) if eval_count else 0.0');
   });
 });

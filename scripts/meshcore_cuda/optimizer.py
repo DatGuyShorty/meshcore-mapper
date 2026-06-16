@@ -115,6 +115,8 @@ def compute_optimizer(params_path):
     tx_params = p["txParams"]
     opts = p["opts"]
     bounds = p["bounds"]
+    objective = opts.get("objective") or "balanced"
+    score_redundancy = objective == "redundancy"
     placed = []
     rounds_run = 0
 
@@ -163,6 +165,7 @@ def compute_optimizer(params_path):
             np.float32(buildings["tile_lat_min"]), np.float32(buildings["tile_lat_span"]),
             np.float32(buildings["tile_lon_min"]), np.float32(buildings["tile_lon_span"]),
             b_dev["hole_verts"], b_dev["hole_ring_offsets"], b_dev["poly_hole_offsets"],
+            np.int32(1 if score_redundancy else 0),
             np.int32(1 if opts.get("useGroundReflection") else 0),
             np.int32(_reflection_model_id(opts.get("reflectionModel"))),
             np.float32(opts.get("reflectionCoeff", 0.7)),
@@ -171,14 +174,29 @@ def compute_optimizer(params_path):
         ))
         cp.cuda.Stream.null.synchronize()
 
-        counts = cp.sum(d_signals >= np.float32(threshold), axis=1)
-        counts_np = cp.asnumpy(counts)
-        best_idx = int(counts_np.argmax()) if counts_np.size else -1
-        best_count = int(counts_np[best_idx]) if best_idx >= 0 else 0
-        if best_idx < 0 or best_count <= 0:
+        covered_mask = d_signals >= np.float32(threshold)
+        if score_redundancy:
+            existing_mask = d_covered != 0
+            redundant_counts = cp.sum(covered_mask & existing_mask, axis=1)
+            new_counts = cp.sum(covered_mask & ~existing_mask, axis=1)
+            counts = new_counts + redundant_counts
+            scores = new_counts.astype(cp.float32) * np.float32(0.25) + redundant_counts.astype(cp.float32) * np.float32(0.45)
+        else:
+            redundant_counts = cp.zeros(candidate_count, dtype=cp.int32)
+            new_counts = cp.sum(covered_mask, axis=1)
+            counts = new_counts
+            scores = counts.astype(cp.float32)
+
+        scores_np = cp.asnumpy(scores)
+        best_idx = int(scores_np.argmax()) if scores_np.size else -1
+        best_score = float(scores_np[best_idx]) if best_idx >= 0 else 0.0
+        best_count = int(cp.asnumpy(counts[best_idx])) if best_idx >= 0 else 0
+        if best_idx < 0 or best_score <= 0.0 or best_count <= 0:
             break
 
         best_signals = d_signals[best_idx]
+        best_new_count = int(cp.asnumpy(new_counts[best_idx])) if best_idx >= 0 else 0
+        best_redundant_count = int(cp.asnumpy(redundant_counts[best_idx])) if best_idx >= 0 else 0
         d_covered = cp.maximum(d_covered, (best_signals >= np.float32(threshold)).astype(cp.uint8))
         d_selected[best_idx] = np.uint8(1)
         rounds_run += 1
@@ -188,8 +206,13 @@ def compute_optimizer(params_path):
         placed.append({
             "lat": lat,
             "lon": lon,
-            "score": float(best_count) / float(eval_count) if eval_count else 0.0,
+            "score": best_score / float(eval_count) if eval_count else 0.0,
             "elevM": float(candidate_elevs[best_idx]),
+            "coverageRatio": float(best_new_count) / float(eval_count) if eval_count else 0.0,
+            "redundancyRatio": float(best_redundant_count) / float(eval_count) if eval_count else 0.0,
+            "coveredPoints": best_new_count,
+            "redundantPoints": best_redundant_count,
+            "candidateCoveredPoints": best_count,
         })
 
     _progress("downloading-result", 0.95)

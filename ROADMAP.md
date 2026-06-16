@@ -1,6 +1,6 @@
 # MeshCore Mapper Improvement Roadmap
 
-Last updated: 2026-06-14
+Last updated: 2026-06-16
 
 This roadmap is for agents and contributors improving MeshCore Mapper across
 functionality, UI/UX, architecture, and maintainability. It is intentionally
@@ -55,6 +55,31 @@ If no more specific task is given, prioritize in this order:
 7. Reports, offline preparation, and live network health.
 
 ## Progress Log
+
+### 2026-06-16
+
+- Continued Phase 3.1 CUDA objective parity on branch
+  `codex/phase-3-cuda-redundancy-objective`:
+  - the renderer optimizer backend now allows CUDA execution for the
+    Redundancy First objective when CPU-only diagnostics are not required
+  - CUDA still falls back to CPU for source-linked runs, existing-node
+    gap-aware diagnostics, redundancy targets, exclusion zones, high-ground,
+    road-adjacent, and minimum-elevation constraints
+  - the CUDA optimizer kernel can score already-covered cells when redundancy
+    scoring is active instead of always skipping them
+  - the CUDA helper ranks redundancy candidates with weighted new/redundant
+    coverage counts and returns coverage/redundancy ratios plus point counts
+    for result panels and reports
+  - the lockfile now resolves `js-yaml` to a patched production version after
+    the release audit began flagging the prior resolved version
+- Focused Phase 3.1 CUDA redundancy-objective verification passed:
+  - `npx vitest run tests/unit/optimizerBackend.test.js tests/unit/cudaKernelParity.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+  - `python -m py_compile scripts/meshcore_cuda/optimizer.py scripts/meshcore_cuda/optimizer_kernel_source.py`
+- Full Phase 3.1 CUDA redundancy-objective verification passed:
+  - `npm run check` (75 unit files, 432 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-14
 
@@ -2086,10 +2111,13 @@ Status: Current acceptance mostly complete for objective transparency. The
 current objective modes now have exported scoring formulas, an in-panel formula
 note, and per-candidate score breakdown data in the list and marker popup.
 Redundancy First has first-pass CPU scoring that rewards backup coverage over
-already-served cells. Min Repeaters To Target can stop early once the requested
-coverage target is reached. No-result and target-miss runs now show diagnostics
-instead of leaving the result list empty. Remaining work is deeper
-multi-coverage-count redundancy and CUDA objective parity.
+already-served cells; CUDA can now run the Redundancy First objective for
+plain no-existing-node searches and report coverage/redundancy point counts
+without falling back to CPU. Min Repeaters To Target can stop early once the
+requested coverage target is reached. No-result and target-miss runs now show
+diagnostics instead of leaving the result list empty. Remaining work is deeper
+multi-coverage-count redundancy and broader CUDA parity for objectives that
+still need CPU-only diagnostics.
 
 User question: "What should this optimization optimize for?"
 
