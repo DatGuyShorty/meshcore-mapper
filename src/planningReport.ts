@@ -1,3 +1,9 @@
+import {
+  coverageWarningCountText,
+  coverageWarningDetailText,
+  normalizeCoverageWarnings,
+} from './coverageWarnings.js';
+
 type UnknownRecord = Record<string, unknown>;
 
 export type PlanningReportRepeater = {
@@ -297,7 +303,8 @@ function dataQualityNotes(
   ];
   if (incompleteCoverage) notes.push(`${incompleteCoverage} coverage layer(s) are missing grid or bounds metadata.`);
   if (warnings.length) {
-    notes.push(`Coverage warnings: ${warnings.slice(0, 6).join('; ')}${warnings.length > 6 ? `; and ${warnings.length - 6} more` : ''}.`);
+    const shownWarnings = coverageWarningDetailText(warnings.slice(0, 6), '; ');
+    notes.push(`Coverage warnings: ${shownWarnings}${warnings.length > 6 ? `; and ${warnings.length - 6} more` : ''}.`);
   } else {
     notes.push('No coverage warnings were captured in layer metadata.');
   }
@@ -326,9 +333,7 @@ function coverageBackend(result: PlanningReportCoverageResult): string {
 function layerWarnings(result: PlanningReportCoverageResult): string[] {
   const metadata = result.metadata ?? {};
   const rawWarnings = result.warnings ?? metadata.warnings ?? metadata.warning ?? metadata.notes ?? [];
-  if (Array.isArray(rawWarnings)) return rawWarnings.map(value => String(value)).filter(Boolean);
-  if (typeof rawWarnings === 'string' && rawWarnings.trim()) return [rawWarnings.trim()];
-  return [];
+  return normalizeCoverageWarnings(rawWarnings);
 }
 
 function collectCoverageWarnings(results: PlanningReportCoverageResult[]): string[] {
@@ -460,7 +465,7 @@ function formatPercentRatio(value: unknown): string {
 
 function formatWarningCount(count: number): string {
   if (!count) return 'None';
-  return `${count} warning${count === 1 ? '' : 's'}`;
+  return coverageWarningCountText(count);
 }
 
 function formatNumber(value: unknown, digits: number): string {

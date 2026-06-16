@@ -58,6 +58,23 @@ If no more specific task is given, prioritize in this order:
 
 ### 2026-06-16
 
+- Completed the remaining Phase 1.2 warning-presentation acceptance slice on
+  branch `codex/phase-1-warning-presentation`:
+  - added `src/coverageWarnings.ts` as the shared presentation helper for
+    normalizing coverage warning payloads, count labels, detail text, title
+    lines, and warning detail rows
+  - coverage metadata, layer-manager detail rows, and planning reports now use
+    the same warning normalization and display text instead of local joins or
+    ad hoc label checks
+  - restored layers with string warnings and reports with blank/trimmed warning
+    arrays now render consistently
+- Focused Phase 1.2 warning-presentation verification passed:
+  - `npx vitest run tests/unit/coverageWarnings.test.js tests/unit/coverageMetadata.test.js tests/unit/coverageLayerManagerView.test.js tests/unit/planningReport.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 1.2 warning-presentation verification passed:
+  - `npm run check` (76 unit files, 434 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 - Continued Phase 3.1 CUDA objective parity on branch
   `codex/phase-3-cuda-redundancy-objective`:
   - the renderer optimizer backend now allows CUDA execution for the
@@ -1968,10 +1985,13 @@ Acceptance criteria:
 
 ### 1.2 Coverage Run Metadata
 
-Status: Popup/list-level acceptance mostly complete. Newly computed coverage
-layers now persist run metadata, the layer list shows a compact summary, and
-each layer has expandable structured details. Remaining work is to normalize
-warning presentation across future layer/detail surfaces.
+Status: Current acceptance complete. Newly computed coverage layers persist run
+metadata, the layer list shows a compact summary, and each layer has expandable
+structured details. Coverage warnings now flow through a shared presentation
+helper for persisted metadata, layer details, title text, count labels, and
+planning-report notes, so current warning surfaces use the same normalized
+strings and labels. Future warning work should attach to newly introduced
+surfaces rather than adding local formatting.
 
 User question: "How trustworthy and expensive was this result?"
 

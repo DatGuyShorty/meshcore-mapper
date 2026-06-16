@@ -1,3 +1,10 @@
+import {
+  coverageWarningCountText,
+  coverageWarningDetailRow,
+  coverageWarningTitleLine,
+  normalizeCoverageWarnings,
+} from './coverageWarnings.js';
+
 export type CoverageRunMetadata = {
   version: 1;
   createdAt: number | null;
@@ -92,10 +99,7 @@ export function coverageRunWarnings(metrics: any, obstacleWarnings: string[] = [
     if (zeroed) bits.push(`${zeroed.toLocaleString()} terrain samples defaulted to 0 m`);
     warnings.push(`Terrain data gaps: ${bits.join(', ')}.`);
   }
-  for (const warning of obstacleWarnings) {
-    const text = String(warning ?? '').trim();
-    if (text) warnings.push(text);
-  }
+  warnings.push(...normalizeCoverageWarnings(obstacleWarnings));
   return warnings;
 }
 
@@ -108,7 +112,7 @@ export function formatCoverageLayerMeta(result: any): string {
   ].filter(Boolean);
   const scenario = metadata.settingsSnapshot?.scenarioProfile;
   if (typeof scenario === 'string' && scenario) bits.push(scenario);
-  if (metadata.warnings.length) bits.push(`${metadata.warnings.length} warning${metadata.warnings.length === 1 ? '' : 's'}`);
+  if (metadata.warnings.length) bits.push(coverageWarningCountText(metadata.warnings));
   return bits.join(' | ');
 }
 
@@ -129,9 +133,8 @@ export function formatCoverageLayerTitle(result: any): string {
       + `${cache.demTileNetFetches.toLocaleString()} DEM fetched, ${cache.apiPoints.toLocaleString()} API points`
     );
   }
-  if (metadata.warnings.length) {
-    lines.push(`Warnings: ${metadata.warnings.join(' ')}`);
-  }
+  const warningTitle = coverageWarningTitleLine(metadata.warnings);
+  if (warningTitle) lines.push(warningTitle);
   return lines.join('\n');
 }
 
@@ -156,7 +159,8 @@ export function coverageLayerDetailRows(result: any): CoverageDetailRow[] {
   const cache = _cacheText(metadata.cache);
   if (cache) rows.push(['Cache', cache]);
 
-  if (metadata.warnings.length) rows.push(['Warnings', metadata.warnings.join(' ')]);
+  const warningRow = coverageWarningDetailRow(metadata.warnings);
+  if (warningRow) rows.push(warningRow);
   return rows;
 }
 
@@ -301,7 +305,7 @@ function _metadata(result: any): CoverageRunMetadata {
       demTileNetFetches: _count(m.cache?.demTileNetFetches),
       apiPoints: _count(m.cache?.apiPoints),
     },
-    warnings: Array.isArray(m.warnings) ? m.warnings.map(String).filter(Boolean) : [],
+    warnings: normalizeCoverageWarnings(m.warnings),
   };
 }
 

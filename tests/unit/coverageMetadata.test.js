@@ -112,6 +112,11 @@ describe('coverage run metadata', () => {
       ['Cache', '2/3 DEM cached, 1 DEM fetched'],
       ['Warnings', 'Terrain data gaps: 3 terrain samples defaulted to 0 m.'],
     ]));
+    expect(coverageLayerDetailRows({
+      metadata: { warnings: '  Single restored warning.  ' },
+    })).toEqual(expect.arrayContaining([
+      ['Warnings', 'Single restored warning.'],
+    ]));
   });
 
   it('builds reusable coverage control settings from layer metadata', () => {
@@ -193,7 +198,7 @@ describe('coverage run metadata', () => {
         elevationFilledFromNeighbour: 4,
         elevationDefaultedToZero: 2,
       },
-    }, ['Buildings unavailable.']);
+    }, [' Buildings unavailable. ', '', null]);
 
     expect(warnings).toHaveLength(2);
     expect(warnings[0]).toContain('4 terrain samples interpolated');
