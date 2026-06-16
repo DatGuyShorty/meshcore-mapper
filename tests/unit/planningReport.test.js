@@ -26,7 +26,7 @@ describe('planning report view', () => {
         radiusKm: 12,
         effectiveSens: -129,
         bounds: { latMin: 48, latMax: 49, lonMin: 18, lonMax: 19 },
-        metadata: { backend: 'CPU worker', warnings: ['DEM gap <tile>'] },
+        metadata: { backend: 'CPU worker', warnings: [' DEM gap <tile> ', ''] },
       }, {
         visible: false,
         rep: { name: 'Hidden' },

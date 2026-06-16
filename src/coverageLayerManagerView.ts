@@ -4,6 +4,7 @@ import {
   formatCoverageLayerTitle,
   groupCoverageLayersByScenario,
 } from './coverageMetadata.js';
+import { isCoverageWarningLabel } from './coverageWarnings.js';
 
 const EMPTY_LAYER_TEXT = 'No coverage layers yet. Compute coverage to add one.';
 
@@ -84,7 +85,7 @@ function _layerRow(
     details: coverageLayerDetailRows(result).map(([label, value]) => ({
       label,
       value,
-      warning: label === 'Warnings',
+      warning: isCoverageWarningLabel(label),
     })),
   };
 }
