@@ -34,7 +34,10 @@ describe('combined coverage summary', () => {
     expect(summary.coveredPct).toBe(100);
     expect(summary.redundancyPct).toBe(0);
     expect(summary.topServing).toEqual([
-      expect.objectContaining({ label: 'Visible node', pct: 100 }),
+      expect.objectContaining({ sourceKey: 'node:Visible node:0.50000:0.50000', label: 'Visible node', pct: 100 }),
+    ]);
+    expect(summary.nodeContributions).toEqual([
+      expect.objectContaining({ sourceKey: 'node:Visible node:0.50000:0.50000', label: 'Visible node', pct: 100 }),
     ]);
   });
 
@@ -50,9 +53,29 @@ describe('combined coverage summary', () => {
     expect(summary.redundancyPct).toBe(100);
     expect(summary.medianMarginDb).toBe(18);
     expect(summary.topServing[0]).toEqual(expect.objectContaining({
+      sourceKey: 'node:Higher margin:0.50000:0.50000',
       label: 'Higher margin',
       pct: 100,
     }));
+  });
+
+  it('keeps full node contribution stats while limiting top serving nodes', () => {
+    const summary = summarizeCombinedCoverage([
+      layer({ name: 'A', signals: [20, -10, -10, -10] }),
+      layer({ name: 'B', signals: [-10, 20, -10, -10] }),
+      layer({ name: 'C', signals: [-10, -10, 20, -10] }),
+      layer({ name: 'D', signals: [-10, -10, -10, 20] }),
+    ], { maxSamples: 64 });
+
+    expect(summary.status).toBe('ready');
+    expect(summary.nodeContributions).toHaveLength(4);
+    expect(summary.nodeContributions.map(item => item.label)).toEqual(['A', 'B', 'C', 'D']);
+    expect(summary.nodeContributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'A', pct: expect.closeTo(25, 1) }),
+      expect.objectContaining({ label: 'D', pct: expect.closeTo(25, 1) }),
+    ]));
+    expect(summary.topServing).toHaveLength(3);
+    expect(summary.topServing.map(item => item.label)).toEqual(['A', 'B', 'C']);
   });
 
   it('builds rounded export stats from a ready summary', () => {
@@ -72,6 +95,12 @@ describe('combined coverage summary', () => {
       medianMarginDb: 18,
     });
     expect(stats.topServing[0]).toMatchObject({
+      sourceKey: 'node:Beta:0.50000:0.50000',
+      label: 'Beta',
+      pct: 100,
+    });
+    expect(stats.nodeContributions[0]).toMatchObject({
+      sourceKey: 'node:Beta:0.50000:0.50000',
       label: 'Beta',
       pct: 100,
     });

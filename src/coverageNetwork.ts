@@ -28,6 +28,7 @@ type SummaryBase = {
 };
 
 type ServingSummary = {
+  sourceKey: string;
   label: string;
   areaKm2: number;
   pct: number;
@@ -48,6 +49,7 @@ export type CombinedCoverageSummary = SummaryBase & Partial<{
   medianMarginDb: number | null;
   bestMarginDb: number | null;
   topServing: ServingSummary[];
+  nodeContributions: ServingSummary[];
 }>;
 
 type NodeFailureImpact = {
@@ -151,7 +153,7 @@ export function summarizeCombinedCoverage(
   const shape = _sampleShape(bounds, maxSamples);
   const bboxAreaKm2 = _bboxAreaKm2(bounds);
   const cellAreaKm2 = bboxAreaKm2 / Math.max(1, shape.rows * shape.cols);
-  const serving = new Map<string, number>();
+  const serving = new Map<string, { sourceKey: string; label: string; cells: number }>();
   const coveredMargins: number[] = [];
 
   let analysisCells = 0;
@@ -168,14 +170,14 @@ export function summarizeCombinedCoverage(
       const lon = bounds.lonMin + ((col + 0.5) / shape.cols) * (bounds.lonMax - bounds.lonMin);
       let insideAny = false;
       let coverageCount = 0;
-      let best: { margin: number; label: string } | null = null;
+      let best: { margin: number; sourceKey: string; label: string } | null = null;
 
       for (const layer of layers) {
         const rx = _sampleLayer(layer, lat, lon);
         if (!Number.isFinite(rx)) continue;
         insideAny = true;
         const margin = rx - layer.threshold;
-        if (!best || margin > best.margin) best = { margin, label: layer.label };
+        if (!best || margin > best.margin) best = { margin, sourceKey: layer.sourceKey, label: layer.label };
         if (margin >= 0) coverageCount++;
       }
 
@@ -188,7 +190,12 @@ export function summarizeCombinedCoverage(
         bestMarginDb = Math.max(bestMarginDb, best.margin);
         marginSum += best.margin;
         coveredMargins.push(best.margin);
-        serving.set(best.label, (serving.get(best.label) ?? 0) + 1);
+        const source = serving.get(best.sourceKey);
+        if (source) {
+          source.cells++;
+        } else {
+          serving.set(best.sourceKey, { sourceKey: best.sourceKey, label: best.label, cells: 1 });
+        }
       } else {
         uncoveredCells++;
       }
@@ -206,6 +213,14 @@ export function summarizeCombinedCoverage(
   coveredMargins.sort((a, b) => a - b);
   const coveredAreaKm2 = coveredCells * cellAreaKm2;
   const analysisAreaKm2 = analysisCells * cellAreaKm2;
+  const nodeContributions = [...serving.values()]
+    .map(({ sourceKey, label, cells }) => ({
+      sourceKey,
+      label,
+      areaKm2: cells * cellAreaKm2,
+      pct: coveredCells ? cells / coveredCells * 100 : 0,
+    }))
+    .sort((a, b) => (b.areaKm2 - a.areaKm2) || a.label.localeCompare(b.label));
   return {
     status: 'ready',
     totalLayerCount: all.length,
@@ -223,14 +238,8 @@ export function summarizeCombinedCoverage(
     averageMarginDb: coveredCells ? marginSum / coveredCells : null,
     medianMarginDb: _median(coveredMargins),
     bestMarginDb: Number.isFinite(bestMarginDb) ? bestMarginDb : null,
-    topServing: [...serving.entries()]
-      .map(([label, cells]) => ({
-        label,
-        areaKm2: cells * cellAreaKm2,
-        pct: coveredCells ? cells / coveredCells * 100 : 0,
-      }))
-      .sort((a, b) => b.areaKm2 - a.areaKm2)
-      .slice(0, 3),
+    topServing: nodeContributions.slice(0, 3),
+    nodeContributions,
   };
 }
 
@@ -261,6 +270,13 @@ export function coverageNetworkStatsForExport(summary: CombinedCoverageSummary):
     medianMarginDb: _roundNullable(summary.medianMarginDb ?? null, 2),
     bestMarginDb: _roundNullable(summary.bestMarginDb ?? null, 2),
     topServing: (summary.topServing ?? []).map(item => ({
+      sourceKey: item.sourceKey,
+      label: item.label,
+      areaKm2: _round(item.areaKm2, 3),
+      pct: _round(item.pct, 2),
+    })),
+    nodeContributions: (summary.nodeContributions ?? summary.topServing ?? []).map(item => ({
+      sourceKey: item.sourceKey,
       label: item.label,
       areaKm2: _round(item.areaKm2, 3),
       pct: _round(item.pct, 2),
