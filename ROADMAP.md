@@ -203,6 +203,22 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 3.1 CUDA redundancy-target verification passed:
   - `npm run check` (80 unit files, 461 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 6 incremental UI rewrite on branch
+  `codex/phase-6-pathfinder-endpoints-view`:
+  - added `src/pathfinderEndpointView.ts` as the typed view boundary for Best
+    Relay Path endpoint select options, empty state, saved-selection restore,
+    and FROM/TO de-duplication
+  - `src/pathfinderUI.ts` now delegates endpoint select rendering to the helper
+    while keeping path picking, map layers, and recompute behavior intact
+  - added direct view-helper tests for sorted option models, no-node rendering,
+    saved endpoint preservation, and duplicate-endpoint correction
+- Focused Phase 6 pathfinder-endpoints verification passed:
+  - `npx vitest run tests/unit/pathfinderEndpointView.test.js tests/unit/pathfinderResultView.test.js tests/unit/pathfinder.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 6 pathfinder-endpoints verification passed:
+  - `npm run check` (81 unit files, 465 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2620,12 +2636,12 @@ Goal: replace imperative DOM-heavy panels with maintainable components.
 
 Status: Started. The coverage layer manager, coverage inspector, node
 list/editor, P2P result panel, optimizer result list, settings/cache summary,
-3D view controls, coverage network summary, relay path result panel, job
-drawer, shared progress overlay, and developer console now have dedicated typed
-view helpers and direct view tests for their main UI states while keeping the
-existing DOM surface and workflow callbacks intact. Next Phase 6 work should
-decide whether to introduce Preact/signals or keep extracting smaller
-DOM-helper boundaries for remaining panels.
+3D view controls, coverage network summary, relay path result panel, Best Relay
+Path endpoint selects, job drawer, shared progress overlay, and developer
+console now have dedicated typed view helpers and direct view tests for their
+main UI states while keeping the existing DOM surface and workflow callbacks
+intact. Next Phase 6 work should decide whether to introduce Preact/signals or
+keep extracting smaller DOM-helper boundaries for remaining panels.
 
 Recommended stack:
 

@@ -12,14 +12,16 @@ import {
   pathMarginColor,
   renderPathResultHtml,
 } from './pathfinderResultView.js';
+import {
+  ensureDifferentPathEndpoints,
+  renderPathEndpointSelects,
+  type PathEndpointNode,
+} from './pathfinderEndpointView.js';
 
 type PickTarget = 'from' | 'to' | null;
 type AbortLikeError = Error & { cancelled?: boolean };
 type ProgressMeta = { title: string };
-type RepeaterOption = RelayNode & {
-  id: string | number;
-  name: string;
-};
+type RepeaterOption = RelayNode & PathEndpointNode;
 type PathClickEvent = {
   originalEvent?: {
     _meshcoreHandled?: boolean;
@@ -136,7 +138,7 @@ export function initPathfinderUI(): void {
     const fromSel = document.getElementById('path-from') as HTMLSelectElement | null;
     if (fromSel) fromSel.value = String(detail.id);
     const toSel = document.getElementById('path-to') as HTMLSelectElement | null;
-    if (fromSel && toSel) _ensureDifferentEndpoints(fromSel, toSel);
+    if (fromSel && toSel) ensureDifferentPathEndpoints(fromSel, toSel);
     _setPickMode(null);
   });
   document.addEventListener('link:path-open', () => {
@@ -161,20 +163,14 @@ export function handlePathNodePick(r: { id: string | number }): boolean {
 
   if (_pickTarget === 'from') {
     fromSel.value = String(r.id);
-    _ensureDifferentEndpoints(fromSel, toSel);
+    ensureDifferentPathEndpoints(fromSel, toSel);
   } else {
     toSel.value = String(r.id);
-    _ensureDifferentEndpoints(fromSel, toSel);
+    ensureDifferentPathEndpoints(fromSel, toSel);
   }
 
   _setPickMode(null);
   return true;
-}
-
-function _ensureDifferentEndpoints(fromSel: HTMLSelectElement, toSel: HTMLSelectElement): void {
-  if (fromSel.value !== toSel.value || toSel.options.length <= 1) return;
-  const next = [...toSel.options].find(opt => opt.value !== fromSel.value);
-  if (next) toSel.value = next.value;
 }
 
 function _refreshPathSelects(): void {
@@ -183,28 +179,10 @@ function _refreshPathSelects(): void {
   const toSel = document.getElementById('path-to') as HTMLSelectElement | null;
   if (!fromSel || !toSel) return;
 
-  const savedFrom = fromSel.value;
-  const savedTo = toSel.value;
-
-  fromSel.innerHTML = '';
-  toSel.innerHTML = '';
-
-  if (nodes.length === 0) {
-    fromSel.innerHTML = toSel.innerHTML = '<option value="">-- no nodes --</option>';
+  const { hasNodes } = renderPathEndpointSelects(fromSel, toSel, nodes);
+  if (!hasNodes) {
     _setPickMode(null);
-    return;
   }
-
-  const sorted = [...nodes].sort((a, b) => a.name.localeCompare(b.name));
-  for (const r of sorted) {
-    fromSel.appendChild(new Option(r.name, String(r.id)));
-    toSel.appendChild(new Option(r.name, String(r.id)));
-  }
-
-  if (savedFrom && [...fromSel.options].some(o => o.value === savedFrom)) fromSel.value = savedFrom;
-  if (savedTo && [...toSel.options].some(o => o.value === savedTo)) toSel.value = savedTo;
-
-  _ensureDifferentEndpoints(fromSel, toSel);
 }
 
 function _clearPathLayers(): void {
