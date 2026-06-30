@@ -137,6 +137,21 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 3.1 redundancy-depth verification passed:
   - `npm run check` (79 unit files, 454 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 3.1 redundancy objective context on branch
+  `codex/phase-3-redundancy-visible-context`:
+  - added a shared optimizer helper for deciding when visible mesh coverage
+    context is needed
+  - Redundancy First now pulls visible existing-node context without requiring
+    the separate Gap Aware toggle
+  - core CPU scoring also initializes existing coverage for Redundancy First
+    whenever existing nodes are supplied, matching the UI context decision
+- Focused Phase 3.1 redundancy-context verification passed:
+  - `npx vitest run tests/unit/optimizer.test.js tests/unit/optimizerBackend.test.js tests/unit/settings.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 3.1 redundancy-context verification passed:
+  - `npm run check` (79 unit files, 456 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2236,8 +2251,10 @@ without falling back to CPU. Min Repeaters To Target can stop early once the
 requested coverage target is reached. No-result and target-miss runs now show
 diagnostics instead of leaving the result list empty. CPU Redundancy First now
 tracks per-cell coverage counts so first-backup coverage is valued above
-repeatedly stacked backups on already multiply-covered cells. Remaining work is
-broader CUDA parity for objectives that still need CPU-only diagnostics.
+repeatedly stacked backups on already multiply-covered cells, and Redundancy
+First now automatically requests visible existing-node context instead of
+depending on the separate Gap Aware toggle. Remaining work is broader CUDA
+parity for objectives that still need CPU-only diagnostics.
 
 User question: "What should this optimization optimize for?"
 
