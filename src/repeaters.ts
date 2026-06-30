@@ -126,6 +126,7 @@ let _lastRemoved: RemovedRepeaterSnapshot | null = null; // F5: single-level und
 let _filterText  = '';
 let _sortMode    = 'name-az';
 let _selectedNodeId: number | string | null = null;
+let _selectedNodeIds: Array<number | string> = [];
 let _healthTimer: number | null = null;
 
 // Context menu
@@ -477,7 +478,8 @@ function markerStrokeForHealth(health: NodeHealthState): string {
 
 /** @param {number | string | null} id */
 function _isSelectedNode(id: number | string | null): boolean {
-  return _selectedNodeId !== null && String(_selectedNodeId) === String(id);
+  return (_selectedNodeId !== null && String(_selectedNodeId) === String(id))
+    || _selectedNodeIds.some(selectedId => String(selectedId) === String(id));
 }
 
 function _syncSelectedNodeMarkers(): void {
@@ -496,6 +498,16 @@ function _syncSelectedNodeList(): void {
 function _syncSelectedNodeHighlight(): void {
   _syncSelectedNodeMarkers();
   _syncSelectedNodeList();
+}
+
+/** @param {string} id */
+function _toggleSelectedNodeId(id: string): string[] {
+  const selected = new Set<string>();
+  if (_selectedNodeId !== null) selected.add(String(_selectedNodeId));
+  for (const selectedId of _selectedNodeIds) selected.add(String(selectedId));
+  if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  return [...selected];
 }
 
 /**
@@ -650,6 +662,7 @@ function renderRepeaterList(): void {
     filterText: _filterText,
     sortMode: _sortMode,
     selectedNodeId: _selectedNodeId,
+    selectedNodeIds: _selectedNodeIds,
     editingId,
   });
   _syncSelectedNodeList();
@@ -691,8 +704,9 @@ export function init(): void {
     renderRepeaterList();
   });
   document.addEventListener('selection:changed', (event: Event) => {
-    const detail = (event as CustomEvent<{ kind?: string; id?: string | number | null }>).detail;
+    const detail = (event as CustomEvent<{ kind?: string; id?: string | number | null; ids?: Array<string | number> }>).detail;
     _selectedNodeId = detail?.kind === 'node' ? detail.id ?? null : null;
+    _selectedNodeIds = detail?.kind === 'nodes' && Array.isArray(detail.ids) ? detail.ids : [];
     _syncSelectedNodeHighlight();
   });
   document.getElementById('btn-toggle-all-vis')?.addEventListener('click', () => {
@@ -711,7 +725,14 @@ export function init(): void {
       const item = e.target instanceof Element
         ? e.target.closest('.repeater-item[data-id]') as HTMLElement | null
         : null;
-      if (item) document.dispatchEvent(new CustomEvent('node:selected', { detail: { id: item.dataset.id } }));
+      if (item) {
+        const id = item.dataset.id;
+        if (id && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+          document.dispatchEvent(new CustomEvent('nodes:selected', { detail: { ids: _toggleSelectedNodeId(id) } }));
+        } else {
+          document.dispatchEvent(new CustomEvent('node:selected', { detail: { id } }));
+        }
+      }
       return;
     }
     const id = parseInt(btn.dataset.id ?? '');

@@ -21,6 +21,7 @@ export type NodeListOptions = {
   filterText?: string;
   sortMode?: string;
   selectedNodeId?: string | number | null;
+  selectedNodeIds?: Array<string | number> | null;
   editingId?: string | number | null;
   now?: number | string | Date;
 };
@@ -68,8 +69,11 @@ function _nodeRow(repeater: any, options: NodeListOptions): Extract<NodeListRow,
   const visible = repeater?.visible !== false;
   const id = String(repeater?.id ?? '');
   const classes = ['repeater-item'];
+  const selectedIds = options.selectedNodeIds ?? [];
   if (!visible) classes.push('ri-hidden');
-  if (_sameId(options.selectedNodeId, repeater?.id)) classes.push('ri-selected');
+  if (_sameId(options.selectedNodeId, repeater?.id) || selectedIds.some(selectedId => _sameId(selectedId, repeater?.id))) {
+    classes.push('ri-selected');
+  }
   if (_sameId(options.editingId, repeater?.id)) classes.push('editing');
   const health = nodeHealth(repeater, { now: options.now });
   classes.push(health.className);

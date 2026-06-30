@@ -58,6 +58,23 @@ If no more specific task is given, prioritize in this order:
 
 ### 2026-06-16
 
+- Continued Phase 4.1 contextual-inspector multi-selection on branch
+  `codex/phase-4-multi-node-selection`:
+  - the selection store now supports stable de-duplicated multi-node
+    selections while preserving existing single-node selection details
+  - node-list rows can highlight multiple selected nodes
+  - modifier-clicking node-list rows emits multi-node selection events
+  - the right inspector now renders a selected-nodes summary with visible/live
+    counts, selected names, an Open Nodes action, a View 3D action, and Clear
+  - repeaters keep marker/list highlights synchronized from both single-node
+    and multi-node `selection:changed` events
+- Focused Phase 4.1 multi-node selection verification passed:
+  - `npx vitest run tests/unit/selectionStore.test.js tests/unit/nodeListView.test.js tests/unit/mapContext.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 4.1 multi-node selection verification passed:
+  - `npm run check` (76 unit files, 437 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 - Completed the remaining Phase 1.2 warning-presentation acceptance slice on
   branch `codex/phase-1-warning-presentation`:
   - added `src/coverageWarnings.ts` as the shared presentation helper for
@@ -2241,8 +2258,9 @@ selection with core node actions, P2P/relay link selection with budget summary
 actions, optimizer candidate selection with add/backhaul actions,
 coverage-point selection that mirrors the popup's visible coverage/loss
 breakdown, and obstacle selection with OSM/modeling assumptions. Current
-selection-state acceptance and single selected-object highlighting are covered;
-remaining polish is multi-selection and any future per-object export/profile
+selection-state acceptance, single selected-object highlighting, and initial
+multi-node selection from the node list are covered; remaining polish is
+range/map-marker multi-selection and any future bulk edit/export/profile
 actions that prove necessary.
 
 User question: "What am I looking at, and what can I do next?"

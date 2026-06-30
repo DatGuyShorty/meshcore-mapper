@@ -33,6 +33,18 @@ describe('node list view model', () => {
     });
   });
 
+  it('marks multiple selected rows', () => {
+    const rows = buildNodeListRows([
+      node({ id: 1, name: 'Alpha' }),
+      node({ id: 2, name: 'Beta' }),
+      node({ id: 3, name: 'Gamma' }),
+    ], {
+      selectedNodeIds: [1, 3],
+    });
+
+    expect(rows.filter(row => row.kind === 'node' && row.className.includes('ri-selected')).map(row => row.id)).toEqual(['1', '3']);
+  });
+
   it('filters on name, coordinates, radio specs, and live feed metadata', () => {
     const rows = buildNodeListRows([
       node({ name: 'Manual Node', height: 30 }),
