@@ -3,6 +3,8 @@ export type NodeSelectionId = string | number;
 export type NodeSelectionClickState = {
   selectedNodeId?: NodeSelectionId | null;
   selectedNodeIds?: NodeSelectionId[] | null;
+  selectionAnchorId?: NodeSelectionId | null;
+  orderedNodeIds?: NodeSelectionId[] | null;
 };
 
 export type NodeSelectionClickEvent = {
@@ -22,6 +24,15 @@ export function nodeSelectionEventForClick(
 ): NodeSelectionEventPlan | null {
   if (id === null || id === undefined) return null;
   if (!_isModifierClick(event)) return { type: 'node:selected', detail: { id } };
+  if (event?.shiftKey) {
+    const rangeIds = rangeNodeSelectionIds(id, state);
+    if (rangeIds.length) {
+      return {
+        type: 'nodes:selected',
+        detail: { ids: rangeIds },
+      };
+    }
+  }
   return {
     type: 'nodes:selected',
     detail: { ids: toggleNodeSelectionId(id, state) },
@@ -39,6 +50,20 @@ export function toggleNodeSelectionId(
   if (selected.has(key)) selected.delete(key);
   else selected.add(key);
   return [...selected];
+}
+
+export function rangeNodeSelectionIds(
+  id: NodeSelectionId,
+  { selectionAnchorId = null, orderedNodeIds = [] }: NodeSelectionClickState = {},
+): string[] {
+  if (selectionAnchorId === null || selectionAnchorId === undefined) return [];
+  const ordered = (orderedNodeIds ?? []).map(String);
+  const anchorIndex = ordered.indexOf(String(selectionAnchorId));
+  const targetIndex = ordered.indexOf(String(id));
+  if (anchorIndex === -1 || targetIndex === -1) return [];
+  const start = Math.min(anchorIndex, targetIndex);
+  const end = Math.max(anchorIndex, targetIndex);
+  return ordered.slice(start, end + 1);
 }
 
 function _isModifierClick(event: NodeSelectionClickEvent): boolean {
