@@ -522,6 +522,14 @@ export function optimizerNeedsTerrain(opts: Partial<OptimizerOpts> = {}): boolea
   );
 }
 
+export function optimizerUsesExistingCoverageContext(opts: Partial<OptimizerOpts> = {}): boolean {
+  return Boolean(
+    opts.gapAware
+    || Number.isFinite(opts.minRedundancyRatio)
+    || normalizeOptimizerObjective(opts.objective) === 'redundancy'
+  );
+}
+
 /**
  * Find the best N repeater locations within a bounding box.
  *
@@ -744,7 +752,7 @@ export function runOptimizerScoring({
     stats.targetReached = false;
   }
 
-  if ((opts.gapAware || Number.isFinite(opts.minRedundancyRatio)) && opts.existingNodes?.length) {
+  if (optimizerUsesExistingCoverageContext(opts) && opts.existingNodes?.length) {
     markExistingCoverage(opts.existingNodes, evalPoints, evalElevs, covered, coverageCounts, opts);
     stats.initialCoveredPoints = countCovered(covered);
     stats.initialCoverageRatio = evalPoints.length ? stats.initialCoveredPoints / evalPoints.length : 0;

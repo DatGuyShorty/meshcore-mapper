@@ -5,6 +5,7 @@ import {
   computeRoadAdjacencyScores,
   optimizerNeedsTerrain,
   optimizerObjectiveDetails,
+  optimizerUsesExistingCoverageContext,
   runOptimizerScoring,
   scoreOptimizerCandidates,
 } from '../../src/optimizer.js';
@@ -27,6 +28,13 @@ describe('optimizer terrain requirements', () => {
       useFoliage: false,
       useBuildings: false,
     })).toBe(false);
+  });
+
+  it('knows which optimizer modes need visible mesh coverage context', () => {
+    expect(optimizerUsesExistingCoverageContext({})).toBe(false);
+    expect(optimizerUsesExistingCoverageContext({ gapAware: true })).toBe(true);
+    expect(optimizerUsesExistingCoverageContext({ minRedundancyRatio: 0.35 })).toBe(true);
+    expect(optimizerUsesExistingCoverageContext({ objective: 'redundancy' })).toBe(true);
   });
 
   it('builds finite grids even when resolution is too low', () => {
@@ -470,6 +478,42 @@ describe('optimizer terrain requirements', () => {
           redundancy: expect.objectContaining({ weight: 0.45 }),
         },
       },
+    });
+  });
+
+  it('uses existing coverage context for redundancy objective without requiring gap-aware mode', () => {
+    const results = scoreOptimizerCandidates({
+      evalPoints: [{ latitude: 0, longitude: 0 }, { latitude: 0, longitude: 0.01 }],
+      evalElevs: [0, 0],
+      candidates: [{ latitude: 0, longitude: 0 }, { latitude: 0, longitude: 0.01 }],
+      candidateElevs: [0, 0],
+      nRepeaters: 1,
+      txParams: { height: 10, power: 20, freq: 869.525, gain: 2 },
+      opts: {
+        rxHeight: 1.5,
+        rxSens: -133,
+        fadeMargin: 0,
+        radiusKm: 0.4,
+        useLos: false,
+        useFresnel: false,
+        gridRes: 1,
+        latMin: 0,
+        latMax: 0,
+        lonMin: 0,
+        lonMax: 0.01,
+        foliage: null,
+        buildings: null,
+        objective: 'redundancy',
+        existingNodes: [{ lat: 0, lon: 0, height: 10, power: 20, freq: 869.525, gain: 2, elevM: 0, name: 'Existing' }],
+      },
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      lon: 0,
+      coveredPoints: 0,
+      redundantPoints: 1,
+      redundancyRatio: 0.5,
     });
   });
 

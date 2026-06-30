@@ -8,7 +8,13 @@ import {
   setActiveTab, setButtonBusy, setInlineStatus, setCancelHandler,
 } from './ui.js';
 import { addRepeater, cancelPlacing } from './repeaters.js';
-import { buildGrid, buildRefinedGrid, optimizerNeedsTerrain, optimizerObjectiveDetails } from './optimizer.js';
+import {
+  buildGrid,
+  buildRefinedGrid,
+  optimizerNeedsTerrain,
+  optimizerObjectiveDetails,
+  optimizerUsesExistingCoverageContext,
+} from './optimizer.js';
 import { runOptimizerBackend } from './optimizerBackend.js';
 import { fetchElevations } from './elevation.js';
 import { fetchFoliage } from './foliage.js';
@@ -701,7 +707,7 @@ export function init(): void {
 
     const { txParams, opts: optsBase, nRepeaters } = getOptimizerSettings();
     const opts: OptimizerOptions = { ...optsBase };
-    const needsVisibleMeshContext = opts.gapAware || Number.isFinite(opts.minRedundancyRatio);
+    const needsVisibleMeshContext = optimizerUsesExistingCoverageContext(opts);
     const existingBaseNodes = needsVisibleMeshContext
       ? state.repeaters
           .filter((/** @type {any} */ r) => r.visible)
