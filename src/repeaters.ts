@@ -38,6 +38,10 @@ import {
   setNodeEditorMode,
 } from './nodeEditorView.js';
 import { liveHealthSummary, nodeHealth, type NodeHealthState } from './liveHealth.js';
+import {
+  nodeSelectionEventForClick,
+  type NodeSelectionId,
+} from './nodeSelectionEvents.js';
 
 type RepeaterMarker = Record<string, any> & {
   addTo(target: unknown): RepeaterMarker;
@@ -500,16 +504,6 @@ function _syncSelectedNodeHighlight(): void {
   _syncSelectedNodeList();
 }
 
-/** @param {string} id */
-function _toggleSelectedNodeId(id: string): string[] {
-  const selected = new Set<string>();
-  if (_selectedNodeId !== null) selected.add(String(_selectedNodeId));
-  for (const selectedId of _selectedNodeIds) selected.add(String(selectedId));
-  if (selected.has(id)) selected.delete(id);
-  else selected.add(id);
-  return [...selected];
-}
-
 /**
  * @param {any} name
  * @param {number} lat
@@ -560,8 +554,12 @@ export function addRepeater(
     if (!r) return;
     if (await handleRepeaterClick(r)) return; // consumed by P2P picking
     if (handlePathNodePick(r)) return; // consumed by best-path picking
-    document.dispatchEvent(new CustomEvent('node:selected', { detail: { id: r.id } }));
-    if (e.originalEvent) _showCtxMenu(r, e.originalEvent);
+    const selectionEvent = nodeSelectionEventForClick(r.id, e.originalEvent, {
+      selectedNodeId: _selectedNodeId,
+      selectedNodeIds: _selectedNodeIds as NodeSelectionId[],
+    });
+    if (selectionEvent) document.dispatchEvent(new CustomEvent(selectionEvent.type, { detail: selectionEvent.detail }));
+    if (e.originalEvent && selectionEvent?.type === 'node:selected') _showCtxMenu(r, e.originalEvent);
   });
 
   const repeater: Repeater = { id, name: displayName, lat, lon, height, power, freq, gain, marker, color, visible: true };
@@ -727,11 +725,11 @@ export function init(): void {
         : null;
       if (item) {
         const id = item.dataset.id;
-        if (id && (e.shiftKey || e.ctrlKey || e.metaKey)) {
-          document.dispatchEvent(new CustomEvent('nodes:selected', { detail: { ids: _toggleSelectedNodeId(id) } }));
-        } else {
-          document.dispatchEvent(new CustomEvent('node:selected', { detail: { id } }));
-        }
+        const selectionEvent = nodeSelectionEventForClick(id, e, {
+          selectedNodeId: _selectedNodeId,
+          selectedNodeIds: _selectedNodeIds as NodeSelectionId[],
+        });
+        if (selectionEvent) document.dispatchEvent(new CustomEvent(selectionEvent.type, { detail: selectionEvent.detail }));
       }
       return;
     }

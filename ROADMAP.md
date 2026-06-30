@@ -90,6 +90,22 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 6 progress-overlay verification passed:
   - `npm run check` (78 unit files, 445 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 4.1 contextual-inspector multi-selection on branch
+  `codex/phase-4-marker-multi-select`:
+  - added `src/nodeSelectionEvents.ts` as the shared click-selection helper
+    for ordinary node selection and modifier-click multi-selection
+  - marker clicks and node-list row clicks now use the same selection-event
+    planner, so Shift/Ctrl/Cmd marker clicks can add/remove nodes from the
+    selected-node set without opening the marker context menu
+  - added direct helper tests for single-node selection, modifier multi-select,
+    string-equivalent toggling, and missing-id handling
+- Focused Phase 4.1 marker multi-selection verification passed:
+  - `npx vitest run tests/unit/nodeSelectionEvents.test.js tests/unit/selectionStore.test.js tests/unit/nodeListView.test.js tests/unit/mapContext.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 4.1 marker multi-selection verification passed:
+  - `npm run check` (79 unit files, 450 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2294,9 +2310,9 @@ actions, optimizer candidate selection with add/backhaul actions,
 coverage-point selection that mirrors the popup's visible coverage/loss
 breakdown, and obstacle selection with OSM/modeling assumptions. Current
 selection-state acceptance, single selected-object highlighting, and initial
-multi-node selection from the node list are covered; remaining polish is
-range/map-marker multi-selection and any future bulk edit/export/profile
-actions that prove necessary.
+multi-node selection from the node list and map markers are covered; remaining
+polish is range multi-selection and any future bulk edit/export/profile actions
+that prove necessary.
 
 User question: "What am I looking at, and what can I do next?"
 
