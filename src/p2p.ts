@@ -12,8 +12,9 @@ import { getP2PSettings } from './settings.js';
 import { escHtml, setActiveTab, setButtonBusy } from './ui.js';
 import { attachEirpHint } from './eirp.js';
 import {
-  formatP2PNumber,
   p2pResultStatusMessage,
+  profileSvgForFullscreen,
+  renderP2PProfileReportHtml,
   renderP2PResultPanelHtml,
 } from './p2pResultView.js';
 
@@ -292,46 +293,6 @@ function _updateP2PLineLabel(margin: number, rxPower: number, distM: number): vo
   }
 }
 
-const _fmt = formatP2PNumber;
-
-function _profileSvgForFullscreen(profileSvg: unknown): string {
-  return String(profileSvg).replace(/p2p-above-los/g, 'p2p-above-los-fullscreen');
-}
-
-function _profileReportHtml(result: LinkBudgetResult): string {
-  const settings: Partial<P2PSettings> = result?._settings ?? {};
-  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const aLat = pointA?.lat ?? 0;
-  const aLon = pointA?.lng ?? 0;
-  const bLat = pointB?.lat ?? 0;
-  const bLon = pointB?.lng ?? 0;
-  const marginColor = result.margin >= 10 ? '#4ade80' : (result.margin >= 0 ? '#facc15' : '#f87171');
-  const fresnelLabel = result?.fresnelResult?.fresnelClear ? 'Clear' : (result?.geoResult?.geometricLos ? 'Partial' : 'Blocked');
-  const geoLabel = result?.geoResult?.geometricLos ? 'Clear' : 'Blocked';
-
-  return `
-    <div class="profile-report-card">
-      <div class="profile-report-title">Terrain LoS Profile Report</div>
-      <div class="profile-report-subtitle">Exported ${escHtml(now)} UTC</div>
-      <div class="profile-report-metrics">
-        <div class="profile-report-metric"><span>LINK MARGIN</span><strong style="color:${marginColor}">${escHtml(_fmt(result.margin))} dB</strong></div>
-        <div class="profile-report-metric"><span>RX POWER</span><strong>${escHtml(_fmt(result.rxPower))} dBm</strong></div>
-        <div class="profile-report-metric"><span>DISTANCE</span><strong>${escHtml((result.distM / 1000).toFixed(2))} km</strong></div>
-        <div class="profile-report-metric"><span>FREQUENCY</span><strong>${escHtml(_fmt(settings.freqMHz ?? 0))} MHz</strong></div>
-        <div class="profile-report-metric"><span>SAMPLES</span><strong>${escHtml(String(result.sampleCount))}</strong></div>
-      </div>
-      <div class="profile-report-lines">
-        <div>A (TX): ${escHtml(aLat.toFixed(6))}, ${escHtml(aLon.toFixed(6))}  ->  B (RX): ${escHtml(bLat.toFixed(6))}, ${escHtml(bLon.toFixed(6))}</div>
-        <div>Path loss ${escHtml(_fmt(result.pathLoss))} dB | Diffraction ${escHtml(_fmt(result.diffractionLoss))} dB | Foliage ${escHtml(_fmt(result.foliageLoss))} dB | Buildings ${escHtml(_fmt(result.buildingLoss))} dB</div>
-        <div>TX ${escHtml(_fmt(settings.txPower ?? 0))} dBm + ${escHtml(_fmt(settings.txGain ?? 0))} dBi | RX gain ${escHtml(_fmt(settings.rxGain ?? 0))} dBi | TX/RX heights ${escHtml(_fmt(settings.txHeight ?? 0))} / ${escHtml(_fmt(settings.rxHeight ?? 0))} m</div>
-        <div>LoS geometric: ${escHtml(geoLabel)} | Fresnel: ${escHtml(fresnelLabel)} | Required RX: ${escHtml(_fmt(result.requiredRx ?? 0))} dBm</div>
-        ${result.monteCarlo?.enabled
-          ? `<div>Monte Carlo ${escHtml(String(result.monteCarlo.trials))} trials | Outage ${escHtml((result.monteCarlo.outageProbability * 100).toFixed(1))}% | Margin P05/P50/P95 ${escHtml(_fmt(result.monteCarlo.marginP05))} / ${escHtml(_fmt(result.monteCarlo.marginP50))} / ${escHtml(_fmt(result.monteCarlo.marginP95))} dB</div>`
-          : ''}
-      </div>
-    </div>`;
-}
-
 function _ensureProfileFullscreen(): HTMLElement {
   let modal = document.getElementById('profile-fullscreen');
   if (modal) return modal;
@@ -373,8 +334,8 @@ function _openProfileFullscreen(result: LinkBudgetResult): void {
   const body = modal.querySelector('.profile-fullscreen-body') as HTMLElement | null;
   if (!body) return;
   body.innerHTML = `
-    ${_profileReportHtml(result)}
-    <div class="profile-fullscreen-chart">${_profileSvgForFullscreen(result.profileSvg)}</div>
+    ${renderP2PProfileReportHtml(result, { pointA, pointB })}
+    <div class="profile-fullscreen-chart">${profileSvgForFullscreen(result.profileSvg)}</div>
   `;
   modal.classList.remove('hidden');
   document.body.classList.add('profile-modal-open');
