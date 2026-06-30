@@ -473,6 +473,48 @@ describe('optimizer terrain requirements', () => {
     });
   });
 
+  it('prefers first backup coverage over repeatedly stacked redundant coverage', () => {
+    const results = scoreOptimizerCandidates({
+      evalPoints: [{ latitude: 0, longitude: 0 }, { latitude: 0, longitude: 0.01 }],
+      evalElevs: [0, 0],
+      candidates: [{ latitude: 0, longitude: 0 }, { latitude: 0, longitude: 0.01 }],
+      candidateElevs: [0, 0],
+      nRepeaters: 1,
+      txParams: { height: 10, power: 20, freq: 869.525, gain: 2 },
+      opts: {
+        rxHeight: 1.5,
+        rxSens: -133,
+        fadeMargin: 0,
+        radiusKm: 0.4,
+        useLos: false,
+        useFresnel: false,
+        gridRes: 1,
+        latMin: 0,
+        latMax: 0,
+        lonMin: 0,
+        lonMax: 0.01,
+        foliage: null,
+        buildings: null,
+        gapAware: true,
+        objective: 'redundancy',
+        existingNodes: [
+          { lat: 0, lon: 0, height: 10, power: 20, freq: 869.525, gain: 2, elevM: 0, name: 'Existing A1' },
+          { lat: 0, lon: 0, height: 10, power: 20, freq: 869.525, gain: 2, elevM: 0, name: 'Existing A2' },
+          { lat: 0, lon: 0.01, height: 10, power: 20, freq: 869.525, gain: 2, elevM: 0, name: 'Existing B1' },
+        ],
+      },
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].lon).toBeCloseTo(0.01, 6);
+    expect(results[0]).toMatchObject({
+      coveredPoints: 0,
+      redundantPoints: 1,
+      redundancyRatio: 0.5,
+    });
+    expect(results[0].scoreBreakdown?.components.redundancy.value).toBeCloseTo(0.5);
+  });
+
   it('allows later suggestions to uplink through earlier connected suggestions', () => {
     const results = scoreOptimizerCandidates({
       evalPoints: [{ latitude: 0, longitude: 0.005 }, { latitude: 0, longitude: 0.01 }],
