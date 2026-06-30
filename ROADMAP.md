@@ -167,6 +167,22 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 6 dev-console verification passed:
   - `npm run check` (80 unit files, 460 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 3.1 CUDA redundancy parity on branch
+  `codex/phase-3-cuda-redundancy-depth`:
+  - CUDA redundancy scoring now tracks coverage depth across placed CUDA
+    suggestions instead of keeping only a boolean covered mask
+  - CUDA Redundancy First weights first-backup coverage above repeatedly
+    stacked backups for supported no-existing-node searches, matching the CPU
+    redundancy-depth objective behavior
+  - CUDA still reports raw redundant point counts/ratios while using the
+    weighted redundancy score for candidate ranking
+- Focused Phase 3.1 CUDA redundancy-depth verification passed:
+  - `npx vitest run tests/unit/cudaKernelParity.test.js tests/unit/optimizerBackend.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 3.1 CUDA redundancy-depth verification passed:
+  - `npm run check` (80 unit files, 460 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2268,8 +2284,10 @@ diagnostics instead of leaving the result list empty. CPU Redundancy First now
 tracks per-cell coverage counts so first-backup coverage is valued above
 repeatedly stacked backups on already multiply-covered cells, and Redundancy
 First now automatically requests visible existing-node context instead of
-depending on the separate Gap Aware toggle. Remaining work is broader CUDA
-parity for objectives that still need CPU-only diagnostics.
+depending on the separate Gap Aware toggle. CUDA Redundancy First now tracks
+coverage depth across placed suggestions for supported no-existing-node runs.
+Remaining work is CUDA parity for objective paths that still need CPU-only
+diagnostics, such as existing-node context and redundancy-target constraints.
 
 User question: "What should this optimization optimize for?"
 

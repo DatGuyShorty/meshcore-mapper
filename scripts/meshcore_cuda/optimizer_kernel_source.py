@@ -4,7 +4,7 @@ void optimizer_signal_kernel(
     const float* elev,
     const float* candidateCoords,
     const float* candidateElevs,
-    const unsigned char* covered,
+    const unsigned short* covered,
     const unsigned char* selected,
     float* signals,
     int candidateCount,

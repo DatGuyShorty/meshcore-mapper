@@ -80,10 +80,15 @@ describe('CUDA kernel propagation parity', () => {
 
   it('can score already-covered cells for CUDA redundancy objective parity', () => {
     expect(optimizerKernel).toContain('int scoreRedundancy');
+    expect(optimizerKernel).toContain('const unsigned short* covered');
     expect(optimizerKernel).toContain('(covered[evalIdx] != 0 && scoreRedundancy == 0)');
     expect(optimizerHelper).toContain('score_redundancy = objective == "redundancy"');
+    expect(optimizerHelper).toContain('d_covered = cp.zeros(eval_count, dtype=cp.uint16)');
     expect(optimizerHelper).toContain('redundant_counts = cp.sum(covered_mask & existing_mask, axis=1)');
-    expect(optimizerHelper).toContain('scores = new_counts.astype(cp.float32) * np.float32(0.25) + redundant_counts.astype(cp.float32) * np.float32(0.45)');
+    expect(optimizerHelper).toContain('coverage_depth = cp.maximum(d_covered.astype(cp.float32), np.float32(1.0))');
+    expect(optimizerHelper).toContain('redundant_scores = cp.sum(');
+    expect(optimizerHelper).toContain('scores = new_counts.astype(cp.float32) * np.float32(0.25) + redundant_scores.astype(cp.float32) * np.float32(0.45)');
+    expect(optimizerHelper).toContain('d_covered = d_covered + (best_signals >= np.float32(threshold)).astype(cp.uint16)');
     expect(optimizerHelper).toContain('"redundancyRatio": float(best_redundant_count) / float(eval_count) if eval_count else 0.0');
   });
 });
