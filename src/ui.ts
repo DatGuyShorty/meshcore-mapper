@@ -4,6 +4,10 @@
  */
 
 import { createJobStore, type JobMeta, type JobSnapshot } from './jobStore.js';
+import {
+  renderJobDrawerHistory,
+  renderJobDrawerSnapshot,
+} from './jobDrawerView.js';
 
 type CancelHandler = () => void;
 
@@ -39,37 +43,16 @@ function _nowMs(): number {
     : Date.now();
 }
 
-function _renderJobDrawerHistory(): void {
-  const details = _jobEl('job-drawer-history');
-  const list = _jobEl('job-drawer-history-list');
-  if (!details || !list) return;
-  const history = _jobStore.history;
-  details.classList.toggle('hidden', history.length === 0);
-  list.innerHTML = history.map(entry => `
-    <li>
-      <strong>${escHtml(entry.title)}</strong>
-      <span>${escHtml(entry.message)}</span>
-      <em>${escHtml(entry.detail)}</em>
-    </li>
-  `).join('');
-}
-
 function _updateJobDrawer(snapshot: JobSnapshot): void {
   _bindJobDrawerControls();
-  const drawer = _jobEl('job-drawer');
-  if (!drawer) return;
-  drawer.classList.remove('hidden');
-  drawer.dataset.state = snapshot.state;
-  const stateEl = _jobEl('job-drawer-state');
-  const titleEl = _jobEl('job-drawer-title');
-  const messageEl = _jobEl('job-drawer-message');
-  const fillEl = _jobEl('job-drawer-fill');
-  const cancelBtn = _jobEl('btn-job-drawer-cancel') as HTMLButtonElement | null;
-  if (stateEl) stateEl.textContent = snapshot.state === 'running' ? 'Running' : snapshot.state === 'complete' ? 'Completed' : 'Idle';
-  if (titleEl) titleEl.textContent = snapshot.title;
-  if (messageEl) messageEl.textContent = snapshot.message;
-  if (fillEl) fillEl.style.width = `${snapshot.pct}%`;
-  if (cancelBtn) cancelBtn.disabled = snapshot.state !== 'running' || !_cancelHandler;
+  renderJobDrawerSnapshot({
+    drawer: _jobEl('job-drawer'),
+    state: _jobEl('job-drawer-state'),
+    title: _jobEl('job-drawer-title'),
+    message: _jobEl('job-drawer-message'),
+    fill: _jobEl('job-drawer-fill'),
+    cancelButton: _jobEl('btn-job-drawer-cancel') as HTMLButtonElement | null,
+  }, snapshot, Boolean(_cancelHandler));
 }
 
 export function setCancelHandler(fn: CancelHandler | null): void {
@@ -115,7 +98,11 @@ export function hideProgress(): void {
   const pct = parseFloat(fill?.style.width ?? '0') || 100;
   const snapshot = _jobStore.complete(pct);
   if (!snapshot) return;
-  _renderJobDrawerHistory();
+  renderJobDrawerHistory(
+    _jobEl('job-drawer-history'),
+    _jobEl('job-drawer-history-list'),
+    _jobStore.history,
+  );
   _updateJobDrawer(snapshot);
 }
 

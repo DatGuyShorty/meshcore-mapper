@@ -1,6 +1,6 @@
 # MeshCore Mapper Improvement Roadmap
 
-Last updated: 2026-06-16
+Last updated: 2026-06-30
 
 This roadmap is for agents and contributors improving MeshCore Mapper across
 functionality, UI/UX, architecture, and maintainability. It is intentionally
@@ -55,6 +55,25 @@ If no more specific task is given, prioritize in this order:
 7. Reports, offline preparation, and live network health.
 
 ## Progress Log
+
+### 2026-06-30
+
+- Continued Phase 6 incremental UI rewrite on branch
+  `codex/phase-6-job-drawer-view`:
+  - added `src/jobDrawerView.ts` as the typed view boundary for job drawer
+    labels, history HTML, snapshot rendering, and cancel-button state
+  - `src/ui.ts` now delegates job drawer DOM rendering to the helper while
+    keeping the existing job store, progress overlay, and cancel/dismiss
+    control wiring intact
+  - added direct view-helper tests for escaped history rows, drawer snapshot
+    updates, state labels, and history visibility
+- Focused Phase 6 job-drawer verification passed:
+  - `npx vitest run tests/unit/jobDrawerView.test.js tests/unit/ui.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 6 job-drawer verification passed:
+  - `npm run check` (77 unit files, 441 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2464,11 +2483,11 @@ Goal: replace imperative DOM-heavy panels with maintainable components.
 
 Status: Started. The coverage layer manager, coverage inspector, node
 list/editor, P2P result panel, optimizer result list, settings/cache summary,
-3D view controls, coverage network summary, and relay path result panel now
-have dedicated typed view helpers and direct view tests for their main UI states
-while keeping the existing DOM surface and workflow callbacks intact. Next Phase
-6 work should decide whether to introduce Preact/signals or keep extracting
-smaller DOM-helper boundaries for remaining panels.
+3D view controls, coverage network summary, relay path result panel, and job
+drawer now have dedicated typed view helpers and direct view tests for their
+main UI states while keeping the existing DOM surface and workflow callbacks
+intact. Next Phase 6 work should decide whether to introduce Preact/signals or
+keep extracting smaller DOM-helper boundaries for remaining panels.
 
 Recommended stack:
 
