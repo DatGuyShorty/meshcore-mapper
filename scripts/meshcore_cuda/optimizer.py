@@ -100,7 +100,7 @@ def compute_optimizer(params_path):
     d_elevs = cp.asarray(eval_elevs)
     d_candidate_coords = cp.asarray(candidate_coords)
     d_candidate_elevs = cp.asarray(candidate_elevs)
-    d_covered = cp.zeros(eval_count, dtype=cp.uint8)
+    d_covered = cp.zeros(eval_count, dtype=cp.uint16)
     d_selected = cp.zeros(candidate_count, dtype=cp.uint8)
     d_signals = cp.empty((candidate_count, eval_count), dtype=cp.float32)
 
@@ -180,7 +180,12 @@ def compute_optimizer(params_path):
             redundant_counts = cp.sum(covered_mask & existing_mask, axis=1)
             new_counts = cp.sum(covered_mask & ~existing_mask, axis=1)
             counts = new_counts + redundant_counts
-            scores = new_counts.astype(cp.float32) * np.float32(0.25) + redundant_counts.astype(cp.float32) * np.float32(0.45)
+            coverage_depth = cp.maximum(d_covered.astype(cp.float32), np.float32(1.0))
+            redundant_scores = cp.sum(
+                cp.where(covered_mask & existing_mask, np.float32(1.0) / coverage_depth, np.float32(0.0)),
+                axis=1,
+            )
+            scores = new_counts.astype(cp.float32) * np.float32(0.25) + redundant_scores.astype(cp.float32) * np.float32(0.45)
         else:
             redundant_counts = cp.zeros(candidate_count, dtype=cp.int32)
             new_counts = cp.sum(covered_mask, axis=1)
@@ -197,7 +202,7 @@ def compute_optimizer(params_path):
         best_signals = d_signals[best_idx]
         best_new_count = int(cp.asnumpy(new_counts[best_idx])) if best_idx >= 0 else 0
         best_redundant_count = int(cp.asnumpy(redundant_counts[best_idx])) if best_idx >= 0 else 0
-        d_covered = cp.maximum(d_covered, (best_signals >= np.float32(threshold)).astype(cp.uint8))
+        d_covered = d_covered + (best_signals >= np.float32(threshold)).astype(cp.uint16)
         d_selected[best_idx] = np.uint8(1)
         rounds_run += 1
 
