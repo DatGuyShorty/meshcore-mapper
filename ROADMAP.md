@@ -106,6 +106,21 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 4.1 marker multi-selection verification passed:
   - `npm run check` (79 unit files, 450 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 4.1 contextual-inspector multi-selection on branch
+  `codex/phase-4-node-range-selection`:
+  - node-list Shift-click now selects the visible sorted range from the current
+    selection anchor while Ctrl/Cmd keeps toggling individual nodes
+  - range selection uses `nodeListView` row ordering, so active filter and sort
+    settings define the range users see
+  - marker modifier-clicks keep the existing toggle behavior because map
+    markers do not have a displayed list range
+- Focused Phase 4.1 node-range verification passed:
+  - `npx vitest run tests/unit/nodeSelectionEvents.test.js tests/unit/nodeListView.test.js tests/unit/selectionStore.test.js tests/unit/mapContext.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 4.1 node-range verification passed:
+  - `npm run check` (79 unit files, 453 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2310,9 +2325,9 @@ actions, optimizer candidate selection with add/backhaul actions,
 coverage-point selection that mirrors the popup's visible coverage/loss
 breakdown, and obstacle selection with OSM/modeling assumptions. Current
 selection-state acceptance, single selected-object highlighting, and initial
-multi-node selection from the node list and map markers are covered; remaining
-polish is range multi-selection and any future bulk edit/export/profile actions
-that prove necessary.
+multi-node selection from the node list and map markers are covered, including
+node-list Shift-click range selection. Remaining polish is any future bulk
+edit/export/profile actions that prove necessary.
 
 User question: "What am I looking at, and what can I do next?"
 

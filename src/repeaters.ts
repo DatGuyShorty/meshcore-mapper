@@ -30,7 +30,7 @@ import type { WsRepeaterRow } from './repeaterRows.js';
 import { normalizeWsRepeaterSnapshot, normalizeWsUrl, wsKeyForRow } from './repeaterRows.js';
 import { attachEirpHint } from './eirp.js';
 import { createLiveFeedStore } from './liveFeedStore.js';
-import { renderNodeList } from './nodeListView.js';
+import { buildNodeListRows, renderNodeList } from './nodeListView.js';
 import {
   applyNodeEditorValues,
   nodeEditorValuesFromRepeater,
@@ -40,6 +40,7 @@ import {
 import { liveHealthSummary, nodeHealth, type NodeHealthState } from './liveHealth.js';
 import {
   nodeSelectionEventForClick,
+  type NodeSelectionClickEvent,
   type NodeSelectionId,
 } from './nodeSelectionEvents.js';
 
@@ -131,6 +132,7 @@ let _filterText  = '';
 let _sortMode    = 'name-az';
 let _selectedNodeId: number | string | null = null;
 let _selectedNodeIds: Array<number | string> = [];
+let _selectionAnchorNodeId: number | string | null = null;
 let _healthTimer: number | null = null;
 
 // Context menu
@@ -504,6 +506,23 @@ function _syncSelectedNodeHighlight(): void {
   _syncSelectedNodeList();
 }
 
+function _displayedNodeIds(): string[] {
+  return buildNodeListRows(state.repeaters as Repeater[], {
+    filterText: _filterText,
+    sortMode: _sortMode,
+    selectedNodeId: _selectedNodeId,
+    selectedNodeIds: _selectedNodeIds,
+    editingId,
+  })
+    .filter(row => row.kind === 'node')
+    .map(row => row.id);
+}
+
+function _rememberSelectionAnchor(id: NodeSelectionId, event: NodeSelectionClickEvent): void {
+  if (event?.shiftKey && _selectionAnchorNodeId !== null) return;
+  _selectionAnchorNodeId = id;
+}
+
 /**
  * @param {any} name
  * @param {number} lat
@@ -557,8 +576,12 @@ export function addRepeater(
     const selectionEvent = nodeSelectionEventForClick(r.id, e.originalEvent, {
       selectedNodeId: _selectedNodeId,
       selectedNodeIds: _selectedNodeIds as NodeSelectionId[],
+      selectionAnchorId: _selectionAnchorNodeId,
     });
-    if (selectionEvent) document.dispatchEvent(new CustomEvent(selectionEvent.type, { detail: selectionEvent.detail }));
+    if (selectionEvent) {
+      _rememberSelectionAnchor(r.id, e.originalEvent);
+      document.dispatchEvent(new CustomEvent(selectionEvent.type, { detail: selectionEvent.detail }));
+    }
     if (e.originalEvent && selectionEvent?.type === 'node:selected') _showCtxMenu(r, e.originalEvent);
   });
 
@@ -705,6 +728,17 @@ export function init(): void {
     const detail = (event as CustomEvent<{ kind?: string; id?: string | number | null; ids?: Array<string | number> }>).detail;
     _selectedNodeId = detail?.kind === 'node' ? detail.id ?? null : null;
     _selectedNodeIds = detail?.kind === 'nodes' && Array.isArray(detail.ids) ? detail.ids : [];
+    if (detail?.kind === 'node') {
+      _selectionAnchorNodeId = detail.id ?? null;
+    } else if (detail?.kind === 'nodes') {
+      if (_selectedNodeIds.length && !_selectedNodeIds.some(id => String(id) === String(_selectionAnchorNodeId))) {
+        _selectionAnchorNodeId = _selectedNodeIds[0];
+      } else if (!_selectedNodeIds.length) {
+        _selectionAnchorNodeId = null;
+      }
+    } else {
+      _selectionAnchorNodeId = null;
+    }
     _syncSelectedNodeHighlight();
   });
   document.getElementById('btn-toggle-all-vis')?.addEventListener('click', () => {
@@ -725,11 +759,17 @@ export function init(): void {
         : null;
       if (item) {
         const id = item.dataset.id;
+        if (!id) return;
         const selectionEvent = nodeSelectionEventForClick(id, e, {
           selectedNodeId: _selectedNodeId,
           selectedNodeIds: _selectedNodeIds as NodeSelectionId[],
+          selectionAnchorId: _selectionAnchorNodeId,
+          orderedNodeIds: _displayedNodeIds(),
         });
-        if (selectionEvent) document.dispatchEvent(new CustomEvent(selectionEvent.type, { detail: selectionEvent.detail }));
+        if (selectionEvent) {
+          _rememberSelectionAnchor(id, e);
+          document.dispatchEvent(new CustomEvent(selectionEvent.type, { detail: selectionEvent.detail }));
+        }
       }
       return;
     }
