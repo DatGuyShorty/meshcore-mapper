@@ -1,10 +1,12 @@
-export type ConsoleLevel = 'log' | 'warn' | 'error' | 'info' | 'debug';
+import {
+  appendConsoleEntry,
+  clearConsoleOutput,
+  toggleDevConsoleCollapsed,
+  type ConsoleEntry,
+  type ConsoleLevel,
+} from './devConsoleView.js';
 
-export type ConsoleEntry = {
-  level: ConsoleLevel;
-  msg: string;
-  time: string;
-};
+export type { ConsoleEntry, ConsoleLevel } from './devConsoleView.js';
 
 type ConsoleMethod = (...args: unknown[]) => void;
 
@@ -51,14 +53,7 @@ LEVELS.forEach(level => {
 
 function renderEntry(entry: ConsoleEntry): void {
   if (!_output) return;
-  const row = document.createElement('div');
-  row.className = `dc-row dc-${entry.level}`;
-  row.textContent = `[${entry.time}] ${entry.msg}`;
-  _output.appendChild(row);
-  while (_output.childElementCount > MAX_ENTRIES && _output.firstChild) {
-    _output.removeChild(_output.firstChild);
-  }
-  _output.scrollTop = _output.scrollHeight;
+  appendConsoleEntry(_output, entry, MAX_ENTRIES);
 }
 
 export function init(): void {
@@ -69,8 +64,7 @@ export function init(): void {
     const body = document.getElementById('dev-console-body');
     const btn = document.getElementById('btn-dev-console-toggle');
     if (!body || !btn) return;
-    const collapsed = body.classList.toggle('hidden');
-    btn.textContent = collapsed ? 'Up' : 'Down';
+    const collapsed = toggleDevConsoleCollapsed(body, btn);
     if (!collapsed && _output) _output.scrollTop = _output.scrollHeight;
   }
 
@@ -82,6 +76,6 @@ export function init(): void {
 
   document.getElementById('btn-dev-console-clear')?.addEventListener('click', () => {
     entries.length = 0;
-    if (_output) _output.innerHTML = '';
+    if (_output) clearConsoleOutput(_output);
   });
 }

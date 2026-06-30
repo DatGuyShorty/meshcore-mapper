@@ -152,6 +152,21 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 3.1 redundancy-context verification passed:
   - `npm run check` (79 unit files, 456 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 6 incremental UI rewrite on branch
+  `codex/phase-6-dev-console-view`:
+  - added `src/devConsoleView.ts` as the typed view boundary for developer
+    console row creation, output trimming, clear behavior, and collapse labels
+  - `src/devConsole.ts` now keeps console capture/binding behavior while
+    delegating DOM rendering and output state updates to the helper
+  - added direct view-helper tests for row formatting, capped append/scroll,
+    clearing, and collapsed-state labels
+- Focused Phase 6 dev-console verification passed:
+  - `npx vitest run tests/unit/devConsoleView.test.js tests/unit/devConsole.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 6 dev-console verification passed:
+  - `npm run check` (80 unit files, 460 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2565,11 +2580,11 @@ Goal: replace imperative DOM-heavy panels with maintainable components.
 Status: Started. The coverage layer manager, coverage inspector, node
 list/editor, P2P result panel, optimizer result list, settings/cache summary,
 3D view controls, coverage network summary, relay path result panel, job
-drawer, and shared progress overlay now have dedicated typed view helpers and
-direct view tests for their main UI states while keeping the existing DOM
-surface and workflow callbacks intact. Next Phase 6 work should decide whether
-to introduce Preact/signals or keep extracting smaller DOM-helper boundaries for
-remaining panels.
+drawer, shared progress overlay, and developer console now have dedicated typed
+view helpers and direct view tests for their main UI states while keeping the
+existing DOM surface and workflow callbacks intact. Next Phase 6 work should
+decide whether to introduce Preact/signals or keep extracting smaller
+DOM-helper boundaries for remaining panels.
 
 Recommended stack:
 
