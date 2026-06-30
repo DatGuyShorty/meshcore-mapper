@@ -34,6 +34,12 @@ describe('optimizer backend selection', () => {
     })).toBeNull();
   });
 
+  it('allows CUDA redundancy target filtering when existing-node diagnostics are not needed', () => {
+    expect(optimizerCudaUnsupportedReason({
+      opts: { minRedundancyRatio: 0.5 },
+    })).toBeNull();
+  });
+
   it('keeps CUDA fallback disabled for redundancy runs that need CPU diagnostics', () => {
     expect(optimizerCudaUnsupportedReason({
       opts: {
@@ -41,13 +47,6 @@ describe('optimizer backend selection', () => {
         existingNodes: [{ name: 'Existing' }],
       },
     })).toBe('gap-aware optimizer with existing nodes requires CPU diagnostics');
-
-    expect(optimizerCudaUnsupportedReason({
-      opts: {
-        objective: 'redundancy',
-        minRedundancyRatio: 0.5,
-      },
-    })).toBe('redundancy-target constraint requires CPU scoring');
   });
 
   it('runs the CUDA optimizer for supported redundancy objective payloads', async () => {

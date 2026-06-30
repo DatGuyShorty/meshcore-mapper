@@ -71,7 +71,11 @@ def compute_optimizer(params_path):
                 "cuda": True,
                 "rounds": 0,
                 "candidateCount": max(0, candidate_count),
+                "candidates": max(0, candidate_count),
                 "evalCount": max(0, eval_count),
+                "roundsCompleted": 0,
+                "candidatesScored": 0,
+                "rejectedByRedundancy": 0,
                 "workerComputeMs": (time.perf_counter() - t0) * 1000.0,
             },
         })
@@ -116,9 +120,17 @@ def compute_optimizer(params_path):
     opts = p["opts"]
     bounds = p["bounds"]
     objective = opts.get("objective") or "balanced"
-    score_redundancy = objective == "redundancy"
+    try:
+        min_redundancy_ratio = float(opts.get("minRedundancyRatio"))
+    except (TypeError, ValueError):
+        min_redundancy_ratio = math.nan
+    if math.isfinite(min_redundancy_ratio):
+        min_redundancy_ratio = max(0.0, min(1.0, min_redundancy_ratio))
+    score_redundancy = objective == "redundancy" or math.isfinite(min_redundancy_ratio)
     placed = []
     rounds_run = 0
+    candidates_scored = 0
+    rejected_by_redundancy = 0
 
     for round_idx in range(max(0, n_repeaters)):
         _progress("cuda-scoring", 0.30 + 0.60 * (round_idx / max(1, n_repeaters)))
@@ -185,12 +197,24 @@ def compute_optimizer(params_path):
                 cp.where(covered_mask & existing_mask, np.float32(1.0) / coverage_depth, np.float32(0.0)),
                 axis=1,
             )
-            scores = new_counts.astype(cp.float32) * np.float32(0.25) + redundant_scores.astype(cp.float32) * np.float32(0.45)
+            if objective == "redundancy":
+                scores = new_counts.astype(cp.float32) * np.float32(0.25) + redundant_scores.astype(cp.float32) * np.float32(0.45)
+            else:
+                scores = new_counts.astype(cp.float32)
         else:
             redundant_counts = cp.zeros(candidate_count, dtype=cp.int32)
             new_counts = cp.sum(covered_mask, axis=1)
             counts = new_counts
             scores = counts.astype(cp.float32)
+
+        available_mask = d_selected == np.uint8(0)
+        candidates_scored += int(cp.asnumpy(cp.sum(available_mask)))
+        if math.isfinite(min_redundancy_ratio):
+            redundancy_ratios = redundant_counts.astype(cp.float32) / np.float32(eval_count)
+            passes_redundancy = redundancy_ratios >= np.float32(min_redundancy_ratio)
+            rejected_by_redundancy += int(cp.asnumpy(cp.sum(available_mask & ~passes_redundancy)))
+            scores = cp.where(passes_redundancy, scores, np.float32(0.0))
+            counts = cp.where(passes_redundancy, counts, np.int32(0))
 
         scores_np = cp.asnumpy(scores)
         best_idx = int(scores_np.argmax()) if scores_np.size else -1
@@ -220,15 +244,26 @@ def compute_optimizer(params_path):
             "candidateCoveredPoints": best_count,
         })
 
+    final_covered_points = int(cp.asnumpy(cp.sum(d_covered != 0))) if eval_count else 0
+    stats = {
+        "cuda": True,
+        "rounds": rounds_run,
+        "roundsCompleted": rounds_run,
+        "candidateCount": candidate_count,
+        "candidates": candidate_count,
+        "evalCount": eval_count,
+        "candidatesScored": candidates_scored,
+        "rejectedByRedundancy": rejected_by_redundancy,
+        "finalCoveredPoints": final_covered_points,
+        "finalCoverageRatio": float(final_covered_points) / float(eval_count) if eval_count else 0.0,
+        "workerComputeMs": (time.perf_counter() - t0) * 1000.0,
+    }
+    if math.isfinite(min_redundancy_ratio):
+        stats["minRedundancyRatio"] = min_redundancy_ratio
+
     _progress("downloading-result", 0.95)
     _json({
         "ok": True,
         "results": placed,
-        "stats": {
-            "cuda": True,
-            "rounds": rounds_run,
-            "candidateCount": candidate_count,
-            "evalCount": eval_count,
-            "workerComputeMs": (time.perf_counter() - t0) * 1000.0,
-        },
+        "stats": stats,
     })
