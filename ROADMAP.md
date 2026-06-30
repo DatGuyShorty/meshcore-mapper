@@ -236,6 +236,23 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 6 P2P profile-report verification passed:
   - `npm run check` (81 unit files, 467 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 6 incremental UI rewrite on branch
+  `codex/phase-6-repeater-marker-view`:
+  - added `src/repeaterMarkerView.ts` as the typed view boundary for planned
+    repeater marker popups, live-feed marker popups, and the node context menu
+    action shell
+  - `src/repeaters.ts` now delegates marker/menu HTML to the helper while
+    keeping marker lifecycle, drag handling, context-menu actions, and live
+    feed updates intact
+  - added direct helper tests for popup escaping, optional live-node metadata,
+    and context-menu action coverage
+- Focused Phase 6 repeater-marker verification passed:
+  - `npx vitest run tests/unit/repeaterMarkerView.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 6 repeater-marker verification passed:
+  - `npm run check` (82 unit files, 470 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2652,14 +2669,14 @@ Target duration: 6-10 weeks
 Goal: replace imperative DOM-heavy panels with maintainable components.
 
 Status: Started. The coverage layer manager, coverage inspector, node
-list/editor, P2P result panel and fullscreen profile report, optimizer result
-list, settings/cache summary, 3D view controls, coverage network summary, relay
-path result panel, Best Relay Path endpoint selects, job drawer, shared
-progress overlay, and developer console now have dedicated typed view helpers
-and direct view tests for their main UI states while keeping the existing DOM
-surface and workflow callbacks intact. Next Phase 6 work should decide whether
-to introduce Preact/signals or keep extracting smaller DOM-helper boundaries for
-remaining panels.
+list/editor, repeater marker popups/context menu, P2P result panel and
+fullscreen profile report, optimizer result list, settings/cache summary, 3D
+view controls, coverage network summary, relay path result panel, Best Relay
+Path endpoint selects, job drawer, shared progress overlay, and developer
+console now have dedicated typed view helpers and direct view tests for their
+main UI states while keeping the existing DOM surface and workflow callbacks
+intact. Next Phase 6 work should decide whether to introduce Preact/signals or
+keep extracting smaller DOM-helper boundaries for remaining panels.
 
 Recommended stack:
 

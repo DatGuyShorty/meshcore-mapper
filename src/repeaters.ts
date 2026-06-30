@@ -22,7 +22,7 @@
  * @property {number} [azimuthDeg]
  */
 import { map, state } from './map.js';
-import { confirmAction, escHtml, setStatus } from './ui.js';
+import { confirmAction, setStatus } from './ui.js';
 import { handleRepeaterClick, startPickingFrom } from './p2p.js';
 import { runCoverageAnalysis } from './coverage.js';
 import { handlePathNodePick } from './pathfinderUI.js';
@@ -38,6 +38,7 @@ import {
   setNodeEditorMode,
 } from './nodeEditorView.js';
 import { liveHealthSummary, nodeHealth, type NodeHealthState } from './liveHealth.js';
+import { repeaterContextMenuHtml, repeaterPopupHtml, wsRepeaterPopupHtml } from './repeaterMarkerView.js';
 import {
   nodeSelectionEventForClick,
   type NodeSelectionClickEvent,
@@ -143,18 +144,7 @@ function _initCtxMenu() {
   _ctxMenu = document.createElement('div');
   _ctxMenu.id = 'node-ctx-menu';
   _ctxMenu.style.display = 'none';
-  _ctxMenu.innerHTML = `
-    <div class="ctx-item" data-ctx="info">Info</div>
-    <div class="ctx-item" data-ctx="p2p">P2P Link</div>
-    <div class="ctx-item" data-ctx="edit">Edit</div>
-    <div class="ctx-item" data-ctx="vis"></div>
-    <div class="ctx-separator"></div>
-    <div class="ctx-item" data-ctx="coverage">Run Coverage</div>
-    <div class="ctx-item" data-ctx="optimize">Optimize Here</div>
-    <div class="ctx-item" data-ctx="pathfrom">Best Path From...</div>
-    <div class="ctx-separator"></div>
-    <div class="ctx-item ctx-danger" data-ctx="delete">Remove</div>
-  `;
+  _ctxMenu.innerHTML = repeaterContextMenuHtml();
   document.body.append(_ctxMenu);
   _ctxMenu.addEventListener('click', (e: MouseEvent) => {
     const item = e.target instanceof Element
@@ -243,20 +233,6 @@ function _wsKeyForRow(r: unknown): string {
 }
 
 /**
- * @param {any} r
- * @param {string} name
- */
-function _wsPopupLines(r: Record<string, any>, name: string): string {
-  const short = r.short ?? null;
-  const lastSeen = r.last_seen ?? r.lastSeen ?? null;
-  return [
-    `<b>${escHtml(name)}</b>`,
-    short ? `ID: <code>${escHtml(short)}</code>` : null,
-    lastSeen ? `Last seen: ${escHtml(lastSeen)}` : null,
-  ].filter(Boolean).join('<br>');
-}
-
-/**
  * @param {any} rep
  * @param {any} r
  * @param {Record<string, number>} defaults
@@ -293,7 +269,7 @@ function _applyWsRow(rep: Repeater, r: WsRepeaterRow | Record<string, any>, defa
   rep.short = short;
   rep.lastSeen = lastSeen;
   rep.wsKey = _wsKeyForRow(r);
-  rep.marker.setPopupContent(_wsPopupLines(r, name));
+  rep.marker.setPopupContent(wsRepeaterPopupHtml(r, name));
   rep.marker.setIcon?.(makeMarkerIcon(rep.color, _isSelectedNode(rep.id), nodeHealth(rep).state));
   return { coverageChanged, displayChanged };
 }
@@ -311,7 +287,7 @@ async function _loadWsFromDb(): Promise<void> {
       rep.lastSeen = r.lastSeen ?? null;
       rep.wsKey    = _wsKeyForRow(r);
       _liveFeedStore.addRepeaterId(rep.id);
-      rep.marker.setPopupContent(_wsPopupLines(r, r.name));
+      rep.marker.setPopupContent(wsRepeaterPopupHtml(r, r.name));
       rep.marker.setIcon?.(makeMarkerIcon(rep.color, _isSelectedNode(rep.id), nodeHealth(rep).state));
     }
     _lastRemoved = savedUndo;
@@ -550,7 +526,7 @@ export function addRepeater(
 
   const marker = L.marker([lat, lon], { icon: makeMarkerIcon(color), draggable: true })
     .addTo(map)
-    .bindPopup(`<b>${escHtml(displayName)}</b><br>TX: ${power} dBm + ${gain} dBi @ ${freq} MHz<br>Ant. height: ${height} m`);
+    .bindPopup(repeaterPopupHtml({ name: displayName, power, gain, freq, height }));
 
   marker.on('dragend', () => {
     const r = (state.repeaters as Repeater[]).find(x => x.id === id);
@@ -558,7 +534,7 @@ export function addRepeater(
       r.lat = marker.getLatLng().lat;
       r.lon = marker.getLatLng().lng;
       // B8: keep popup content in sync with new position
-      r.marker.setPopupContent(`<b>${escHtml(r.name)}</b><br>TX: ${r.power} dBm + ${r.gain} dBi @ ${r.freq} MHz<br>Ant. height: ${r.height} m`);
+      r.marker.setPopupContent(repeaterPopupHtml(r));
       document.dispatchEvent(new CustomEvent('repeater:moved', {
         detail: { id: r.id, lat: r.lat, lon: r.lon },
       }));
@@ -821,7 +797,7 @@ export function init(): void {
         r.name = name; r.lat = lat; r.lon = lon; r.height = height;
         r.power = power; r.freq = freq; r.gain = gain;
         r.marker.setLatLng([lat, lon]);
-        r.marker.setPopupContent(`<b>${escHtml(name)}</b><br>TX: ${power} dBm + ${gain} dBi @ ${freq} MHz<br>Ant. height: ${height} m`);
+        r.marker.setPopupContent(repeaterPopupHtml({ name, power, gain, freq, height }));
         renderRepeaterList();
         setStatus(`Updated ${name}. Existing coverage layers kept; compute to add a fresh one.`);
       }
