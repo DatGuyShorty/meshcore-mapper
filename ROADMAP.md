@@ -183,6 +183,26 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 3.1 CUDA redundancy-depth verification passed:
   - `npm run check` (80 unit files, 460 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 3.1 CUDA redundancy-target parity on branch
+  `codex/phase-3-cuda-redundancy-target`:
+  - CUDA backend selection now allows `minRedundancyRatio` payloads when no
+    existing-node diagnostics are required
+  - CUDA optimizer scoring activates redundant-cell evaluation for either
+    Redundancy First or a finite redundancy target, then filters candidates
+    below the raw redundancy target
+  - CUDA target filtering reports `rejectedByRedundancy`, candidate scoring
+    counts, final coverage, and the clamped target in stats so no-result runs
+    still explain themselves
+  - target-only CUDA runs keep non-redundancy objectives scored by new
+    coverage unless the selected objective is Redundancy First
+- Focused Phase 3.1 CUDA redundancy-target verification passed:
+  - `python -m py_compile scripts\meshcore_cuda\optimizer.py`
+  - `npx vitest run tests/unit/cudaKernelParity.test.js tests/unit/optimizerBackend.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 3.1 CUDA redundancy-target verification passed:
+  - `npm run check` (80 unit files, 461 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2285,9 +2305,12 @@ tracks per-cell coverage counts so first-backup coverage is valued above
 repeatedly stacked backups on already multiply-covered cells, and Redundancy
 First now automatically requests visible existing-node context instead of
 depending on the separate Gap Aware toggle. CUDA Redundancy First now tracks
-coverage depth across placed suggestions for supported no-existing-node runs.
+coverage depth across placed suggestions for supported no-existing-node runs,
+and CUDA can enforce target-only `minRedundancyRatio` filters with
+`rejectedByRedundancy` diagnostics when no existing-node context is needed.
 Remaining work is CUDA parity for objective paths that still need CPU-only
-diagnostics, such as existing-node context and redundancy-target constraints.
+diagnostics, especially existing-node coverage context and redundancy targets
+that depend on that context.
 
 User question: "What should this optimization optimize for?"
 

@@ -133,9 +133,6 @@ export function optimizerCudaUnsupportedReason(data: OptimizerPayload): string |
   if (Number.isFinite(data?.opts?.minCandidateElevationM)) {
     return 'minimum-elevation constraint requires CPU scoring';
   }
-  if (Number.isFinite(data?.opts?.minRedundancyRatio)) {
-    return 'redundancy-target constraint requires CPU scoring';
-  }
   if (Array.isArray(data?.opts?.exclusionZones) && data.opts.exclusionZones.length > 0) {
     return 'exclusion-zone constraints require CPU scoring';
   }
