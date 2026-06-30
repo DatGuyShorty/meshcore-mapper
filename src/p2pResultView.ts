@@ -4,6 +4,18 @@ export type P2PBudgetRow = {
   color: string | null;
 };
 
+export type P2PProfileReportPoint = {
+  lat?: number;
+  lng?: number;
+  lon?: number;
+} | null | undefined;
+
+export type P2PProfileReportOptions = {
+  pointA?: P2PProfileReportPoint;
+  pointB?: P2PProfileReportPoint;
+  generatedAt?: Date | string;
+};
+
 export function formatP2PNumber(value: number): string {
   return Number(value).toFixed(1);
 }
@@ -100,6 +112,44 @@ export function p2pResultStatusMessage(result: any): string {
     : `Link FAILED (${formatP2PNumber(result.margin)} dB short)`;
 }
 
+export function profileSvgForFullscreen(profileSvg: unknown): string {
+  return String(profileSvg).replace(/p2p-above-los/g, 'p2p-above-los-fullscreen');
+}
+
+export function renderP2PProfileReportHtml(result: any, options: P2PProfileReportOptions = {}): string {
+  const settings = result?._settings ?? {};
+  const now = formatProfileReportDate(options.generatedAt ?? new Date());
+  const aLat = pointLat(options.pointA);
+  const aLon = pointLon(options.pointA);
+  const bLat = pointLat(options.pointB);
+  const bLon = pointLon(options.pointB);
+  const marginColor = result.margin >= 10 ? '#4ade80' : (result.margin >= 0 ? '#facc15' : '#f87171');
+  const fresnelLabel = result?.fresnelResult?.fresnelClear ? 'Clear' : (result?.geoResult?.geometricLos ? 'Partial' : 'Blocked');
+  const geoLabel = result?.geoResult?.geometricLos ? 'Clear' : 'Blocked';
+
+  return `
+    <div class="profile-report-card">
+      <div class="profile-report-title">Terrain LoS Profile Report</div>
+      <div class="profile-report-subtitle">Exported ${_escHtml(now)} UTC</div>
+      <div class="profile-report-metrics">
+        <div class="profile-report-metric"><span>LINK MARGIN</span><strong style="color:${marginColor}">${_escHtml(formatP2PNumber(result.margin))} dB</strong></div>
+        <div class="profile-report-metric"><span>RX POWER</span><strong>${_escHtml(formatP2PNumber(result.rxPower))} dBm</strong></div>
+        <div class="profile-report-metric"><span>DISTANCE</span><strong>${_escHtml((result.distM / 1000).toFixed(2))} km</strong></div>
+        <div class="profile-report-metric"><span>FREQUENCY</span><strong>${_escHtml(formatP2PNumber(settings.freqMHz ?? 0))} MHz</strong></div>
+        <div class="profile-report-metric"><span>SAMPLES</span><strong>${_escHtml(String(result.sampleCount))}</strong></div>
+      </div>
+      <div class="profile-report-lines">
+        <div>A (TX): ${_escHtml(aLat.toFixed(6))}, ${_escHtml(aLon.toFixed(6))}  ->  B (RX): ${_escHtml(bLat.toFixed(6))}, ${_escHtml(bLon.toFixed(6))}</div>
+        <div>Path loss ${_escHtml(formatP2PNumber(result.pathLoss))} dB | Diffraction ${_escHtml(formatP2PNumber(result.diffractionLoss))} dB | Foliage ${_escHtml(formatP2PNumber(result.foliageLoss))} dB | Buildings ${_escHtml(formatP2PNumber(result.buildingLoss))} dB</div>
+        <div>TX ${_escHtml(formatP2PNumber(settings.txPower ?? 0))} dBm + ${_escHtml(formatP2PNumber(settings.txGain ?? 0))} dBi | RX gain ${_escHtml(formatP2PNumber(settings.rxGain ?? 0))} dBi | TX/RX heights ${_escHtml(formatP2PNumber(settings.txHeight ?? 0))} / ${_escHtml(formatP2PNumber(settings.rxHeight ?? 0))} m</div>
+        <div>LoS geometric: ${_escHtml(geoLabel)} | Fresnel: ${_escHtml(fresnelLabel)} | Required RX: ${_escHtml(formatP2PNumber(result.requiredRx ?? 0))} dBm</div>
+        ${result.monteCarlo?.enabled
+          ? `<div>Monte Carlo ${_escHtml(String(result.monteCarlo.trials))} trials | Outage ${_escHtml((result.monteCarlo.outageProbability * 100).toFixed(1))}% | Margin P05/P50/P95 ${_escHtml(formatP2PNumber(result.monteCarlo.marginP05))} / ${_escHtml(formatP2PNumber(result.monteCarlo.marginP50))} / ${_escHtml(formatP2PNumber(result.monteCarlo.marginP95))} dB</div>`
+          : ''}
+      </div>
+    </div>`;
+}
+
 function _losLabel(result: any): string {
   return result.geoResult.geometricLos
     ? '<span style="color:#4ade80">Clear</span>'
@@ -111,6 +161,21 @@ function _fresnelLabel(result: any): string {
   return result.geoResult.geometricLos
     ? '<span style="color:#facc15">Partial</span>'
     : '<span style="color:#fc8181">Blocked</span>';
+}
+
+function formatProfileReportDate(value: Date | string): string {
+  const iso = value instanceof Date ? value.toISOString() : String(value);
+  return iso.replace('T', ' ').slice(0, 19);
+}
+
+function pointLat(point: P2PProfileReportPoint): number {
+  const value = Number(point?.lat ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function pointLon(point: P2PProfileReportPoint): number {
+  const value = Number(point?.lng ?? point?.lon ?? 0);
+  return Number.isFinite(value) ? value : 0;
 }
 
 function _escHtml(value: unknown): string {
