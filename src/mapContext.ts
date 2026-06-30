@@ -18,6 +18,7 @@ import {
   type Obstacle,
   type OptimizerCandidate,
   type SelectedLink,
+  type SelectionId,
 } from './selectionStore.js';
 
 type LatLonPoint = {
@@ -173,6 +174,34 @@ export function _nodeInspectorContent(rep: Repeater): string {
       <button type="button" class="btn-secondary btn-xs" data-inspector-action="node-p2p" data-node-id="${escHtml(rep?.id)}">P2P Link</button>
       <button type="button" class="btn-secondary btn-xs" data-inspector-action="node-optimize" data-node-id="${escHtml(rep?.id)}">Optimize Here</button>
       <button type="button" class="btn-secondary btn-xs inspector-danger" data-inspector-action="node-delete" data-node-id="${escHtml(rep?.id)}">Delete</button>
+      <button type="button" class="btn-secondary btn-xs" data-inspector-action="clear-selection">Clear</button>
+    </div>
+  </div>`;
+}
+
+/** @param {Repeater[]} reps */
+export function _nodesInspectorContent(reps: Repeater[]): string {
+  const nodes = Array.isArray(reps) ? reps.filter(Boolean) : [];
+  const visibleCount = nodes.filter(rep => rep?.visible !== false).length;
+  const liveCount = nodes.filter(rep => rep?.fromWs).length;
+  const names = nodes.slice(0, 8).map(rep => rep?.name ?? `Node ${rep?.id ?? ''}`);
+  const extraCount = Math.max(0, nodes.length - names.length);
+  return `<div class="inspector-node-card">
+    <div class="inspector-node-head">
+      <span class="inspector-node-color" style="background:#61dafb"></span>
+      <div class="inspector-node-title">
+        <div class="map-context-title">${escHtml(nodes.length)} Selected Nodes</div>
+        <div class="map-context-coords">${escHtml(`${visibleCount} visible, ${liveCount} live-feed`)}</div>
+      </div>
+      <span class="map-context-status">${escHtml(`${nodes.length} nodes`)}</span>
+    </div>
+    <div class="inspector-detail-list">
+      ${names.map(name => `<div>${escHtml(name)}</div>`).join('')}
+      ${extraCount ? `<div>+${escHtml(extraCount)} more</div>` : ''}
+    </div>
+    <div class="inspector-actions">
+      <button type="button" class="btn-secondary btn-xs" data-inspector-action="nodes-open">Open Nodes</button>
+      <button type="button" class="btn-secondary btn-xs" data-inspector-action="nodes-view-3d">View 3D</button>
       <button type="button" class="btn-secondary btn-xs" data-inspector-action="clear-selection">Clear</button>
     </div>
   </div>`;
@@ -401,8 +430,20 @@ function _refreshSelectionInspector(): void {
     _selectionStore.clearLink();
   }
   const nextSelection = _selectionStore.snapshot();
-  if (nextSelection.nodeId !== null) {
-    const rep = _findRepeater(nextSelection.nodeId);
+  if (nextSelection.nodeIds.length > 1) {
+    const reps = nextSelection.nodeIds.map(_findRepeater).filter((rep): rep is Repeater => Boolean(rep));
+    if (reps.length > 1) {
+      if (reps.length !== nextSelection.nodeIds.length) _selectionStore.selectNodes(reps.map(rep => rep.id));
+      _setInspectorTitle('Selected Nodes');
+      _renderInspector(_nodesInspectorContent(reps));
+      return;
+    }
+    if (reps.length === 1) _selectionStore.selectNode(reps[0].id);
+    else _selectionStore.clearNode();
+  }
+  const nodeSelection = _selectionStore.snapshot();
+  if (nodeSelection.nodeId !== null) {
+    const rep = _findRepeater(nodeSelection.nodeId);
     if (rep) {
       _setInspectorTitle('Node');
       _renderInspector(_nodeInspectorContent(rep));
@@ -429,6 +470,12 @@ export function updateSelectionInspector(latlng: LatLngPoint | null = null): voi
 /** @param {number | string | null} id */
 export function updateNodeInspector(id: number | string | null): void {
   _selectionStore.selectNode(id);
+  _refreshAndDispatchSelection();
+}
+
+/** @param {Array<number | string>} ids */
+export function updateNodesInspector(ids: SelectionId[]): void {
+  _selectionStore.selectNodes(ids);
   _refreshAndDispatchSelection();
 }
 
@@ -514,6 +561,18 @@ function _dispatchNodeAction(type: string, id: number | string): void {
     'node-delete': 'node:delete',
   })[type];
   if (eventName) document.dispatchEvent(new CustomEvent(eventName, { detail: { id: rep.id } }));
+}
+
+/** @param {string} type */
+function _dispatchNodesAction(type: string): void {
+  const reps = _selectionStore.snapshot().nodeIds
+    .map(_findRepeater)
+    .filter((rep): rep is Repeater => Boolean(rep));
+  if (type === 'nodes-open') {
+    setActiveTab('nodes');
+  } else if (type === 'nodes-view-3d' && reps.length) {
+    _dispatch3dFocus(`${reps.length} selected nodes`, reps.map(rep => ({ lat: rep.lat, lon: rep.lon })));
+  }
 }
 
 /** @param {string} type */
@@ -611,6 +670,8 @@ function _bindInspectorActions(): void {
     } else if (target.dataset.inspectorAction?.startsWith('node-')) {
       const nodeId = target.dataset.nodeId ?? selection.nodeId;
       if (nodeId !== null && nodeId !== undefined) _dispatchNodeAction(target.dataset.inspectorAction, nodeId);
+    } else if (target.dataset.inspectorAction?.startsWith('nodes-')) {
+      _dispatchNodesAction(target.dataset.inspectorAction);
     } else if (target.dataset.inspectorAction?.startsWith('link-')) {
       _dispatchLinkAction(target.dataset.inspectorAction);
     } else if (target.dataset.inspectorAction?.startsWith('optimizer-')) {
@@ -637,6 +698,10 @@ export function init(): void {
   document.addEventListener('node:selected', (event: Event) => {
     const detail = (event as CustomEvent<{ id?: string | number | null }>).detail;
     updateNodeInspector(detail?.id ?? null);
+  });
+  document.addEventListener('nodes:selected', (event: Event) => {
+    const detail = (event as CustomEvent<{ ids?: SelectionId[] }>).detail;
+    updateNodesInspector(Array.isArray(detail?.ids) ? detail.ids : []);
   });
   document.addEventListener('link:selected', (event: Event) => {
     const { kind, id } = (event as CustomEvent<{ kind?: string; id?: string | number }>).detail ?? {};

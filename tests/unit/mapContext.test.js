@@ -296,6 +296,41 @@ describe('mapContext helper functions', () => {
     expect(body.innerHTML).toContain('Show');
   });
 
+  it('renders and updates the persistent inspector for selected nodes', () => {
+    const body = fakeElements.get('selection-inspector-body');
+    const title = fakeElements.get('selection-inspector-title');
+    mapModule.state.repeaters = [{
+      id: 3,
+      name: 'Node A',
+      lat: 48.28625,
+      lon: 18.5054,
+      visible: true,
+    }, {
+      id: 4,
+      name: 'Node B',
+      lat: 48.3,
+      lon: 18.6,
+      visible: false,
+      fromWs: true,
+    }];
+    document.dispatchEvent.mockClear();
+
+    const html = mapContext._nodesInspectorContent(mapModule.state.repeaters);
+    expect(html).toContain('2 Selected Nodes');
+    expect(html).toContain('1 visible, 1 live-feed');
+    expect(html).toContain('Node A');
+    expect(html).toContain('data-inspector-action="nodes-view-3d"');
+
+    mapContext.updateNodesInspector([3, 4]);
+    expect(title.textContent).toBe('Selected Nodes');
+    expect(body.innerHTML).toContain('2 Selected Nodes');
+    expect(body.innerHTML).toContain('Node B');
+
+    const selectedEvent = document.dispatchEvent.mock.calls.at(-1)[0];
+    expect(selectedEvent.type).toBe('selection:changed');
+    expect(selectedEvent.detail).toMatchObject({ kind: 'nodes', ids: [3, 4] });
+  });
+
   it('emits a shared selection event after inspector selection changes', () => {
     mapModule.state.repeaters = [{
       id: 3,

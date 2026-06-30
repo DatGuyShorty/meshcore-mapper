@@ -8,6 +8,7 @@ describe('selection store', () => {
     expect(store.snapshot()).toMatchObject({
       point: null,
       nodeId: null,
+      nodeIds: [],
       link: null,
       optimizerCandidate: null,
       obstacle: null,
@@ -22,11 +23,31 @@ describe('selection store', () => {
 
     store.selectNode(7);
     expect(store.currentDetail()).toEqual({ kind: 'node', id: 7 });
+    expect(store.snapshot().nodeIds).toEqual([7]);
     expect(store.snapshot().point).toBeNull();
 
     store.selectLink('p2p', 'active-p2p');
     expect(store.currentDetail()).toEqual({ kind: 'link', linkKind: 'p2p', id: 'active-p2p' });
     expect(store.snapshot().nodeId).toBeNull();
+  });
+
+  it('selects multiple nodes with stable de-duplicated ids', () => {
+    const store = createSelectionStore();
+
+    store.selectNodes([7, '8', 7, '8', 9]);
+
+    expect(store.currentDetail()).toEqual({ kind: 'nodes', ids: [7, '8', 9] });
+    expect(store.snapshot()).toMatchObject({
+      nodeId: null,
+      nodeIds: [7, '8', 9],
+    });
+
+    store.selectNodes(['8']);
+    expect(store.currentDetail()).toEqual({ kind: 'node', id: '8' });
+    expect(store.snapshot()).toMatchObject({
+      nodeId: '8',
+      nodeIds: ['8'],
+    });
   });
 
   it('derives candidate and obstacle details with the expected priority', () => {
@@ -61,5 +82,6 @@ describe('selection store', () => {
     store.selectNode('node-a');
     store.clearNode();
     expect(store.currentDetail()).toEqual({ kind: 'summary' });
+    expect(store.snapshot().nodeIds).toEqual([]);
   });
 });
