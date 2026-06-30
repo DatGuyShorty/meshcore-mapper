@@ -8,6 +8,11 @@ import {
   renderJobDrawerHistory,
   renderJobDrawerSnapshot,
 } from './jobDrawerView.js';
+import {
+  createProgressOverlayElement,
+  hideProgressOverlay,
+  renderProgressOverlayProgress,
+} from './progressOverlayView.js';
 
 type CancelHandler = () => void;
 
@@ -62,18 +67,7 @@ export function setCancelHandler(fn: CancelHandler | null): void {
 }
 
 const progressOverlay = (() => {
-  const el = document.createElement('div');
-  el.id = 'progress-overlay';
-  el.className = 'hidden';
-  el.innerHTML = `
-    <div class="progress-box">
-      <h3>Working...</h3>
-      <div id="progress-msg" style="font-size:12px;color:#8892a4;margin-bottom:8px;"></div>
-      <div class="progress-bar-wrap">
-        <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
-      </div>
-      <button id="btn-cancel-coverage" class="btn-secondary btn-xs" style="margin-top:8px;width:100%">Cancel</button>
-    </div>`;
+  const el = createProgressOverlayElement();
   const container = document.getElementById('map-container');
   container?.appendChild(el);
   el.querySelector('#btn-cancel-coverage')?.addEventListener('click', () => _cancelHandler?.());
@@ -82,18 +76,12 @@ const progressOverlay = (() => {
 
 export function setProgress(pct: number, msg?: string, meta?: JobMeta): void {
   const snapshot = _jobStore.setProgress(pct, msg, meta);
-  progressOverlay.classList.remove('hidden');
-  const fill = document.getElementById('progress-fill');
-  if (fill) fill.style.width = pct + '%';
-  if (msg) {
-    const m = document.getElementById('progress-msg');
-    if (m) m.textContent = msg;
-  }
+  renderProgressOverlayProgress(progressOverlay, pct, msg);
   _updateJobDrawer(snapshot);
 }
 
 export function hideProgress(): void {
-  progressOverlay.classList.add('hidden');
+  hideProgressOverlay(progressOverlay);
   const fill = _jobEl('job-drawer-fill');
   const pct = parseFloat(fill?.style.width ?? '0') || 100;
   const snapshot = _jobStore.complete(pct);

@@ -74,6 +74,22 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 6 job-drawer verification passed:
   - `npm run check` (77 unit files, 441 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 6 incremental UI rewrite on branch
+  `codex/phase-6-progress-overlay-view`:
+  - added `src/progressOverlayView.ts` as the typed view boundary for the
+    shared progress overlay shell, fill/message updates, and hide state
+  - `src/ui.ts` now delegates progress overlay DOM rendering to the helper
+    while keeping progress lifecycle, cancel wiring, and job-store integration
+    intact
+  - added direct view-helper tests for overlay creation, progress rendering,
+    message preservation, and hide behavior
+- Focused Phase 6 progress-overlay verification passed:
+  - `npx vitest run tests/unit/progressOverlayView.test.js tests/unit/ui.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 6 progress-overlay verification passed:
+  - `npm run check` (78 unit files, 445 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2483,11 +2499,12 @@ Goal: replace imperative DOM-heavy panels with maintainable components.
 
 Status: Started. The coverage layer manager, coverage inspector, node
 list/editor, P2P result panel, optimizer result list, settings/cache summary,
-3D view controls, coverage network summary, relay path result panel, and job
-drawer now have dedicated typed view helpers and direct view tests for their
-main UI states while keeping the existing DOM surface and workflow callbacks
-intact. Next Phase 6 work should decide whether to introduce Preact/signals or
-keep extracting smaller DOM-helper boundaries for remaining panels.
+3D view controls, coverage network summary, relay path result panel, job
+drawer, and shared progress overlay now have dedicated typed view helpers and
+direct view tests for their main UI states while keeping the existing DOM
+surface and workflow callbacks intact. Next Phase 6 work should decide whether
+to introduce Preact/signals or keep extracting smaller DOM-helper boundaries for
+remaining panels.
 
 Recommended stack:
 
