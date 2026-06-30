@@ -121,6 +121,22 @@ If no more specific task is given, prioritize in this order:
 - Full Phase 4.1 node-range verification passed:
   - `npm run check` (79 unit files, 453 unit tests, 15 smoke tests, 0
     production audit vulnerabilities)
+- Continued Phase 3.1 redundancy objective depth on branch
+  `codex/phase-3-redundancy-coverage-counts`:
+  - CPU optimizer scoring now tracks per-cell coverage counts instead of only
+    boolean covered/uncovered state
+  - Redundancy First still reports raw redundant area, but its score component
+    weights first-backup coverage above repeatedly stacked backups on already
+    multiply-covered cells
+  - added a regression test where first-backup coverage beats a candidate that
+    would only add another copy to a double-covered cell
+- Focused Phase 3.1 redundancy-depth verification passed:
+  - `npx vitest run tests/unit/optimizer.test.js tests/unit/optimizerResultDetails.test.js tests/unit/optimizerPanelView.test.js`
+  - `npm run typecheck`
+  - `npm run lint`
+- Full Phase 3.1 redundancy-depth verification passed:
+  - `npm run check` (79 unit files, 454 unit tests, 15 smoke tests, 0
+    production audit vulnerabilities)
 
 ### 2026-06-16
 
@@ -2218,9 +2234,10 @@ already-served cells; CUDA can now run the Redundancy First objective for
 plain no-existing-node searches and report coverage/redundancy point counts
 without falling back to CPU. Min Repeaters To Target can stop early once the
 requested coverage target is reached. No-result and target-miss runs now show
-diagnostics instead of leaving the result list empty. Remaining work is deeper
-multi-coverage-count redundancy and broader CUDA parity for objectives that
-still need CPU-only diagnostics.
+diagnostics instead of leaving the result list empty. CPU Redundancy First now
+tracks per-cell coverage counts so first-backup coverage is valued above
+repeatedly stacked backups on already multiply-covered cells. Remaining work is
+broader CUDA parity for objectives that still need CPU-only diagnostics.
 
 User question: "What should this optimization optimize for?"
 

@@ -419,6 +419,7 @@ type CoverageScore = {
   fresnelRatio: number;
   coveredPoints: number;
   redundantPoints: number;
+  redundancyScoreRatio: number;
   candidateCoveredPoints: number;
   scoreBreakdown: OptimizerScoreBreakdown;
 };
@@ -467,7 +468,7 @@ const OPTIMIZER_OBJECTIVES: Readonly<Record<string, OptimizerObjectiveDefinition
   redundancy: {
     id: 'redundancy',
     label: 'Redundancy First',
-    formula: 'RF = 0.25 new coverage + 0.45 redundant coverage + 0.15 margin + 0.05 LoS + 0.05 Fresnel; source-linked objective = RF x 0.85 + source margin x 0.15; final can add 0.06 terrain prominence and 0.04 road proximity when preferences are enabled.',
+    formula: 'RF = 0.25 new coverage + 0.45 weighted redundant coverage + 0.15 margin + 0.05 LoS + 0.05 Fresnel; first backup coverage is valued above repeatedly stacked backups; source-linked objective = RF x 0.85 + source margin x 0.15; final can add 0.06 terrain prominence and 0.04 road proximity when preferences are enabled.',
     weights: Object.freeze({ coverage: 0.25, redundancy: 0.45, margin: 0.15, los: 0.05, fresnel: 0.05, backhaul: 0.15 }),
   },
 });
@@ -707,6 +708,7 @@ export function runOptimizerScoring({
 
   const placed: BestLocation[] = [];
   const covered = new Uint8Array(evalPoints.length);
+  const coverageCounts = new Uint16Array(evalPoints.length);
   const selectedCandidates = new Uint8Array(candidates.length);
   const requireSourceLink = Boolean(opts.sourceNode && opts.requireSourceLink !== false);
   const stats: OptimizerStats = {
@@ -743,7 +745,7 @@ export function runOptimizerScoring({
   }
 
   if ((opts.gapAware || Number.isFinite(opts.minRedundancyRatio)) && opts.existingNodes?.length) {
-    markExistingCoverage(opts.existingNodes, evalPoints, evalElevs, covered, opts);
+    markExistingCoverage(opts.existingNodes, evalPoints, evalElevs, covered, coverageCounts, opts);
     stats.initialCoveredPoints = countCovered(covered);
     stats.initialCoverageRatio = evalPoints.length ? stats.initialCoveredPoints / evalPoints.length : 0;
   }
@@ -791,7 +793,7 @@ export function runOptimizerScoring({
       }
 
       const coverageStats = scoreCoverageIncremental(
-        tx, candidateElevs[ci], evalPoints, evalElevs, covered, opts, scratchSignals, backhaul
+        tx, candidateElevs[ci], evalPoints, evalElevs, covered, coverageCounts, opts, scratchSignals, backhaul
       );
       stats.candidatesScored++;
       if (Number.isFinite(opts.minRedundancyRatio) && coverageStats.redundancyRatio < clamp01(Number(opts.minRedundancyRatio))) {
@@ -824,7 +826,7 @@ export function runOptimizerScoring({
 
     if (bestIdx === -1 || !bestStats || (bestStats.coveredPoints <= 0 && bestStats.redundantPoints <= 0) || bestScore <= 0 || !hasBestSignals) break;
     selectedCandidates[bestIdx] = 1;
-    markCovered(bestSignals, covered, opts);
+    markCovered(bestSignals, covered, coverageCounts, opts);
     stats.roundsCompleted++;
     if (stopAtTargetCoverage) {
       const currentCoveredPoints = countCovered(covered);
@@ -1070,7 +1072,7 @@ export function buildRefinedGrid(latMin: number, latMax: number, lonMin: number,
  * @param {ScoreOpts} opts
  * @param {Float32Array} signals
  * @param {ReturnType<typeof scoreBestBackhaulLink> | null} [backhaul]
- * @returns {{ score: number, coverageRatio: number, redundancyRatio: number, avgMarginDb: number, losRatio: number, fresnelRatio: number, coveredPoints: number, redundantPoints: number, candidateCoveredPoints: number, scoreBreakdown: OptimizerScoreBreakdown }}
+ * @returns {{ score: number, coverageRatio: number, redundancyRatio: number, avgMarginDb: number, losRatio: number, fresnelRatio: number, coveredPoints: number, redundantPoints: number, redundancyScoreRatio: number, candidateCoveredPoints: number, scoreBreakdown: OptimizerScoreBreakdown }}
  */
 function scoreCoverageIncremental(
   tx: TxSpec,
@@ -1078,6 +1080,7 @@ function scoreCoverageIncremental(
   evalPoints: LatLonPoint[],
   evalElevs: number[],
   covered: Uint8Array,
+  coverageCounts: Uint16Array,
   opts: ScoreOpts,
   signals: Float32Array,
   backhaul: BackhaulScore | null = null
@@ -1092,6 +1095,7 @@ function scoreCoverageIncremental(
 
   let newCovered = 0;
   let redundantPoints = 0;
+  let redundancyScoreSum = 0;
   let candidateCoveredPoints = 0;
   let marginScoreSum = 0;
   let marginDbSum = 0;
@@ -1100,7 +1104,8 @@ function scoreCoverageIncremental(
   signals.fill(-200);
 
   for (let idx = 0; idx < evalPoints.length; idx++) {
-    if (covered[idx] && !scoreRedundancy) continue;
+    const coverageCount = coverageCounts[idx] || (covered[idx] ? 1 : 0);
+    if (coverageCount > 0 && !scoreRedundancy) continue;
     const pt   = evalPoints[idx];
     const dist = flatDistanceM(tx.lat, tx.lon, pt.latitude, pt.longitude);
     if (dist > radiusKm * 1000) continue;
@@ -1110,8 +1115,12 @@ function scoreCoverageIncremental(
     const marginDb = sig - threshold;
     if (marginDb >= 0) {
       candidateCoveredPoints++;
-      if (covered[idx]) redundantPoints++;
-      else newCovered++;
+      if (coverageCount > 0) {
+        redundantPoints++;
+        redundancyScoreSum += 1 / coverageCount;
+      } else {
+        newCovered++;
+      }
       marginDbSum += marginDb;
       marginScoreSum += clamp01(marginDb / 20);
       if (!opts.useLos || result.los?.geometricLos) losCovered++;
@@ -1129,6 +1138,7 @@ function scoreCoverageIncremental(
       fresnelRatio: 0,
       coveredPoints: 0,
       redundantPoints: 0,
+      redundancyScoreRatio: 0,
       candidateCoveredPoints: 0,
       scoreBreakdown: buildScoreBreakdown({
         objective: opts.objective,
@@ -1143,6 +1153,7 @@ function scoreCoverageIncremental(
   }
   const coverageRatio = newCovered / evalPoints.length;
   const redundancyRatio = redundantPoints / evalPoints.length;
+  const redundancyScoreRatio = redundancyScoreSum / evalPoints.length;
   const marginRatio = marginScoreSum / evalPoints.length;
   const losRatio = losCovered / evalPoints.length;
   const fresnelRatio = fresnelCovered / evalPoints.length;
@@ -1151,7 +1162,7 @@ function scoreCoverageIncremental(
   const scoreBreakdown = buildScoreBreakdown({
     objective: opts.objective,
     coverageRatio,
-    redundancyRatio,
+    redundancyRatio: redundancyScoreRatio,
     marginRatio,
     losRatio,
     fresnelRatio,
@@ -1167,6 +1178,7 @@ function scoreCoverageIncremental(
     fresnelRatio,
     coveredPoints: newCovered,
     redundantPoints,
+    redundancyScoreRatio,
     candidateCoveredPoints,
     scoreBreakdown,
   };
@@ -1290,12 +1302,16 @@ function normalizeTargetCoverageRatio(value: number | null | undefined): number 
  * Mark covered cells using the pre-computed signal array from the winning pass.
  * @param {Float32Array} signals
  * @param {Uint8Array} covered
+ * @param {Uint16Array} coverageCounts
  * @param {ScoreOpts} opts
  */
-function markCovered(signals: Float32Array, covered: Uint8Array, opts: ScoreOpts): void {
+function markCovered(signals: Float32Array, covered: Uint8Array, coverageCounts: Uint16Array, opts: ScoreOpts): void {
   const threshold = opts.rxSens + (opts.fadeMargin ?? 0);
   for (let idx = 0; idx < signals.length; idx++) {
-    if (!covered[idx] && signals[idx] >= threshold) covered[idx] = 1;
+    if (signals[idx] >= threshold) {
+      covered[idx] = 1;
+      coverageCounts[idx] = Math.min(65535, coverageCounts[idx] + 1);
+    }
   }
 }
 
@@ -1304,6 +1320,7 @@ function markCovered(signals: Float32Array, covered: Uint8Array, opts: ScoreOpts
  * @param {Array<{ latitude: number, longitude: number }>} evalPoints
  * @param {number[]} evalElevs
  * @param {Uint8Array} covered
+ * @param {Uint16Array} coverageCounts
  * @param {ScoreOpts} opts
  */
 function markExistingCoverage(
@@ -1311,6 +1328,7 @@ function markExistingCoverage(
   evalPoints: LatLonPoint[],
   evalElevs: number[],
   covered: Uint8Array,
+  coverageCounts: Uint16Array,
   opts: ScoreOpts
 ): void {
   const threshold = opts.rxSens + (opts.fadeMargin ?? 0);
@@ -1320,12 +1338,14 @@ function markExistingCoverage(
     const fsplBase = fsplBaseDb(tx.freq);
     const profileBuffers = ensureProfileBuffers(opts.profileMaxSamples ?? 256);
     for (let idx = 0; idx < evalPoints.length; idx++) {
-      if (covered[idx]) continue;
       const pt = evalPoints[idx];
       const dist = flatDistanceM(tx.lat, tx.lon, pt.latitude, pt.longitude);
       if (dist > opts.radiusKm * 1000) continue;
       const result = computeSignalResult(tx, txElev, pt, evalElevs[idx], dist, fsplBase, evalElevs, opts, profileBuffers);
-      if (result.rxPower >= threshold) covered[idx] = 1;
+      if (result.rxPower >= threshold) {
+        covered[idx] = 1;
+        coverageCounts[idx] = Math.min(65535, coverageCounts[idx] + 1);
+      }
     }
   }
 }
